@@ -451,7 +451,11 @@ export const updatePlan = (
       for (const [index, name] of ["start", "end"].entries())
         values.push(
           { ...before[index]!, name: `${before[index]!.name} now`, from: "calendar" },
-          { ...after[index]!, name: `New ${name}`, from: "agent" },
+          {
+            ...after[index]!,
+            name: after[index]!.name === "Last day" ? "New last day" : `New ${name}`,
+            from: "agent",
+          },
         );
     }
     if (!sameZones(times.beforeZones, times.afterZones)) {

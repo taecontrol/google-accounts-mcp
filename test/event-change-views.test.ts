@@ -510,3 +510,31 @@ it("shows a flight's two old zones before time_zone changes both to one zone", a
     { name: "New event's own zone", text: "UTC", from: "agent" },
   ]);
 });
+
+it("shows the covered last day before and after an all-day move", async () => {
+  const f = await eventsFixture("update_event", "ask");
+  repeatList(PRIMARY_CALENDAR);
+  eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          eventFixture({
+            start: { date: "2026-11-20" },
+            end: { date: "2026-11-23" },
+          }),
+        ),
+      },
+    },
+  });
+  const id = (await answer(await eventChangeCall(f, "update_event", { start: "2026-11-27" })))
+    .approval as string;
+  expect((await page(f, id)).request.values).toEqual([
+    base[0],
+    { name: "Event", text: "Planning\nNov 20, 2026 (all day)", from: "calendar" },
+    single,
+    { name: "Starts now", text: "Nov 20, 2026 (all day)", from: "calendar" },
+    { name: "New start", text: "Nov 27, 2026 (all day)", from: "agent" },
+    { name: "Last day now", text: "Nov 22, 2026 (all day)", from: "calendar" },
+    { name: "New last day", text: "Nov 29, 2026 (all day)", from: "agent" },
+  ]);
+});
