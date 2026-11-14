@@ -1,17 +1,20 @@
 import { Result, Schema } from "effect";
 import { ToolFailure } from "../mcp/failures";
 
+/** Undefined for a zone Intl cannot use; accepted aliases resolve to one spelling. */
+export const canonicalZone = (zone: string): string | undefined => {
+  try {
+    return new Intl.DateTimeFormat("en", { timeZone: zone }).resolvedOptions().timeZone;
+  } catch {
+    return undefined;
+  }
+};
+
 /** Keep the caller's spelling; Intl's canonical names can change between runtime versions. */
 export const ZoneName = Schema.String.check(
-  Schema.makeFilter((zone) => {
-    if (zone !== "UTC" && !zone.includes("/")) return false;
-    try {
-      new Intl.DateTimeFormat("en", { timeZone: zone });
-      return true;
-    } catch {
-      return false;
-    }
-  }),
+  Schema.makeFilter(
+    (zone) => (zone === "UTC" || zone.includes("/")) && canonicalZone(zone) !== undefined,
+  ),
 );
 
 export type TimeInput = { readonly kind: "date" | "local" | "instant"; readonly ms: number };
@@ -53,10 +56,6 @@ export const TimeText = Schema.String.check(
 /** Agent input or a formatted event time. Floating ms is a wall clock, not an instant. */
 export const parseTime = (text: string): TimeInput =>
   inputOf(text) ?? { kind: "instant", ms: Date.parse(text) };
-
-/** Google accepts the canonical spelling, while results retain the caller's spelling. */
-export const canonicalZone = (zone: string): string =>
-  new Intl.DateTimeFormat("en", { timeZone: zone }).resolvedOptions().timeZone;
 
 const offsetAt = (ms: number, zone: string): number => {
   const offset = new Intl.DateTimeFormat("en", { timeZone: zone, timeZoneName: "longOffset" })
@@ -106,26 +105,44 @@ export const zonedIso = (ms: number, zone: string): string => {
   return `${fields}${offset < 0 ? "-" : "+"}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
 };
 
-/** Google's event times are broader than agent input; an event's own zone is display text. */
+const eventInputOf = (text: string): TimeInput | null => {
+  if (!/^\d{4}-/u.test(text) || !Number.isFinite(Date.parse(text))) return null;
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(text)) return { kind: "instant", ms: Date.parse(text) };
+  const local = inputOf(text.replace(/\.\d+$/u, ""));
+  return local?.kind === "local" ? local : null;
+};
+
+/** Google permits a floating dateTime only with a usable event zone. */
 export const EventPoint = Schema.Union([
   Schema.Struct({
-    date: Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/u)),
-    timeZone: Schema.optionalKey(Schema.String),
-  }),
-  Schema.Struct({
-    dateTime: Schema.String.check(
+    date: Schema.String.check(
       Schema.makeFilter(
-        (text) => /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) && Number.isFinite(Date.parse(text)),
+        (text) =>
+          text.length === 10 && Number(text.slice(0, 4)) >= 100 && inputOf(text)?.kind === "date",
       ),
     ),
     timeZone: Schema.optionalKey(Schema.String),
   }),
+  Schema.Struct({
+    dateTime: Schema.String,
+    timeZone: Schema.optionalKey(Schema.String),
+  }).check(
+    Schema.makeFilter((point) => {
+      const input = eventInputOf(point.dateTime);
+      return (
+        input !== null &&
+        (input.kind === "instant" ||
+          (point.timeZone !== undefined && canonicalZone(point.timeZone) !== undefined))
+      );
+    }),
+  ),
 ]);
 export type EventPoint = typeof EventPoint.Type;
 export const eventInstant = (point: EventPoint, zone: string): number =>
   "date" in point
     ? instantOf({ kind: "date", ms: Date.parse(point.date) }, zone)
-    : Date.parse(point.dateTime);
+    : instantOf(eventInputOf(point.dateTime)!, point.timeZone ?? zone);
+
 export type EventTime =
   | { readonly all_day: true; readonly start: string; readonly end: string }
   | { readonly all_day: false; readonly start: string; readonly end: string };

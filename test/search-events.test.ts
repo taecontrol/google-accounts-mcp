@@ -259,7 +259,7 @@ it("uses an explicit zone across DST rather than either calendar's zone", async 
   });
 });
 
-it("keeps empty Google pages with next_page and passes only Google's token with the same range and query", async () => {
+it("keeps empty Google pages with next_page and passes only Google's token with the same page size, range and query even when limit changes", async () => {
   const f = await eventsFixture();
   calendarFake(list(PRIMARY_CALENDAR), list(PRIMARY_CALENDAR));
   const sent = eventsFake({
@@ -272,15 +272,15 @@ it("keeps empty Google pages with next_page and passes only Google's token with 
   });
   expect(
     (await resultOf(await searchCall(f, { query: "annual planning", limit: 50 }))).calendars,
-  ).toEqual([{ calendar: PERSONAL, events: [], next_page: "next+/=" }]);
+  ).toEqual([{ calendar: PERSONAL, events: [], next_page: "50.next+/=" }]);
   expect(
     (
       await resultOf(
         await searchCall(f, {
           query: "annual planning",
-          limit: 50,
+          limit: 1,
           calendars: [PERSONAL],
-          page: "next+/=",
+          page: "50.next+/=",
         }),
       )
     ).calendars[0]!.events,
@@ -620,9 +620,9 @@ it.each([
     expected: { start: "2026-11-20T14:00:00+00:00" },
   },
   {
-    name: "an all-day date of any year",
-    fields: { start: { date: "0001-01-01" }, end: { date: "2026-11-21" } },
-    expected: { all_day: true, start: "0001-01-01" },
+    name: "an all-day date in year 0100",
+    fields: { start: { date: "0100-01-01" }, end: { date: "2026-11-21" } },
+    expected: { all_day: true, start: "0100-01-01" },
   },
 ])(
   "reads $name next to a normal event instead of failing the calendar",
@@ -647,26 +647,83 @@ it.each([
   },
 );
 
-it("filters an all-day event from year 0099 outside the range without treating it as 1999", async () => {
+it.each([
+  { date: "2026-13-45" },
+  { date: "0000-00-00" },
+  { date: "2026-02-30" },
+  { date: "0099-01-01" },
+  { dateTime: "+010000-01-01T14:00:00Z" },
+  { dateTime: "+275760-09-13T00:00:00Z" },
+  { dateTime: "2026-11-20T15:00:00" },
+  { dateTime: "2026-11-20T15:00:00", timeZone: "Foo/Bar" },
+])("isolates a malformed event time to its calendar: %j", async (start) => {
+  const f = await eventsFixture();
+  calendarFake(list(PRIMARY_CALENDAR, SECONDARY_CALENDAR));
+  eventsFake({
+    [PERSONAL]: { list: Response.json({ items: [eventFixture()] }) },
+    [SECONDARY_CALENDAR.id]: {
+      list: Response.json({
+        items: [
+          eventFixture({
+            start,
+            end: "date" in start ? { date: "2026-11-21" } : { dateTime: "2026-11-20T16:00:00Z" },
+          }),
+        ],
+      }),
+    },
+  });
+  const result = await resultOf(
+    await searchCall(f, { calendars: [PERSONAL, SECONDARY_CALENDAR.id] }),
+  );
+  expect(result.calendars[0]!.events!.map((event) => event.event)).toEqual(["e1"]);
+  expect(result.calendars[1]).toEqual({
+    calendar: SECONDARY_CALENDAR.id,
+    error: { code: "google_unavailable", message: unavailableMessage(PERSONAL) },
+  });
+});
+
+it("reads a floating Google event in its own zone and returns the call's zone", async () => {
   const f = await eventsFixture();
   calendarFake(list(PRIMARY_CALENDAR));
   eventsFake({
     [PERSONAL]: {
       list: Response.json({
         items: [
-          eventFixture({ id: "old", start: { date: "0099-01-01" }, end: { date: "0099-01-02" } }),
+          eventFixture({
+            start: { dateTime: "2026-11-20T15:00:00", timeZone: "Europe/Madrid" },
+            end: { dateTime: "2026-11-20T16:00:00.123456", timeZone: "Europe/Madrid" },
+          }),
+        ],
+      }),
+    },
+  });
+  expect((await resultOf(await searchCall(f))).calendars[0]!.events![0]).toMatchObject({
+    start: "2026-11-20T09:00:00-05:00",
+    end: "2026-11-20T10:00:00-05:00",
+  });
+});
+
+it("cuts a search organizer to 320 JSON characters so an event cannot fill the result alone", async () => {
+  const f = await eventsFixture();
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({
+    [PERSONAL]: {
+      list: Response.json({
+        items: [
+          eventFixture({
+            organizer: { email: '"'.repeat(32_000) },
+          }),
           eventFixture({ id: "normal" }),
         ],
       }),
     },
   });
-  expect(
-    (
-      await resultOf(
-        await searchCall(f, { from: "1900-01-01", to: "2026-11-21", time_zone: "UTC" }),
-      )
-    ).calendars[0]!.events!.map((event) => event.event),
-  ).toEqual(["normal"]);
+  const result = await resultOf(await searchCall(f));
+  const events = result.calendars[0]!.events!;
+  expect(events.map((event) => event.event)).toEqual(["e1", "normal"]);
+  expect(JSON.stringify(events[0]!.organizer).length).toBeLessThanOrEqual(320);
+  expect(String(events[0]!.organizer)).toMatch(/…$/);
+  expect(result.note).toBeUndefined();
 });
 
 it("sends a canonical call zone on list requests but returns its original spelling", async () => {
@@ -803,7 +860,11 @@ it("walks short size-cut re-request pages without repeating or losing an event",
         const start = Number(params.get("pageToken")?.replace("page-", "") ?? 0);
         const requested = Number(params.get("maxResults"));
         // Stable dataset; Google can return fewer items even for the same starting token.
-        const count = requested === 50 ? requested : Math.min(requested, 3);
+        const count = params.has("pageToken")
+          ? requested
+          : requested === 50
+            ? requested
+            : Math.min(requested, 3);
         const items = data.slice(start, start + count);
         const next = start + items.length;
         return Response.json({
@@ -828,7 +889,7 @@ it("walks short size-cut re-request pages without repeating or losing an event",
     next = calendar.next_page;
     if (page === 0) {
       expect(calendar.events!.map((event) => event.event)).toEqual([visible[0]!.id]);
-      expect(next).toBe("page-3");
+      expect(next).toMatch(/^[1-9][0-9]?\.page-3$/);
     }
     if (next === undefined) break;
   }
@@ -838,7 +899,10 @@ it("walks short size-cut re-request pages without repeating or losing an event",
   const retry = sent.find(
     (request) => new URL(request.url).searchParams.get("maxResults") !== "50",
   );
-  expect(Number(new URL(retry!.url).searchParams.get("maxResults"))).toBeGreaterThan(3);
+  const cutSize = new URL(retry!.url).searchParams.get("maxResults");
+  expect(Number(cutSize)).toBeGreaterThan(3);
+  const continuation = sent.find((request) => new URL(request.url).searchParams.has("pageToken"))!;
+  expect(new URL(continuation.url).searchParams.get("maxResults")).toBe(cutSize);
 });
 
 it("replaces a size-cut calendar with the re-request's filtered events and removes an old token when it has none", async () => {
@@ -900,7 +964,10 @@ it("marks the current and later calendars not_read when a changed re-request no 
               items: Array.from({ length: 50 }, (_, i) => eventFixture({ id: `small${i}` })),
             })
           : Response.json({
-              items: [eventFixture({ id: "grown", organizer: { email: "x".repeat(32_000) } })],
+              items: Array.from(
+                { length: Number(new URL(request.url).searchParams.get("maxResults")) },
+                (_, i) => largeEvent(i),
+              ),
               nextPageToken: "grown-token",
             }),
     },
@@ -980,19 +1047,54 @@ it("accepts a maximum-length Google token containing every permitted printable A
     .filter((character) => character !== '"' && character !== "\\")
     .join("")
     .repeat(22)
-    .slice(0, 2000);
-  expect(token).toHaveLength(2000);
-  expect(JSON.stringify(token).length).toBe(2002);
+    .slice(0, 1997);
+  expect(token).toHaveLength(1997);
+  expect(JSON.stringify(token).length).toBe(1999);
   eventsFake({ [PERSONAL]: { list: Response.json({ nextPageToken: token }) } });
   expect((await resultOf(await searchCall(f))).calendars).toEqual([
-    { calendar: PERSONAL, events: [], next_page: token },
+    { calendar: PERSONAL, events: [], next_page: "25." + token },
   ]);
+});
+
+it.each([1, 50])(
+  "keeps the entire page, including size %s, within 2,000 characters",
+  async (limit) => {
+    const f = await eventsFixture();
+    calendarFake(list(PRIMARY_CALENDAR), list(PRIMARY_CALENDAR));
+    const prefix = String(limit) + ".";
+    const token = "x".repeat(2000 - prefix.length);
+    const sent = eventsFake({
+      [PERSONAL]: {
+        list: (request) =>
+          new URL(request.url).searchParams.has("pageToken")
+            ? Response.json({})
+            : Response.json({ nextPageToken: token }),
+      },
+    });
+    const next = (await resultOf(await searchCall(f, { limit }))).calendars[0]!.next_page!;
+    expect(next).toBe(prefix + token);
+    expect(next).toHaveLength(2000);
+    await resultOf(await searchCall(f, { page: next }));
+    expect(new URL(sent[1]!.url).searchParams.get("pageToken")).toBe(token);
+    expect(new URL(sent[1]!.url).searchParams.get("maxResults")).toBe(String(limit));
+  },
+);
+
+it("treats a Google token too long for its encoded page as a malformed answer", async () => {
+  const f = await eventsFixture();
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({ [PERSONAL]: { list: Response.json({ nextPageToken: "x".repeat(1998) }) } });
+  await expectError(
+    await searchCall(f, { limit: 50 }),
+    "google_unavailable",
+    unavailableMessage(PERSONAL),
+  );
 });
 
 it("reserves the next_page property as well as its token when the original page has no continuation", async () => {
   const f = await eventsFixture();
   calendarFake(list(PRIMARY_CALENDAR));
-  const token = "p".repeat(2000);
+  const token = "p".repeat(1997);
   const ids = Array.from({ length: 29 }, (_, i) => String(i).padEnd(825, "a"));
   const expectedEvent = (event: string) => ({
     event,
@@ -1010,7 +1112,7 @@ it("reserves the next_page property as well as its token when the original page 
       {
         calendar: PERSONAL,
         events: [...ids.map(expectedEvent), expectedEvent("z")],
-        next_page: token,
+        next_page: "30." + token,
       },
     ],
     note: "The result reached its size limit; call again for each calendar with next_page or not_read.",
@@ -1039,7 +1141,7 @@ it("reserves the next_page property as well as its token when the original page 
   expect(text.length).toBeLessThanOrEqual(32_000);
   const result = JSON.parse(text) as SearchResult;
   expect(result.calendars[0]!.events).toHaveLength(29);
-  expect(result.calendars[0]!.next_page).toBe(token);
+  expect(result.calendars[0]!.next_page).toBe("29." + token);
   expect(sent).toHaveLength(2);
   expect(new URL(sent[1]!.url).searchParams.get("maxResults")).toBe("29");
 });
@@ -1052,6 +1154,34 @@ it("cuts the serialized result, counts filtered items in the one re-request, and
     eventFixture({ id: "filtered", start: { date: "2026-11-18" }, end: { date: "2026-11-19" } }),
     ...Array.from({ length: 48 }, (_, i) => largeEvent(i)),
   ];
+  // Model the first answer's budget, before the short re-request replaces its events.
+  // Escaped title/location each keep 98 characters plus the ellipsis within 200 JSON characters.
+  const expectedPage = {
+    account: PERSONAL,
+    time_zone: "America/Bogota",
+    calendars: ids.map((calendar, index) => ({
+      calendar,
+      events: [] as Array<Record<string, unknown>>,
+      next_page: index === 0 ? "50." + "p".repeat(1997) : "50.google-next-token",
+    })),
+    note: "The result reached its size limit; call again for each calendar with next_page or not_read.",
+  };
+  let expectedConsumed = 2; // The first answer starts with one cancelled and one out-of-range item.
+  for (const item of items.slice(2)) {
+    expectedPage.calendars[0]!.events.push({
+      event: item.id,
+      title: '"'.repeat(98) + "…",
+      start: "2026-11-20T09:00:00-05:00",
+      end: "2026-11-20T10:00:00-05:00",
+      all_day: false,
+      location: "\\".repeat(98) + "…",
+      organizer: "e".repeat(242) + "@example.com",
+      series: "s".repeat(1024),
+      guest_count: 0,
+    });
+    if (JSON.stringify(expectedPage).length > 32_000) break;
+    expectedConsumed++;
+  }
   const sent = eventsFake(
     Object.fromEntries(
       ids.map((id) => [
@@ -1063,9 +1193,9 @@ it("cuts the serialized result, counts filtered items in the one re-request, and
               : Response.json({
                   items: items.slice(
                     0,
-                    Number(new URL(request.url).searchParams.get("maxResults")),
+                    Math.min(3, Number(new URL(request.url).searchParams.get("maxResults"))),
                   ),
-                  nextPageToken: "p".repeat(2000),
+                  nextPageToken: "p".repeat(1997),
                 }),
         },
       ]),
@@ -1081,7 +1211,7 @@ it("cuts the serialized result, counts filtered items in the one re-request, and
   const first = result.calendars[0]!;
   expect(first.events!.length).toBeGreaterThan(0);
   expect(first.events!.length).toBeLessThan(48);
-  expect(first.next_page).toBe("p".repeat(2000));
+  expect(first.next_page).toMatch(/^[1-9][0-9]?\.p{1997}$/);
   expect(result.calendars.slice(1)).toEqual(
     ids.slice(1).map((calendar) => ({ calendar, not_read: true })),
   );
@@ -1090,9 +1220,7 @@ it("cuts the serialized result, counts filtered items in the one re-request, and
     (request) => new URL(request.url).searchParams.get("maxResults") !== "50",
   );
   expect(retry).toHaveLength(1);
-  expect(new URL(retry[0]!.url).searchParams.get("maxResults")).toBe(
-    String(first.events!.length + 2),
-  );
+  expect(new URL(retry[0]!.url).searchParams.get("maxResults")).toBe(String(expectedConsumed));
   expect(new URL(retry[0]!.url).searchParams.has("pageToken")).toBe(false);
   for (const event of first.events!) {
     expect(JSON.stringify(event.title).length).toBeLessThanOrEqual(200);
@@ -1188,7 +1316,8 @@ it.each([
   { field: "limit", value: 51 },
   { field: "limit", value: 1.5 },
   { field: "page", value: "" },
-  { field: "page", value: "p".repeat(2001) },
+  { field: "page", value: "25." + "p".repeat(1998) },
+  ...["abc", "0.x", "51.x", ".x", "01.x", "1."].map((value) => ({ field: "page", value })),
 ])("refuses invalid $field before creating an approval %#", async ({ field, value }) => {
   const f = await eventsFixture("search_events", "ask");
   await expectError(
@@ -1226,7 +1355,7 @@ it("checks a mixed floating and instant range after reading the primary zone", a
 it("refuses page with several calendars before approval, and a page Google refuses names page", async () => {
   const f = await eventsFixture("search_events", "ask");
   await expectError(
-    await searchCall(f, { calendars: [PERSONAL, SECONDARY_CALENDAR.id], page: "next" }),
+    await searchCall(f, { calendars: [PERSONAL, SECONDARY_CALENDAR.id], page: "25.next" }),
     "invalid_arguments",
     /The page field/,
   );
@@ -1235,7 +1364,7 @@ it("refuses page with several calendars before approval, and a page Google refus
   calendarFake(list(PRIMARY_CALENDAR));
   eventsFake({ [PERSONAL]: { list: new Response(null, { status: 400 }) } });
   await expectError(
-    await searchCall(f, { page: "refused" }),
+    await searchCall(f, { page: "25.refused" }),
     "invalid_arguments",
     "The page field must be the next_page value of an earlier result.",
   );

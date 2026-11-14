@@ -251,7 +251,17 @@ it("omits attendees without email from guests and never matches an email-less se
   expect(result).not.toHaveProperty("my_response");
 });
 
-it("reads an offset dateTime beyond four-digit years without narrowing Google's year range", async () => {
+it.each([
+  { dateTime: "+010000-01-01T14:00:00.123456Z" },
+  { dateTime: "2026-11-20T15:00:00", timeZone: "Foo/Bar" },
+])("refuses a malformed Google event time in read_event: %j", async (start) => {
+  const f = await eventsFixture("read_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({ [PERSONAL]: { events: { e1: Response.json(eventFixture({ start })) } } });
+  await expectError(await readEventCall(f), "google_unavailable", /Google could not complete/);
+});
+
+it("reads a floating Google event time in the event's zone", async () => {
   const f = await eventsFixture("read_event");
   calendarFake(list(PRIMARY_CALENDAR));
   eventsFake({
@@ -259,16 +269,16 @@ it("reads an offset dateTime beyond four-digit years without narrowing Google's 
       events: {
         e1: Response.json(
           eventFixture({
-            start: { dateTime: "+010000-01-01T14:00:00.123456Z" },
-            end: { dateTime: "+010000-01-01T15:00:00.123456Z" },
+            start: { dateTime: "2026-11-20T15:00:00", timeZone: "Europe/Madrid" },
+            end: { dateTime: "2026-11-20T16:00:00", timeZone: "Europe/Madrid" },
           }),
         ),
       },
     },
   });
-  expect(await answer(await readEventCall(f, { time_zone: "UTC" }))).toMatchObject({
-    start: "+010000-01-01T14:00:00+00:00",
-    end: "+010000-01-01T15:00:00+00:00",
+  expect(await answer(await readEventCall(f))).toMatchObject({
+    start: "2026-11-20T09:00:00-05:00",
+    end: "2026-11-20T10:00:00-05:00",
   });
 });
 

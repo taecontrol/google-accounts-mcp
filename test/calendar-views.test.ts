@@ -84,7 +84,7 @@ it.each(
 );
 
 it.each(["search_events", "read_event"])(
-  "unfolds calendar names and event titles in the $tool approval view",
+  "unfolds calendar names and event titles in the %s approval view",
   async (tool) => {
     const f = await eventsFixture(tool, "ask");
     repeatList(
@@ -155,6 +155,39 @@ it("shows an all-day event's own zone as Google gave it, including an alias", as
   expect((await page(f, id)).request.values).toContainEqual({
     name: "Starts",
     text: "Nov 20, 2026 (all day); event's own zone: Japan",
+    from: "calendar",
+  });
+});
+
+it.each([
+  { name: "a line break", zone: "Europe/Madrid\nFake action" },
+  { name: "5,000 characters", zone: "x".repeat(5000) },
+  { name: "a difference in case only", zone: "america/bogota" },
+  { name: "an alias of the call's zone", zone: "US/Eastern", callZone: "America/New_York" },
+])("omits the event's own zone from the view for $name", async ({ zone, callZone }) => {
+  const f = await eventsFixture("read_event", "ask");
+  repeatList(PRIMARY_CALENDAR);
+  eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          eventFixture({
+            start: { dateTime: "2026-11-20T14:00:00Z", timeZone: zone },
+            end: { dateTime: "2026-11-20T15:00:00Z", timeZone: zone },
+          }),
+        ),
+      },
+    },
+  });
+  const id = (await answer(await readEventCall(f, callZone ? { time_zone: callZone } : {})))
+    .approval as string;
+  const view = await page(f, id);
+  expect(view.state).toMatchObject({ kind: "waiting", shown: true });
+  expect(view.request.values).toContainEqual({
+    name: "Starts",
+    text: callZone
+      ? "Nov 20, 2026 at 09:00 (America/New_York)"
+      : "Nov 20, 2026 at 09:00 (America/Bogota)",
     from: "calendar",
   });
 });
@@ -233,21 +266,22 @@ it("gives a next-page search its own approval and shows Page from the sealed arg
   const f = await eventsFixture("search_events", "ask");
   repeatList(PRIMARY_CALENDAR);
   const sent = eventsFake({ [PERSONAL]: { list: Response.json({}) } });
-  const id = (await answer(await searchCall(f, { page: "next+/=", time_zone: "UTC" })))
+  const id = (await answer(await searchCall(f, { page: "50.next+/=", limit: 1, time_zone: "UTC" })))
     .approval as string;
   expect(sent).toEqual([]);
   expect((await page(f, id)).request.values).toEqual([
     { name: "Calendars", text: `Personal (${PERSONAL})`, from: "calendar" },
     { name: "Range", text: "Nov 20, 2026 at 00:00 to Nov 21, 2026 at 00:00 (UTC)", from: "agent" },
-    { name: "Limit", text: "25", from: "agent" },
-    { name: "Page", text: "next+/=", from: "agent" },
+    { name: "Limit", text: "50", from: "agent" },
+    { name: "Page", text: "50.next+/=", from: "agent" },
   ]);
   await approve(f, id);
   expect((await get(f, id)).result).toMatchObject({ time_zone: "UTC" });
   expect(new URL(sent[0]!.url).searchParams.get("pageToken")).toBe("next+/=");
+  expect(new URL(sent[0]!.url).searchParams.get("maxResults")).toBe("50");
 });
 
-it("creates read_event approval without a read, builds its Calendar-sourced view for the owner, and runs after approval", async () => {
+it("creates read_event approval without a read, shows a floating event in the call zone, and runs after approval", async () => {
   const f = await eventsFixture("read_event", "ask");
   repeatList(PRIMARY_CALENDAR, SECONDARY_CALENDAR);
   const sent = eventsFake({
@@ -255,8 +289,8 @@ it("creates read_event approval without a read, builds its Calendar-sourced view
       events: {
         e1: Response.json(
           eventFixture({
-            start: { dateTime: "2026-11-20T15:00:00+01:00", timeZone: "Europe/Madrid" },
-            end: { dateTime: "2026-11-20T16:00:00+01:00", timeZone: "Europe/Madrid" },
+            start: { dateTime: "2026-11-20T15:00:00", timeZone: "Europe/Madrid" },
+            end: { dateTime: "2026-11-20T16:00:00", timeZone: "Europe/Madrid" },
           }),
         ),
       },
