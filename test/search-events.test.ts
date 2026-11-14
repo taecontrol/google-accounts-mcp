@@ -1240,7 +1240,7 @@ it("fails as a tool error if the size-cut re-request leaves every calendar in er
 
 it("marks later calendars not_read when their page tokens fill the result", async () => {
   const f = await eventsFixture();
-  // Calendar IDs cannot hold characters that JSON escapes, so long page tokens fill the envelopes.
+  // Calendar IDs cannot hold control characters, so long page tokens fill the envelopes.
   const ids = Array.from({ length: 20 }, (_, i) => `calendar-${i}@group.calendar.google.com`);
   calendarFake(
     list(PRIMARY_CALENDAR, ...ids.map((id) => ({ id, summary: id, accessRole: "reader" }))),
