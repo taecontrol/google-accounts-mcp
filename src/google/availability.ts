@@ -55,10 +55,35 @@ export const availabilityCalendars = (ctx: CalendarContext, calendars?: readonly
       ? Result.fail(missingCalendar())
       : Result.succeed([ctx.primary.calendar]);
 
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
+/**
+ * Google's instants in whole seconds, rounded outward by the caller: a busy start or an answer's
+ * timeMax rounds down, a busy end or an answer's timeMin rounds up, so busy time never shrinks.
+ * Date.parse would turn an impossible date such as February 30 into March, so it is not used.
+ */
+export const googleInstant = (text: string, round: "down" | "up"): number | null => {
+  const match = RFC3339.exec(text);
+  if (!match) return null;
+  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
+  if (month! < 1 || month! > 12 || day! < 1 || hour! > 23 || minute! > 59 || second! > 59)
+    return null;
+  const date = new Date(0);
+  date.setUTCFullYear(year!, month! - 1, day!);
+  date.setUTCHours(hour!, minute!, second!, 0);
+  if (date.getUTCMonth() !== month! - 1 || date.getUTCDate() !== day) return null;
+  const zone = match[8]!.toUpperCase();
+  let offset = 0;
+  if (zone !== "Z") {
+    const hours = Number(zone.slice(1, 3));
+    const minutes = Number(zone.slice(4));
+    if (hours > 23 || minutes > 59) return null;
+    offset = (zone[0] === "-" ? -1 : 1) * (hours * 60 + minutes) * 60_000;
+  }
+  const fraction = match[7] !== undefined && /[1-9]/.test(match[7]);
+  return date.getTime() - offset + (round === "up" && fraction ? 1000 : 0);
+};
 const Instant = Schema.String.check(
-  Schema.makeFilter(
-    (text) => /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) && Number.isFinite(Date.parse(text)),
-  ),
+  Schema.makeFilter((text) => googleInstant(text, "down") !== null),
 );
 // Calendar values are decoded individually: a malformed entry must not hide the other answers.
 const Envelope = Schema.Struct({
@@ -69,13 +94,17 @@ const Envelope = Schema.Struct({
 });
 const Errors = Schema.Struct({
   errors: Schema.optionalKey(
-    Schema.Array(Schema.Struct({ domain: Schema.String, reason: Schema.String })),
+    Schema.Array(
+      Schema.Struct({ domain: Schema.optionalKey(Schema.String), reason: Schema.String }),
+    ),
   ),
 });
 const Busy = Schema.Struct({
   busy: Schema.Array(
     Schema.Struct({ start: Instant, end: Instant }).check(
-      Schema.makeFilter((time) => Date.parse(time.end) > Date.parse(time.start)),
+      Schema.makeFilter(
+        (time) => googleInstant(time.end, "up")! > googleInstant(time.start, "down")!,
+      ),
     ),
   ),
 });
@@ -96,7 +125,10 @@ export const availabilityEntries = (
   const decoded = Schema.decodeUnknownResult(Envelope)(body);
   if (Result.isFailure(decoded)) return Result.fail(unavailable());
   const answer = decoded.success;
-  if (Date.parse(answer.timeMin) > range.from || Date.parse(answer.timeMax) < range.to)
+  if (
+    googleInstant(answer.timeMin, "up")! > range.from ||
+    googleInstant(answer.timeMax, "down")! < range.to
+  )
     return Result.fail(unavailable());
   let remaining = MAX_BUSY_TIMES;
   return Result.succeed(
@@ -133,8 +165,8 @@ export const availabilityEntries = (
       if (Result.isFailure(times)) return failed(unavailable());
       const busy = times.success.busy
         .map((time) => ({
-          start: Math.max(Date.parse(time.start), range.from),
-          end: Math.min(Date.parse(time.end), range.to),
+          start: Math.max(googleInstant(time.start, "down")!, range.from),
+          end: Math.min(googleInstant(time.end, "up")!, range.to),
         }))
         .filter((time) => time.end > time.start)
         .sort((a, b) => a.start - b.start);

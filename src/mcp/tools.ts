@@ -385,10 +385,13 @@ const CheckAvailabilityInput = Schema.Struct({
   to: TimeText,
   time_zone: Schema.optionalKey(ZoneName),
   calendars: Schema.optionalKey(
-    Schema.Array(CalendarId).check(
-      Schema.isBetweenLength(1, MAX_AVAILABILITY_CALENDARS),
-      Schema.isUnique(),
-    ),
+    Schema.Array(
+      // A line break inside one ID would read as two IDs on the approval page.
+      CalendarId.check(
+        // oxlint-disable-next-line no-control-regex -- IDs must not hold characters that break view lines.
+        Schema.makeFilter((id) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(id)),
+      ),
+    ).check(Schema.isBetweenLength(1, MAX_AVAILABILITY_CALENDARS), Schema.isUnique()),
   ),
 }).check(
   Schema.makeFilter((args) => {
@@ -1389,7 +1392,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     annotations: { readOnlyHint: true },
     permissionDescription:
       "See the busy times of this account's calendars and of other people's calendars that the account can see, without the details of their events.",
-    description: `Returns busy times, not free times, for calendars visible to one Google account, without event titles or details. \`account\` is an address from list_accounts. To find a time free in every account, call once per account and compare the busy times. \`calendars\` is an optional list of 1 to ${MAX_AVAILABILITY_CALENDARS} different calendar IDs from list_calendars or people's addresses, each 1 to 254 characters; without it, the tool checks the primary calendar. Google's alias \`primary\` is not an ID. Calendars where the account sees only busy times are supported. \`from\` and \`to\` are required: a date means the start of that day, a date-time without an offset is read in the call's zone, and a date-time with Z or ±HH:MM names an instant. Years are 1900 to 2999, seconds are optional, and fractions of a second are ignored. \`time_zone\` is UTC or an IANA name with a slash, such as America/Bogota; without it the call uses the primary calendar's zone. \`to\` is exclusive, must be after \`from\`, and must be at most ${MAX_AVAILABILITY_DAYS} days later on the call zone's wall clock. The result has account, time_zone, and calendars, with one entry per named ID in call order. Each entry has calendar and busy, a list of { start, end } with start included and end excluded, clipped to the range and sorted by start. Times use the call's zone, with seconds and its offset, as YYYY-MM-DDTHH:MM:SS±HH:MM, also for all-day events. An all-day event on a calendar in another zone is busy from midnight to midnight in that calendar's zone, so its busy time may not line up with the days of the call's zone. A calendar Google cannot check, a group address, or an ID Google answers under another ID has error: { code, message } instead of busy. Groups are not expanded; name each person's address instead. A result holds at most ${MAX_BUSY_TIMES} busy times, filled in the order of calendars. A calendar that does not fit gets error with no partial busy list; later calendars still fit if space remains, so name the most important calendars first. Shorten the range or name fewer calendars to avoid that error. When every calendar fails, the call returns a tool error. When the owner sets this tool to ask, it returns a pending approval with a link instead of busy times; get_approval returns the result after the owner approves.`,
+    description: `Returns busy times, not free times, for calendars visible to one Google account, without event titles or details. \`account\` is an address from list_accounts. To find a time free in every account, call once per account and compare the busy times. \`calendars\` is an optional list of 1 to ${MAX_AVAILABILITY_CALENDARS} different calendar IDs from list_calendars or people's addresses, each 1 to 254 characters without line breaks; without it, the tool checks the primary calendar. Google's alias \`primary\` is not an ID. Calendars where the account sees only busy times are supported. \`from\` and \`to\` are required: a date means the start of that day, a date-time without an offset is read in the call's zone, and a date-time with Z or ±HH:MM names an instant. Years are 1900 to 2999, seconds are optional, and fractions of a second are ignored. \`time_zone\` is UTC or an IANA name with a slash, such as America/Bogota; without it the call uses the primary calendar's zone. \`to\` is exclusive, must be after \`from\`, and must be at most ${MAX_AVAILABILITY_DAYS} days later on the call zone's wall clock. The result has account, time_zone, and calendars, with one entry per named ID in call order. Each entry has calendar and busy, a list of { start, end } with start included and end excluded, clipped to the range and sorted by start. Times use the call's zone, with seconds and its offset, as YYYY-MM-DDTHH:MM:SS±HH:MM, also for all-day events. An all-day event on a calendar in another zone is busy from midnight to midnight in that calendar's zone, so its busy time may not line up with the days of the call's zone. A calendar Google cannot check, a group address, or an ID Google answers under another ID has error: { code, message } instead of busy. Groups are not expanded; name each person's address instead. A result holds at most ${MAX_BUSY_TIMES} busy times, filled in the order of calendars. A calendar that does not fit gets error with no partial busy list; later calendars still fit if space remains, so name the most important calendars first. Shorten the range or name fewer calendars to avoid that error. When every calendar fails, the call returns a tool error. When the owner sets this tool to ask, it returns a pending approval with a link instead of busy times; get_approval returns the result after the owner approves.`,
     input: CheckAvailabilityInput,
     expects: {
       account: "a string",
@@ -1397,7 +1400,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
       to: `${timeExpects}, after from in the call's time zone and at most 31 days after from`,
       time_zone: zoneExpects,
       calendars:
-        "a list of 1 to 20 different calendar IDs from list_calendars or people's addresses, each 1 to 254 characters",
+        "a list of 1 to 20 different calendar IDs from list_calendars or people's addresses, each 1 to 254 characters without line breaks or control characters",
     },
     view: {
       action: "check the busy times",
@@ -1405,6 +1408,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
       values: (args, send) =>
         Effect.gen(function* () {
           const ctx = yield* calendarContext(send, args.time_zone);
+          // A range over 31 days still gets a view, so the approved run tells the agent why.
           const range = yield* Effect.fromResult(rangeOf(args.from, args.to, ctx.zone));
           const calendars = yield* Effect.fromResult(availabilityCalendars(ctx, args.calendars));
           const listed: string[] = [];

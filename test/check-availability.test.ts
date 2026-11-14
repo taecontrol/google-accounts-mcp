@@ -216,6 +216,17 @@ it.each([
     code: "invalid_arguments",
     message: groupMessage,
   },
+  {
+    name: "notFound without a domain, as the observation recorded it",
+    entry: { errors: [{ reason: "notFound" }], busy: [] },
+    code: "not_found",
+    message: inaccessibleMessage,
+  },
+  {
+    name: "an impossible busy date that date arithmetic would move into the range",
+    entry: { busy: [{ start: "2026-10-51T06:00:00Z", end: "2026-11-20T07:00:00Z" }] },
+    code: "google_unavailable",
+  },
   { name: "missing busy", entry: {}, code: "google_unavailable" },
   { name: "a malformed calendar", entry: null, code: "google_unavailable" },
   { name: "malformed errors", entry: { errors: "bad", busy: [] }, code: "google_unavailable" },
@@ -258,7 +269,29 @@ it.each([
   ]);
 });
 
+it("widens busy times with fractions of a second to whole seconds instead of shrinking them", () => {
+  expect(
+    mapped(
+      body({
+        good: { busy: [{ start: "2026-11-20T06:00:00.100Z", end: "2026-11-20T06:00:00.900Z" }] },
+        bad: { busy: [{ start: "2026-11-20T07:00:00.000Z", end: "2026-11-20T07:30:00.000001Z" }] },
+      }),
+    ),
+  ).toEqual([
+    {
+      calendar: "good",
+      busy: [{ start: "2026-11-20T01:00:00-05:00", end: "2026-11-20T01:00:01-05:00" }],
+    },
+    {
+      calendar: "bad",
+      busy: [{ start: "2026-11-20T02:00:00-05:00", end: "2026-11-20T02:30:01-05:00" }],
+    },
+  ]);
+});
+
 it.each([
+  { timeMin: "2026-11-20T05:00:00.5Z" },
+  { timeMax: "2026-11-21T04:59:59.999Z" },
   { timeMin: "2026-11-20T05:00:01Z" },
   { timeMax: "2026-11-21T04:59:59Z" },
   { timeMin: "2026-11-20T05:00:00" },
@@ -311,6 +344,19 @@ it.each([
     calendars: { second: {} },
     code: "google_unavailable",
     message: unavailableMessage(PERSONAL),
+  },
+  {
+    calendars: { first: {}, second: { errors: [{ domain: "global", reason: "notFound" }] } },
+    code: "google_unavailable",
+    message: unavailableMessage(PERSONAL),
+  },
+  {
+    calendars: {
+      first: { errors: [{ domain: "global", reason: "groupTooBig" }] },
+      second: { errors: [{ domain: "global", reason: "notFound" }] },
+    },
+    code: "invalid_arguments",
+    message: groupMessage,
   },
   {
     calendars: {
@@ -455,6 +501,9 @@ it.each([
   { field: "calendars", value: ["c".repeat(255)] },
   { field: "calendars", value: Array.from({ length: 21 }, (_, i) => `c${i}`) },
   { field: "calendars", value: [PERSONAL, PERSONAL] },
+  { field: "calendars", value: ["sam@work.example.com\nbob@work.example.com"] },
+  { field: "calendars", value: ["sam@work.example.com\u2028bob@work.example.com"] },
+  { field: "calendars", value: ["sam@work.example.com\u0000"] },
   { field: "from", value: "2026-02-30" },
   { field: "to", value: "3000-01-01" },
   { field: "time_zone", value: "Unknown/Zone" },
@@ -602,6 +651,16 @@ it("shows listed calendars and other IDs with their sources at ask, reads no bus
     outcome: "success",
     reason: null,
   });
+});
+
+it("shows an ID that differs from a listed one only in case as the agent gave it", async () => {
+  const f = await eventsFixture("check_availability", "ask");
+  calendarFake(list(PRIMARY_CALENDAR));
+  const id = (await answer(await call(f, { calendars: [PERSONAL.toUpperCase()] })))
+    .approval as string;
+  expect((await page(f, id)).request.values.slice(0, 1)).toEqual([
+    { name: "Other calendars and people", text: PERSONAL.toUpperCase(), from: "agent" },
+  ]);
 });
 
 it("shows the default primary calendar in the approval view", async () => {
