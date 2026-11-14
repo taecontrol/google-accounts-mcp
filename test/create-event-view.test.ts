@@ -284,6 +284,234 @@ it("exposes the write annotations and irreversible invitation permission in the 
     irreversible: true,
     label: "Create event",
     description:
-      "Create events in calendars where this account can add events. Google emails an invitation to every guest, and an invitation cannot be taken back.",
+      "Create events in calendars where this account can add events. Google emails an invitation to every guest, and an invitation cannot be taken back. It can also create repeating events, including series with no end date.",
   });
+});
+
+it.each([
+  {
+    args: { repeat: { every: "day", count: 10 } },
+    text: "Every day, 10 times.",
+  },
+  {
+    args: { repeat: { every: "day", count: 1 } },
+    text: "Every day, 1 time.",
+  },
+  {
+    args: { repeat: { every: "day", interval: 3 } },
+    text: "Every 3 days, with no end date.",
+  },
+  {
+    args: {
+      start: "2027-01-06T09:00",
+      end: "2027-01-06T10:00",
+      repeat: { every: "week", until: "2027-03-31" },
+    },
+    text: "Every week on Wednesday, until Mar 31, 2027 (that day included).",
+  },
+  {
+    args: {
+      start: "2026-11-23T09:00",
+      end: "2026-11-23T10:00",
+      repeat: { every: "week", weekdays: ["friday", "wednesday", "monday"], count: 12 },
+    },
+    text: "Every week on Monday, Wednesday, and Friday, 12 times.",
+  },
+  {
+    args: { repeat: { every: "week", interval: 2, weekdays: ["friday"] } },
+    text: "Every 2 weeks on Friday, with no end date.",
+  },
+  {
+    args: {
+      start: "2026-11-27T09:00",
+      end: "2026-11-27T10:00",
+      repeat: { every: "week", interval: 2, weekdays: ["friday", "monday"], count: 6 },
+    },
+    text: "Every 2 weeks on Monday and Friday, 6 times. Weeks run Monday to Sunday and count from the week of the start: Fri, Nov 27, 2026; Mon, Dec 7, 2026; Fri, Dec 11, 2026; Mon, Dec 21, 2026; …",
+  },
+  {
+    args: {
+      start: "2026-11-27T09:00",
+      end: "2026-11-27T10:00",
+      repeat: { every: "week", interval: 2, weekdays: ["monday", "friday"], count: 3 },
+    },
+    text: "Every 2 weeks on Monday and Friday, 3 times. Weeks run Monday to Sunday and count from the week of the start: Fri, Nov 27, 2026; Mon, Dec 7, 2026; Fri, Dec 11, 2026.",
+  },
+  {
+    args: {
+      start: "2026-11-27T09:00",
+      end: "2026-11-27T10:00",
+      repeat: { every: "week", interval: 2, weekdays: ["monday", "friday"], count: 4 },
+    },
+    text: "Every 2 weeks on Monday and Friday, 4 times. Weeks run Monday to Sunday and count from the week of the start: Fri, Nov 27, 2026; Mon, Dec 7, 2026; Fri, Dec 11, 2026; Mon, Dec 21, 2026.",
+  },
+  {
+    args: {
+      start: "2026-11-27T09:00",
+      end: "2026-11-27T10:00",
+      repeat: { every: "week", interval: 2, weekdays: ["monday", "friday"], until: "2026-12-20" },
+    },
+    text: "Every 2 weeks on Monday and Friday, until Dec 20, 2026 (that day included). Weeks run Monday to Sunday and count from the week of the start: Fri, Nov 27, 2026; Mon, Dec 7, 2026; Fri, Dec 11, 2026.",
+  },
+  {
+    args: {
+      start: "2026-11-27T09:00",
+      end: "2026-11-27T10:00",
+      repeat: { every: "week", interval: 2, weekdays: ["monday", "friday"], until: "2027-01-01" },
+    },
+    text: "Every 2 weeks on Monday and Friday, until Jan 1, 2027 (that day included). Weeks run Monday to Sunday and count from the week of the start: Fri, Nov 27, 2026; Mon, Dec 7, 2026; Fri, Dec 11, 2026; Mon, Dec 21, 2026; …",
+  },
+  {
+    args: {
+      start: "2026-11-27T09:00",
+      end: "2026-11-27T10:00",
+      repeat: { every: "week", interval: 2, weekdays: ["monday", "friday"] },
+    },
+    text: "Every 2 weeks on Monday and Friday, with no end date. Weeks run Monday to Sunday and count from the week of the start: Fri, Nov 27, 2026; Mon, Dec 7, 2026; Fri, Dec 11, 2026; Mon, Dec 21, 2026; …",
+  },
+  {
+    args: {
+      start: "2027-01-15T09:00",
+      end: "2027-01-15T10:00",
+      repeat: { every: "month" },
+    },
+    text: "Every month on day 15, with no end date.",
+  },
+  {
+    args: {
+      start: "2027-01-31T09:00",
+      end: "2027-01-31T10:00",
+      repeat: { every: "month", interval: 2, count: 4 },
+    },
+    text: "Every 2 months on day 31, 4 times. Months without a day 31 are skipped.",
+  },
+  {
+    args: {
+      start: "2027-01-29T09:00",
+      end: "2027-01-29T10:00",
+      repeat: { every: "month", count: 3 },
+    },
+    text: "Every month on day 29, 3 times. Months without a day 29 are skipped.",
+  },
+  {
+    args: {
+      start: "2027-01-30T09:00",
+      end: "2027-01-30T10:00",
+      time_zone: "America/New_York",
+      repeat: { every: "month", count: 3 },
+    },
+    text: "Every month on day 30, 3 times. Months without a day 30 are skipped. Days are in America/New_York.",
+  },
+  {
+    args: {
+      start: "2026-11-27T09:00",
+      end: "2026-11-27T10:00",
+      time_zone: "America/New_York",
+      repeat: { every: "week", interval: 2, weekdays: ["monday", "friday"], count: 1 },
+    },
+    text: "Every 2 weeks on Monday and Friday, 1 time. Weeks run Monday to Sunday and count from the week of the start: Fri, Nov 27, 2026. Days are in America/New_York.",
+  },
+  {
+    args: { time_zone: "America/New_York", repeat: { every: "day", count: 10 } },
+    text: "Every day, 10 times. Days are in America/New_York.",
+  },
+])("shows the exact Repeats words immediately after Ends: $text", async ({ args, text }) => {
+  const f = await eventsFixture("create_event", "ask");
+  primaryList();
+  const id = (await answer(await createEventCall(f, args))).approval as string;
+  const values = (await page(f, id)).request.values;
+  const index = values.findIndex((value) => value.name === "Ends");
+  expect(values[index + 1]).toEqual({ name: "Repeats", text, from: "agent" });
+});
+
+it.each([1, 2])("labels one invitation for the series to %s guests", async (count) => {
+  const f = await eventsFixture("create_event", "ask");
+  primaryList();
+  const guests = ["guest@example.com", "team@example.com"].slice(0, count);
+  const id = (await answer(await createEventCall(f, { guests, repeat: { every: "day" } })))
+    .approval as string;
+  expect((await page(f, id)).request.values).toContainEqual({
+    name: `Google emails one invitation for the whole series to ${count === 1 ? "this address" : "these 2 addresses"}`,
+    text: guests.join("\n"),
+    from: "agent",
+  });
+});
+
+it.each([{ every: "day" }, { every: "day", count: 1 }, { every: "day", until: "2026-11-20" }])(
+  "warns only when the repeat rule has no end, keeping the group note: %j",
+  async (repeat) => {
+    const f = await eventsFixture("create_event", "ask");
+    primaryList();
+    const id = (await answer(await createEventCall(f, { guests: ["team@example.com"], repeat })))
+      .approval as string;
+    expect((await page(f, id)).request.notes).toEqual([
+      { text: "A group's address reaches each of its members.", warning: false },
+      ...(!("count" in repeat) && !("until" in repeat)
+        ? [
+            {
+              text: "The rule has no end date. It ends only when someone deletes the series or gives it an end date in Google Calendar.",
+              warning: true,
+            },
+          ]
+        : []),
+    ]);
+  },
+);
+
+it.each([
+  { every: "week", weekdays: ["tuesday"] },
+  { every: "day", until: "2026-11-15" },
+])("offers no Approve when repeat fails in the primary zone: %j", async (repeat) => {
+  const f = await eventsFixture("create_event", "ask");
+  primaryList();
+  const google = eventWriter();
+  const id = (
+    await answer(
+      await createEventCall(f, {
+        start: "2026-11-17T01:00:00Z",
+        end: "2026-11-17T02:00:00Z",
+        repeat,
+      }),
+    )
+  ).approval as string;
+  expect((await page(f, id)).state).toMatchObject({ kind: "waiting", shown: false, digest: null });
+  expect(await (await f.mcp.browser.get(`/approvals/${id}`)).text()).not.toMatch(/>Approve</);
+  expect(google.inserts).toHaveLength(0);
+});
+
+it("rechecks repeat in the primary zone after approval and before the insert", async () => {
+  const f = await eventsFixture("create_event", "ask");
+  let changed = false;
+  calendarFake(
+    ...Array.from(
+      { length: 20 },
+      () => () =>
+        Response.json({
+          items: [{ ...PRIMARY_CALENDAR, timeZone: changed ? "America/Bogota" : "UTC" }],
+        }),
+    ),
+  );
+  const google = eventWriter();
+  const id = (
+    await answer(
+      await createEventCall(f, {
+        start: "2026-11-17T01:00:00Z",
+        end: "2026-11-17T02:00:00Z",
+        repeat: { every: "week", weekdays: ["tuesday"] },
+      }),
+    )
+  ).approval as string;
+  const shown = await digest(f, id);
+  const db = observeStatements(env.DB, (sql) => {
+    if (sql.startsWith("UPDATE approvals SET state = 'approved'")) changed = true;
+  });
+  expect(
+    (await decided(await post(f, id, "approve", { digest: shown }, testEnv({ DB: db })))).state
+      .kind,
+  ).toBe("failed");
+  expect((await get(f, id)).error).toMatchObject({
+    code: "invalid_arguments",
+    message: expect.stringMatching(/The repeat field/),
+  });
+  expect(google.inserts).toHaveLength(0);
 });

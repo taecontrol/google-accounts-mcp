@@ -203,6 +203,35 @@ const attachmentPreview: ApprovalPageProps = {
   },
 };
 const approvalPreviews: Readonly<Record<string, ApprovalPageProps>> = {
+  "approval-create-event-repeat": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Create event",
+        action: "create an event",
+        joiner: "in",
+      },
+      notes: [{ text: "A group's address reaches each of its members.", warning: false }],
+      values: [
+        { name: "Calendar", text: "Personal (alex.personal@example.com)", from: "calendar" },
+        { name: "Title", text: "Project planning", from: "agent" },
+        { name: "Starts", text: "Nov 27, 2026 at 09:00 (America/Bogota)", from: "agent" },
+        { name: "Ends", text: "Nov 27, 2026 at 10:00 (America/Bogota)", from: "agent" },
+        {
+          name: "Repeats",
+          text: "Every 2 weeks on Monday and Friday, 6 times. Weeks run Monday to Sunday and count from the week of the start: Fri, Nov 27, 2026; Mon, Dec 7, 2026; Fri, Dec 11, 2026; Mon, Dec 21, 2026; …",
+          from: "agent",
+        },
+        {
+          name: "Google emails one invitation for the whole series to this address",
+          text: "sam@example.com",
+          from: "agent",
+        },
+      ],
+    },
+  },
   "approval-create-event": {
     ...approvalBase,
     request: {

@@ -263,7 +263,11 @@ export const timeValues = (start: string, end: string, zone: string): ViewValue[
       ];
 export const guestsValue = (
   addresses: readonly string[],
-  what: "the invitation" | "the change" | "the cancellation",
+  what:
+    | "the invitation"
+    | "one invitation for the whole series"
+    | "the change"
+    | "the cancellation",
   from: ViewValue["from"],
 ): ViewValue => ({
   name: `Google emails ${what} to ${addresses.length === 1 ? "this address" : `these ${addresses.length} addresses`}`,
