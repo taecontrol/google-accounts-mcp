@@ -367,6 +367,30 @@ it.each(["unknown", "done"] as const)(
   },
 );
 
+it("reads nothing when the setting turns deny while a direct repeat takes its unknown row", async () => {
+  const f = await eventsFixture("create_event");
+  await setTool(f, "list_calendars", "allow");
+  primaryList();
+  const google = eventWriter();
+  google.fake.insert = () => new Response(null, { status: 500 });
+  await expectError(await createEventCall(f), "outcome_unknown", /Call again/);
+  let denied = false;
+  const db = observeStatements(env.DB, async (sql) => {
+    if (!denied && /^INSERT INTO once\b/.test(sql)) {
+      denied = true;
+      await setTool(f, "create_event", "deny");
+    }
+  });
+  await expectError(
+    await createEventCall(f, {}, testEnv({ DB: db })),
+    "tool_not_allowed",
+    /has not allowed/,
+  );
+  expect(denied).toBe(true);
+  expect(google.reads).toHaveLength(0);
+  expect(google.inserts).toHaveLength(1);
+});
+
 it("fails closed on a stored event result that does not match the tool's schema", async () => {
   const f = await eventsFixture("create_event");
   primaryList();
