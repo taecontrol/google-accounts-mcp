@@ -316,7 +316,7 @@ it("refuses unlisted calendars, primary and busy-only calendars without sending 
   for (const entry of result.calendars.slice(4))
     expect(entry.error).toEqual({
       code: "invalid_arguments",
-      message: expect.stringMatching(/calendar field.*only busy times.*check_availability/),
+      message: expect.stringMatching(/calendars field.*only busy times.*check_availability/),
     });
   expect(paths()).toEqual([
     "/calendar/v3/users/me/calendarList",
@@ -558,8 +558,140 @@ it("maps my_response by self in the primary calendar and by normalized email els
   expect(result.calendars[1]!.events![0]).toMatchObject({
     my_response: "needs_action",
     guest_count: 2,
-    guests_hidden: true,
   });
+  expect(result.calendars[1]!.events![0]).not.toHaveProperty("guests_hidden");
+});
+
+it("uses the full organizer copy on an owned secondary calendar without matching self for my_response", async () => {
+  const f = await eventsFixture();
+  calendarFake(list(PRIMARY_CALENDAR, { ...SECONDARY_CALENDAR, accessRole: "owner" }));
+  eventsFake({
+    [SECONDARY_CALENDAR.id]: {
+      list: Response.json({
+        items: [
+          eventFixture({
+            organizer: { email: "secondary@example.com", self: true },
+            guestsCanSeeOtherGuests: false,
+            attendees: [
+              { email: "secondary@example.com", self: true, responseStatus: "declined" },
+              { email: PERSONAL, responseStatus: "accepted" },
+            ],
+          }),
+        ],
+      }),
+    },
+  });
+  const event = (await resultOf(await searchCall(f, { calendars: [SECONDARY_CALENDAR.id] })))
+    .calendars[0]!.events![0]!;
+  expect(event).toMatchObject({ guest_count: 2, my_response: "accepted" });
+  expect(event).not.toHaveProperty("guests_hidden");
+});
+
+it.each([
+  {
+    name: "an event zone alias",
+    fields: {
+      start: { dateTime: "2026-11-20T14:00:00Z", timeZone: "Japan" },
+      end: { dateTime: "2026-11-20T15:00:00Z", timeZone: "Japan" },
+    },
+    expected: { start: "2026-11-20T14:00:00+00:00" },
+  },
+  {
+    name: "a start before 1900",
+    fields: { start: { dateTime: "1899-11-20T14:00:00Z" } },
+    expected: { start: "1899-11-20T14:00:00+00:00" },
+  },
+  {
+    name: "an attendee without email",
+    fields: {
+      attendees: [
+        { displayName: "No email", self: true, responseStatus: "accepted" },
+        { email: "guest@example.com", responseStatus: "tentative" },
+      ],
+    },
+    expected: { guest_count: 1 },
+  },
+  {
+    name: "six fractional digits",
+    fields: {
+      start: { dateTime: "2026-11-20T14:00:00.123456Z" },
+      end: { dateTime: "2026-11-20T15:00:00.123456Z" },
+    },
+    expected: { start: "2026-11-20T14:00:00+00:00" },
+  },
+  {
+    name: "an all-day date of any year",
+    fields: { start: { date: "0001-01-01" }, end: { date: "2026-11-21" } },
+    expected: { all_day: true, start: "0001-01-01" },
+  },
+])(
+  "reads $name next to a normal event instead of failing the calendar",
+  async ({ fields, expected }) => {
+    const f = await eventsFixture();
+    calendarFake(list(PRIMARY_CALENDAR));
+    eventsFake({
+      [PERSONAL]: {
+        list: Response.json({
+          items: [eventFixture({ id: "normal" }), eventFixture({ id: "odd", ...fields })],
+        }),
+      },
+    });
+    const events = (
+      await resultOf(
+        await searchCall(f, { from: "1900-01-01", to: "2026-11-21", time_zone: "UTC" }),
+      )
+    ).calendars[0]!.events!;
+    expect(events.map((event) => event.event)).toEqual(["normal", "odd"]);
+    expect(events[1]).toMatchObject(expected);
+    expect(events[1]).not.toHaveProperty("my_response");
+  },
+);
+
+it("filters an all-day event from year 0099 outside the range without treating it as 1999", async () => {
+  const f = await eventsFixture();
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({
+    [PERSONAL]: {
+      list: Response.json({
+        items: [
+          eventFixture({ id: "old", start: { date: "0099-01-01" }, end: { date: "0099-01-02" } }),
+          eventFixture({ id: "normal" }),
+        ],
+      }),
+    },
+  });
+  expect(
+    (
+      await resultOf(
+        await searchCall(f, { from: "1900-01-01", to: "2026-11-21", time_zone: "UTC" }),
+      )
+    ).calendars[0]!.events!.map((event) => event.event),
+  ).toEqual(["normal"]);
+});
+
+it("sends a canonical call zone on list requests but returns its original spelling", async () => {
+  const f = await eventsFixture();
+  calendarFake(list(PRIMARY_CALENDAR));
+  const sent = eventsFake({ [PERSONAL]: { list: Response.json({ items: [eventFixture()] }) } });
+  const result = await resultOf(await searchCall(f, { time_zone: "america/bogota" }));
+  expect(result.time_zone).toBe("america/bogota");
+  expect(new URL(sent[0]!.url).searchParams.get("timeZone")).toBe("America/Bogota");
+});
+
+it("keeps duplicate calendar IDs accepted and returns both requested entries", async () => {
+  const f = await eventsFixture();
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({ [PERSONAL]: { list: Response.json({ items: [eventFixture()] }) } });
+  const result = await resultOf(await searchCall(f, { calendars: [PERSONAL, PERSONAL] }));
+  expect(
+    result.calendars.map((calendar) => ({
+      calendar: calendar.calendar,
+      events: calendar.events?.map((event) => event.event),
+    })),
+  ).toEqual([
+    { calendar: PERSONAL, events: ["e1"] },
+    { calendar: PERSONAL, events: ["e1"] },
+  ]);
 });
 
 it("maps each requested special event type without labeling regular events", async () => {
@@ -654,6 +786,139 @@ const largeEvent = (i: number) =>
     location: "\\".repeat(200),
     organizer: { email: `${"e".repeat(242)}@example.com` },
   });
+
+it("walks short size-cut re-request pages without repeating or losing an event", async () => {
+  const f = await eventsFixture();
+  calendarFake(...Array.from({ length: 30 }, () => () => list(PRIMARY_CALENDAR)));
+  const visible = Array.from({ length: 24 }, (_, i) => largeEvent(i));
+  const data = [
+    { id: "cancelled", status: "cancelled" },
+    eventFixture({ id: "outside", start: { date: "2026-11-18" }, end: { date: "2026-11-19" } }),
+    ...visible,
+  ];
+  const sent = eventsFake({
+    [PERSONAL]: {
+      list: (request) => {
+        const params = new URL(request.url).searchParams;
+        const start = Number(params.get("pageToken")?.replace("page-", "") ?? 0);
+        const requested = Number(params.get("maxResults"));
+        // Stable dataset; Google can return fewer items even for the same starting token.
+        const count = requested === 50 ? requested : Math.min(requested, 3);
+        const items = data.slice(start, start + count);
+        const next = start + items.length;
+        return Response.json({
+          items,
+          ...(next < data.length ? { nextPageToken: `page-${next}` } : {}),
+        });
+      },
+    },
+  });
+  const seen: unknown[] = [];
+  let next: string | undefined;
+  for (let page = 0; page < 30; page++) {
+    const result = await resultOf(
+      await searchCall(f, {
+        calendars: [PERSONAL],
+        limit: 50,
+        ...(next === undefined ? {} : { page: next }),
+      }),
+    );
+    const calendar = result.calendars[0]!;
+    seen.push(...calendar.events!.map((event) => event.event));
+    next = calendar.next_page;
+    if (page === 0) {
+      expect(calendar.events!.map((event) => event.event)).toEqual([visible[0]!.id]);
+      expect(next).toBe("page-3");
+    }
+    if (next === undefined) break;
+  }
+  expect(next).toBeUndefined();
+  expect(seen).toEqual(visible.map((event) => event.id));
+  expect(new Set(seen).size).toBe(seen.length);
+  const retry = sent.find(
+    (request) => new URL(request.url).searchParams.get("maxResults") !== "50",
+  );
+  expect(Number(new URL(retry!.url).searchParams.get("maxResults"))).toBeGreaterThan(3);
+});
+
+it("replaces a size-cut calendar with the re-request's filtered events and removes an old token when it has none", async () => {
+  const f = await eventsFixture();
+  calendarFake(list(PRIMARY_CALENDAR));
+  const sent = eventsFake({
+    [PERSONAL]: {
+      list: (request) =>
+        new URL(request.url).searchParams.get("maxResults") === "50"
+          ? Response.json({
+              items: Array.from({ length: 50 }, (_, i) => largeEvent(i)),
+              nextPageToken: "stale-token",
+            })
+          : Response.json({
+              items: [
+                { id: "cancelled", status: "cancelled" },
+                eventFixture({
+                  id: "outside",
+                  start: { date: "2026-11-19" },
+                  end: { date: "2026-11-20" },
+                }),
+                eventFixture({
+                  id: "fresh",
+                  summary: "Fresh answer",
+                  attendees: [{ email: PERSONAL, self: true, responseStatus: "accepted" }],
+                }),
+              ],
+            }),
+    },
+  });
+  const result = await resultOf(await searchCall(f, { limit: 50 }));
+  expect(result.calendars[0]!.events).toEqual([
+    {
+      event: "fresh",
+      title: "Fresh answer",
+      start: "2026-11-20T09:00:00-05:00",
+      end: "2026-11-20T10:00:00-05:00",
+      all_day: false,
+      organizer: PERSONAL,
+      guest_count: 1,
+      my_response: "accepted",
+    },
+  ]);
+  expect(result.calendars[0]).not.toHaveProperty("next_page");
+  expect(sent).toHaveLength(2);
+});
+
+it("marks the current and later calendars not_read when a changed re-request no longer fits", async () => {
+  const f = await eventsFixture();
+  calendarFake(list(PRIMARY_CALENDAR, SECONDARY_CALENDAR, { id: "later", accessRole: "reader" }));
+  const sent = eventsFake({
+    [PERSONAL]: {
+      list: Response.json({ items: Array.from({ length: 10 }, (_, i) => largeEvent(i)) }),
+    },
+    [SECONDARY_CALENDAR.id]: {
+      list: (request) =>
+        new URL(request.url).searchParams.get("maxResults") === "50"
+          ? Response.json({
+              items: Array.from({ length: 50 }, (_, i) => eventFixture({ id: `small${i}` })),
+            })
+          : Response.json({
+              items: [eventFixture({ id: "grown", organizer: { email: "x".repeat(32_000) } })],
+              nextPageToken: "grown-token",
+            }),
+    },
+    later: { list: Response.json({}) },
+  });
+  const result = await resultOf(
+    await searchCall(f, { calendars: [PERSONAL, SECONDARY_CALENDAR.id, "later"], limit: 50 }),
+  );
+  expect(result.calendars[0]!.events).toHaveLength(10);
+  expect(result.calendars.slice(1)).toEqual([
+    { calendar: SECONDARY_CALENDAR.id, not_read: true },
+    { calendar: "later", not_read: true },
+  ]);
+  expect(JSON.stringify(result).length).toBeLessThanOrEqual(32_000);
+  expect(
+    sent.filter((request) => new URL(request.url).searchParams.get("maxResults") !== "50"),
+  ).toHaveLength(1);
+});
 it("fits fifty short events from each of two calendars below thirty thousand characters without a size cut", async () => {
   const f = await eventsFixture();
   calendarFake(list(PRIMARY_CALENDAR, SECONDARY_CALENDAR));
@@ -762,7 +1027,10 @@ it("reserves the next_page property as well as its token when the original page 
       list: (request) =>
         new URL(request.url).searchParams.get("maxResults") === "50"
           ? Response.json({ items })
-          : Response.json({ nextPageToken: token }),
+          : Response.json({
+              items: items.slice(0, Number(new URL(request.url).searchParams.get("maxResults"))),
+              nextPageToken: token,
+            }),
     },
   });
   const rpc = await rpcResult(await searchCall(f, { limit: 50 }));
@@ -792,7 +1060,13 @@ it("cuts the serialized result, counts filtered items in the one re-request, and
           list: (request) =>
             new URL(request.url).searchParams.get("maxResults") === "50"
               ? Response.json({ items, nextPageToken: "google-next-token" })
-              : Response.json({ nextPageToken: "p".repeat(2000) }),
+              : Response.json({
+                  items: items.slice(
+                    0,
+                    Number(new URL(request.url).searchParams.get("maxResults")),
+                  ),
+                  nextPageToken: "p".repeat(2000),
+                }),
         },
       ]),
     ),

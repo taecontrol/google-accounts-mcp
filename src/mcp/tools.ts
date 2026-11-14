@@ -98,6 +98,7 @@ import {
   MAX_TEXT,
   PAGE_BODY_BYTES,
   shorten,
+  unfold,
 } from "../google/bounds";
 import { sendExisting, sendStaged } from "../google/send";
 import { forwardFiles, forwardPlan, MAX_FORWARD_FILES, MAX_FORWARD_BYTES } from "../google/forward";
@@ -1248,9 +1249,9 @@ export const TOOLS: ReadonlyArray<Tool> = [
           const unlisted: string[] = [];
           const busy: string[] = [];
           for (const id of args.calendars ?? [undefined]) {
-            const calendar = readableCalendar(ctx, id);
+            const calendar = readableCalendar(ctx, id, "calendars");
             if (Result.isSuccess(calendar))
-              listed.push(`${calendar.success.name} (${calendar.success.calendar})`);
+              listed.push(`${unfold(calendar.success.name)} (${calendar.success.calendar})`);
             else if (calendar.failure.code === "not_found") {
               if (id === undefined) return yield* Effect.fail(calendar.failure);
               unlisted.push(id);
@@ -1258,7 +1259,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
               const entry = ctx.calendars.find(
                 (calendar) => calendar.calendar === (id ?? ctx.primary?.calendar),
               )!;
-              busy.push(`${entry.name} (${entry.calendar})`);
+              busy.push(`${unfold(entry.name)} (${entry.calendar})`);
             }
           }
           const values: ViewValue[] = [];
@@ -1303,7 +1304,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     annotations: { readOnlyHint: true },
     permissionDescription: "Read one event in full: its description, guests, and their answers.",
     description:
-      "Reads one event of one Google account, with its description and guests. `account` is an address from list_accounts. `calendar` is an optional calendar ID from list_calendars, 1 to 254 characters; without it the tool reads the primary calendar. Google's alias `primary` is not an ID from list_calendars. Unlisted calendars get not_found; a calendar where the account sees only busy times gets invalid_arguments, and check_availability gives those times. `event` is an event ID from search_events, 1 to 1,024 letters, digits, hyphens, or underscores; it works only in the calendar and account that returned it. An occurrence ID reads that occurrence, with `series` naming its series. A series ID reads the series and adds `recurrence`, Google's rule lines as given. A missing or cancelled event gets not_found. `time_zone` is UTC or an IANA name with a slash, such as America/Bogota; without it the call uses the primary calendar's zone. All times use that zone, have seconds, and have the format YYYY-MM-DDTHH:MM:SS±HH:MM. All-day start and end are dates, and end is the day after the last day. The result has account, calendar, time_zone, event, title, start, end, all_day, optional location and organizer, description, guests, status (confirmed or tentative), and link to Google Calendar. Description is plain text, with HTML converted when present. Each guest has email, optional name, response (accepted, declined, tentative, or needs_action), and optional as a boolean; rooms are left out. `my_response` is the account's own guest answer when an entry exists: Google's self entry in the primary calendar, or an address match elsewhere. `guests_hidden` means the organizer hid the list or Google omitted guests; guests then holds only what Google gave. `meet` is the Google Meet link when present. Non-regular events have `type`: out_of_office, focus_time, birthday, from_gmail, or working_location. Title and location are cut with … to 1,000 JSON characters each. Description is at most 10,000 JSON characters and a cut ends with [The rest of the description was left out.]. Guests are at most 8,000 JSON characters, with guests_left_out counting the rest; recurrence is at most 4,000 JSON characters, keeping whole lines, with recurrence_left_out counting the rest. The result stays within 32,000 JSON characters. When the owner sets this tool to ask, it returns a pending approval with a link instead of the event; get_approval returns the result after the owner approves.",
+      "Reads one event of one Google account, with its description and guests. `account` is an address from list_accounts. `calendar` is an optional calendar ID from list_calendars, 1 to 254 characters; without it the tool reads the primary calendar. Google's alias `primary` is not an ID from list_calendars. Unlisted calendars get not_found; a calendar where the account sees only busy times gets invalid_arguments, and check_availability gives those times. `event` is an event ID from search_events, 1 to 1,024 letters, digits, hyphens, or underscores; it works only in the calendar and account that returned it. An occurrence ID reads that occurrence, with `series` naming its series. A series ID reads the series and adds `recurrence`, Google's rule lines as given. A missing or cancelled event gets not_found. `time_zone` is UTC or an IANA name with a slash, such as America/Bogota; without it the call uses the primary calendar's zone. All times use that zone, have seconds, and have the format YYYY-MM-DDTHH:MM:SS±HH:MM. All-day start and end are dates, and end is the day after the last day. The result has account, calendar, time_zone, event, title, start, end, all_day, optional location and organizer, description, guests, status (confirmed or tentative), and link to Google Calendar. Description is plain text, with HTML converted when present. Each guest has email, optional name, response (accepted, declined, tentative, or needs_action), and optional as a boolean; rooms are left out. `my_response` is the account's own guest answer when an entry exists: Google's self entry in the primary calendar, or an address match elsewhere. `guests_hidden` means the organizer hid the list or Google omitted guests; guests then holds only what Google gave. `meet` is the Google Meet link when present. Non-regular events have `type`: out_of_office, focus_time, birthday, from_gmail, or working_location. Title and location are cut with … to 1,000 JSON characters each. Organizer is cut with … to 320 JSON characters. Meet is left out and link is empty when the corresponding value exceeds 2,000 JSON characters. Description is at most 10,000 JSON characters and a cut ends with [The rest of the description was left out.]. Guests are at most 8,000 JSON characters, with guests_left_out counting the rest; recurrence is at most 4,000 JSON characters, keeping whole lines, with recurrence_left_out counting the rest. The result stays within 32,000 JSON characters. When the owner sets this tool to ask, it returns a pending approval with a link instead of the event; get_approval returns the result after the owner approves.",
     input: Schema.Struct({
       account: Schema.String,
       calendar: Schema.optionalKey(CalendarId),
@@ -1322,15 +1323,20 @@ export const TOOLS: ReadonlyArray<Tool> = [
       values: (args, send) =>
         Effect.gen(function* () {
           const ctx = yield* calendarContext(send, args.time_zone);
-          const calendar = yield* Effect.fromResult(readableCalendar(ctx, args.calendar));
-          const event = yield* eventView(send, calendar, args.event, ctx.zone);
+          const calendar = yield* Effect.fromResult(
+            readableCalendar(ctx, args.calendar, "calendar"),
+          );
+          const event = yield* eventView(send, calendar, args.event, {
+            account: normalizeEmail(args.account)!,
+            zone: ctx.zone,
+          });
           return [
             {
               name: "Calendar",
-              text: `${calendar.name} (${calendar.calendar})`,
+              text: `${unfold(calendar.name)} (${calendar.calendar})`,
               from: "calendar" as const,
             },
-            { name: "Event", text: event.title, from: "calendar" as const },
+            { name: "Event", text: unfold(event.title), from: "calendar" as const },
             {
               name: "Starts",
               text: `${viewTime(event.start, ctx.zone)}${event.own_zone && event.own_zone !== ctx.zone ? `; event's own zone: ${event.own_zone}` : ""}`,

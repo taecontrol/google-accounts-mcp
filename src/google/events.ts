@@ -3,7 +3,7 @@ import type { Send } from "../mcp/tools";
 import { calendarError, notFound, ToolFailure } from "../mcp/failures";
 import { normalizeEmail } from "../owner/owner";
 import { calendarContext, get, readableCalendar, type Calendar } from "./calendar";
-import { eventTime, instantOf, parseTime, rangeOf, TimeText, ZoneName } from "./calendar-time";
+import { canonicalZone, EventPoint, eventInstant, eventTime, rangeOf } from "./calendar-time";
 import { REQUESTS_AT_ONCE } from "./gmail";
 import { safeEnd } from "./bounds";
 import { htmlToText } from "./html";
@@ -22,21 +22,12 @@ export const EventId = Schema.String.check(
   Schema.isPattern(/^[A-Za-z0-9_-]+$/u),
 );
 
-const Point = Schema.Union([
-  Schema.Struct({
-    date: TimeText.check(Schema.makeFilter((text) => parseTime(text).kind === "date")),
-  }),
-  Schema.Struct({
-    dateTime: TimeText.check(Schema.makeFilter((text) => parseTime(text).kind !== "date")),
-    timeZone: Schema.optionalKey(ZoneName),
-  }),
-]);
 const Person = Schema.Struct({
   email: Schema.optionalKey(Schema.String),
   self: Schema.optionalKey(Schema.Boolean),
 });
 const Attendee = Schema.Struct({
-  email: Schema.String,
+  email: Schema.optionalKey(Schema.String),
   displayName: Schema.optionalKey(Schema.String),
   responseStatus: Schema.optionalKey(
     Schema.Literals(["accepted", "declined", "tentative", "needsAction"]),
@@ -48,8 +39,8 @@ const Attendee = Schema.Struct({
 const LiveEvent = Schema.Struct({
   id: EventId,
   status: Schema.Literals(["confirmed", "tentative"]),
-  start: Point,
-  end: Point,
+  start: EventPoint,
+  end: EventPoint,
   summary: Schema.optionalKey(Schema.String),
   location: Schema.optionalKey(Schema.String),
   description: Schema.optionalKey(Schema.String),
@@ -106,9 +97,8 @@ const responseOf = (attendee: typeof Attendee.Type) =>
   attendee.responseStatus === undefined || attendee.responseStatus === "needsAction"
     ? "needs_action"
     : attendee.responseStatus;
-const belongsToAccount = (person: typeof Person.Type, account: string, calendar: Calendar) =>
-  (calendar.primary && person.self === true) ||
-  normalizeEmail(person.email) === normalizeEmail(account);
+const belongsToAccount = (person: typeof Person.Type, account: string) =>
+  person.self === true || normalizeEmail(person.email) === normalizeEmail(account);
 const kinds: Readonly<Record<string, string>> = {
   outOfOffice: "out_of_office",
   focusTime: "focus_time",
@@ -117,7 +107,10 @@ const kinds: Readonly<Record<string, string>> = {
   workingLocation: "working_location",
 };
 const peopleOf = (event: LiveEvent, account: string, calendar: Calendar) => {
-  const guests = (event.attendees ?? []).filter((guest) => !guest.resource);
+  const guests = (event.attendees ?? []).filter(
+    (guest): guest is typeof Attendee.Type & { readonly email: string } =>
+      !guest.resource && guest.email !== undefined,
+  );
   const mine = calendar.primary
     ? guests.find((guest) => guest.self)
     : guests.find((guest) => normalizeEmail(guest.email) === normalizeEmail(account));
@@ -126,19 +119,26 @@ const peopleOf = (event: LiveEvent, account: string, calendar: Calendar) => {
     flags: {
       ...(event.attendeesOmitted ||
       (event.guestsCanSeeOtherGuests === false &&
-        !(event.organizer && belongsToAccount(event.organizer, account, calendar)))
+        !(event.organizer && belongsToAccount(event.organizer, account)))
         ? { guests_hidden: true as const }
         : {}),
       ...(mine ? { my_response: responseOf(mine) } : {}),
     },
   };
 };
-const summaryOf = (event: LiveEvent, zone: string, textLimit: number) => ({
+const summaryOf = (event: LiveEvent, zone: string, textLimit: number, organizerLimit?: number) => ({
   event: event.id,
   title: shortJson(event.summary ?? "", textLimit),
   ...eventTime(event.start, event.end, zone),
   ...(event.location === undefined ? {} : { location: shortJson(event.location, textLimit) }),
-  ...(event.organizer?.email === undefined ? {} : { organizer: event.organizer.email }),
+  ...(event.organizer?.email === undefined
+    ? {}
+    : {
+        organizer:
+          organizerLimit === undefined
+            ? event.organizer.email
+            : shortJson(event.organizer.email, organizerLimit),
+      }),
   ...(event.recurringEventId === undefined ? {} : { series: event.recurringEventId }),
   ...(event.eventType && kinds[event.eventType] ? { type: kinds[event.eventType] } : {}),
 });
@@ -178,7 +178,7 @@ const listPage = (
     maxResults: String(limit),
     timeMin: new Date(Math.floor(range.from / 1000) * 1000).toISOString().replace(".000Z", "Z"),
     timeMax: new Date(Math.ceil(range.to / 1000) * 1000).toISOString().replace(".000Z", "Z"),
-    timeZone: zone,
+    timeZone: canonicalZone(zone),
   });
   for (const kind of ["default", "outOfOffice", "focusTime", "birthday", "fromGmail"])
     params.append("eventTypes", kind);
@@ -199,12 +199,19 @@ const listPage = (
           : unavailable(),
   );
 };
-const inRange = (event: LiveEvent, zone: string, range: { from: number; to: number }) => {
-  const pointInstant = (point: LiveEvent["start"]) =>
-    "date" in point
-      ? instantOf(parseTime(point.date), zone)
-      : instantOf(parseTime(point.dateTime), point.timeZone ?? zone);
-  return pointInstant(event.end) > range.from && pointInstant(event.start) < range.to;
+const inRange = (event: LiveEvent, zone: string, range: { from: number; to: number }) =>
+  eventInstant(event.end, zone) > range.from && eventInstant(event.start, zone) < range.to;
+/** The initial page and a size-cut re-request use exactly the same filtering and mapping. */
+const searchEvent = (
+  item: typeof GoogleEvent.Type,
+  account: string,
+  calendar: Calendar,
+  zone: string,
+  range: { from: number; to: number },
+): EventSummary | undefined => {
+  if (item.status === "cancelled" || !inRange(item, zone, range)) return undefined;
+  const people = peopleOf(item, account, calendar);
+  return { ...summaryOf(item, zone, 200), guest_count: people.guests.length, ...people.flags };
 };
 const failureOf = (failures: readonly ToolFailure[]) =>
   failures.find((failure) => failure.code === "google_unavailable") ??
@@ -224,7 +231,7 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
           const attempt = yield* Effect.result(
             Effect.gen(function* () {
               const calendar = yield* Effect.fromResult(
-                readableCalendar(ctx, input.calendars === undefined ? undefined : id),
+                readableCalendar(ctx, input.calendars === undefined ? undefined : id, "calendars"),
               );
               return yield* listPage(
                 send,
@@ -293,20 +300,14 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
       const entry = result.calendars[index]!;
       if (entry.not_read) break;
       if (Result.isFailure(attempt)) continue;
-      const calendar = yield* Effect.fromResult(readableCalendar(ctx, entry.calendar));
+      const calendar = yield* Effect.fromResult(readableCalendar(ctx, entry.calendar, "calendars"));
       let consumed = 0;
       for (const item of attempt.success.items ?? []) {
-        if (item.status === "cancelled") {
+        const event = searchEvent(item, input.account, calendar, ctx.zone, range);
+        if (event === undefined) {
           consumed++;
           continue;
         }
-        if (!inRange(item, ctx.zone, range)) {
-          consumed++;
-          continue;
-        }
-        const mapped = summaryOf(item, ctx.zone, 200);
-        const people = peopleOf(item, input.account, calendar);
-        const event = { ...mapped, guest_count: people.guests.length, ...people.flags };
         entry.events!.push(event);
         // A cut may need a new token. The response schema excludes JSON escapes.
         const maxTokenSize = MAX_EVENT_PAGE + 2;
@@ -331,9 +332,18 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
             if (result.calendars.every((calendar) => calendar.error !== undefined))
               return yield* Effect.fail(failureOf([...failures, continuation.failure]));
           } else {
-            delete entry.next_page;
-            if (continuation.success.nextPageToken !== undefined)
-              entry.next_page = continuation.success.nextPageToken;
+            const page = continuation.success;
+            result.calendars[index] = {
+              calendar: entry.calendar,
+              events: (page.items ?? []).flatMap((item) => {
+                const event = searchEvent(item, input.account, calendar, ctx.zone, range);
+                return event === undefined ? [] : [event];
+              }),
+              ...(page.nextPageToken === undefined ? {} : { next_page: page.nextPageToken }),
+            };
+            // A changed calendar can grow between requests. Never mix a token with a prefix
+            // from a different answer, or cut the replacement page away from its own token.
+            if (JSON.stringify(result).length > LIMIT) stop(index, true);
           }
         }
         return result;
@@ -342,30 +352,40 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
     return result;
   });
 
+interface EventContext {
+  readonly account: string;
+  readonly zone: string;
+}
 export const findEvent = (
   send: Send,
   calendar: Calendar,
   event: string,
-  zone?: string,
-): Effect.Effect<LiveEvent, ToolFailure> =>
-  get(
+  context: EventContext,
+): Effect.Effect<LiveEvent, ToolFailure> => {
+  const missing = () =>
+    new ToolFailure({
+      code: "not_found",
+      said: `No event "${event}" exists in calendar "${calendar.calendar}" of ${context.account}. An event ID works only in the calendar and account that returned it.`,
+    });
+  return get(
     send,
-    `calendars/${encodeURIComponent(calendar.calendar)}/events/${encodeURIComponent(event)}${zone === undefined ? "" : `?${new URLSearchParams({ timeZone: zone })}`}`,
+    `calendars/${encodeURIComponent(calendar.calendar)}/events/${encodeURIComponent(event)}?${new URLSearchParams({ timeZone: canonicalZone(context.zone) })}`,
     GoogleEvent,
-    (status) => (status === 404 || status === 410 ? notFound("event", event) : unavailable()),
+    (status) => (status === 404 || status === 410 ? missing() : unavailable()),
   ).pipe(
     Effect.flatMap((found) =>
-      found.status === "cancelled" ? Effect.fail(notFound("event", event)) : Effect.succeed(found),
+      found.status === "cancelled" ? Effect.fail(missing()) : Effect.succeed(found),
     ),
   );
+};
 
 /** The view needs only the mapped title and start, plus the event's own zone when supplied. */
-export const eventView = (send: Send, calendar: Calendar, event: string, zone: string) =>
-  findEvent(send, calendar, event, zone).pipe(
+export const eventView = (send: Send, calendar: Calendar, event: string, context: EventContext) =>
+  findEvent(send, calendar, event, context).pipe(
     Effect.map((found) => ({
       title: shortJson(found.summary ?? "", 1_000),
-      start: eventTime(found.start, found.end, zone).start,
-      own_zone: "timeZone" in found.start ? found.start.timeZone : undefined,
+      start: eventTime(found.start, found.end, context.zone).start,
+      own_zone: found.start.timeZone,
     })),
   );
 
@@ -375,8 +395,11 @@ export const readEvent = (
 ) =>
   Effect.gen(function* () {
     const ctx = yield* calendarContext(send, input.time_zone);
-    const calendar = yield* Effect.fromResult(readableCalendar(ctx, input.calendar));
-    const event = yield* findEvent(send, calendar, input.event, ctx.zone);
+    const calendar = yield* Effect.fromResult(readableCalendar(ctx, input.calendar, "calendar"));
+    const event = yield* findEvent(send, calendar, input.event, {
+      account: input.account,
+      zone: ctx.zone,
+    });
     const people = peopleOf(event, input.account, calendar);
     const guests = boundedList(
       people.guests.map((guest) => ({
@@ -401,7 +424,7 @@ export const readEvent = (
       account: input.account,
       calendar: calendar.calendar,
       time_zone: ctx.zone,
-      ...summaryOf(event, ctx.zone, 1_000),
+      ...summaryOf(event, ctx.zone, 1_000, 320),
       description: shortJson(description, 10_000, "\n[The rest of the description was left out.]"),
       guests: guests.kept,
       ...people.flags,
@@ -410,8 +433,13 @@ export const readEvent = (
         ? { recurrence: recurrence.kept }
         : {}),
       ...(recurrence.left ? { recurrence_left_out: recurrence.left } : {}),
-      ...(event.hangoutLink === undefined ? {} : { meet: event.hangoutLink }),
+      ...(event.hangoutLink === undefined || JSON.stringify(event.hangoutLink).length > 2_000
+        ? {}
+        : { meet: event.hangoutLink }),
       status: event.status,
-      link: event.htmlLink ?? "",
+      link:
+        event.htmlLink !== undefined && JSON.stringify(event.htmlLink).length <= 2_000
+          ? event.htmlLink
+          : "",
     };
   });

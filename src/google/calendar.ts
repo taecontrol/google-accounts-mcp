@@ -63,6 +63,7 @@ export const calendarContext = (
 export const readableCalendar = (
   ctx: CalendarContext,
   id: string | undefined,
+  field: "calendar" | "calendars",
 ): Result.Result<Calendar, ToolFailure> => {
   const calendar =
     id === undefined ? ctx.primary : ctx.calendars.find((calendar) => calendar.calendar === id);
@@ -78,7 +79,7 @@ export const readableCalendar = (
       new ToolFailure({
         code: "invalid_arguments",
         field: {
-          name: "calendar",
+          name: field,
           expects:
             "a calendar where this account can read events: it sees only busy times here; use check_availability for those",
         },

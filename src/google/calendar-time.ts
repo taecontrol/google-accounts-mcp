@@ -24,8 +24,11 @@ const inputOf = (text: string): TimeInput | null => {
   const [year, month, day, hour, minute, second] = match.slice(1, 7).map((v) => Number(v ?? 0));
   if (month! < 1 || month! > 12 || day! < 1 || hour! > 23 || minute! > 59 || second! > 59)
     return null;
-  const ms = Date.UTC(year!, month! - 1, day!, hour!, minute!, second!);
-  if (new Date(ms).getUTCDate() !== day) return null;
+  const date = new Date(0);
+  date.setUTCFullYear(year!, month! - 1, day!);
+  date.setUTCHours(hour!, minute!, second!, 0);
+  const ms = date.getTime();
+  if (date.getUTCDate() !== day) return null;
   const offset = match[7];
   if (!offset) return { kind: match[4] === undefined ? "date" : "local", ms };
   if (offset === "Z") return { kind: "instant", ms };
@@ -47,8 +50,13 @@ export const TimeText = Schema.String.check(
       inputOf(text) !== null,
   ),
 );
-/** Call after TimeText has validated the text. Floating ms is a wall clock, not an instant. */
-export const parseTime = (text: string): TimeInput => inputOf(text)!;
+/** Agent input or a formatted event time. Floating ms is a wall clock, not an instant. */
+export const parseTime = (text: string): TimeInput =>
+  inputOf(text) ?? { kind: "instant", ms: Date.parse(text) };
+
+/** Google accepts the canonical spelling, while results retain the caller's spelling. */
+export const canonicalZone = (zone: string): string =>
+  new Intl.DateTimeFormat("en", { timeZone: zone }).resolvedOptions().timeZone;
 
 const offsetAt = (ms: number, zone: string): number => {
   const offset = new Intl.DateTimeFormat("en", { timeZone: zone, timeZoneName: "longOffset" })
@@ -65,13 +73,15 @@ const offsetAt = (ms: number, zone: string): number => {
 
 export const instantOf = (input: TimeInput, zone: string): number => {
   if (input.kind === "instant") return input.ms;
-  const first = input.ms - offsetAt(input.ms, zone);
-  const firstOffset = offsetAt(first, zone);
-  const second = input.ms - firstOffset;
-  if (first + firstOffset === input.ms) return first;
-  if (second + offsetAt(second, zone) === input.ms) return second;
-  // Only a gap has no candidate that maps back to the requested wall clock.
-  return Math.max(first, second);
+  // Probe both sides of a possible transition so an overlap exposes both occurrences.
+  const candidates = [-86_400_000, 86_400_000].map(
+    (delta) => input.ms - offsetAt(input.ms + delta, zone),
+  );
+  const valid = candidates.filter(
+    (candidate) => candidate + offsetAt(candidate, zone) === input.ms,
+  );
+  // The first occurrence wins in an overlap; a gap moves forward to the later instant.
+  return valid.length ? Math.min(...valid) : Math.max(...candidates);
 };
 export const rangeOf = (
   from: string,
@@ -90,38 +100,42 @@ export const rangeOf = (
 };
 
 export const zonedIso = (ms: number, zone: string): string => {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: zone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(ms);
-  const value = (name: Intl.DateTimeFormatPartTypes) =>
-    parts.find((part) => part.type === name)!.value;
   const offset = Math.round(offsetAt(ms, zone) / 60_000);
+  const fields = new Date(ms + offset * 60_000).toISOString().replace(/\.\d{3}Z$/, "");
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}:${value("second")}${offset < 0 ? "-" : "+"}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
+  return `${fields}${offset < 0 ? "-" : "+"}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
 };
 
-export interface EventPoint {
-  readonly date?: string;
-  readonly dateTime?: string;
-  readonly timeZone?: string;
-}
+/** Google's event times are broader than agent input; an event's own zone is display text. */
+export const EventPoint = Schema.Union([
+  Schema.Struct({
+    date: Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/u)),
+    timeZone: Schema.optionalKey(Schema.String),
+  }),
+  Schema.Struct({
+    dateTime: Schema.String.check(
+      Schema.makeFilter(
+        (text) => /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) && Number.isFinite(Date.parse(text)),
+      ),
+    ),
+    timeZone: Schema.optionalKey(Schema.String),
+  }),
+]);
+export type EventPoint = typeof EventPoint.Type;
+export const eventInstant = (point: EventPoint, zone: string): number =>
+  "date" in point
+    ? instantOf({ kind: "date", ms: Date.parse(point.date) }, zone)
+    : Date.parse(point.dateTime);
 export type EventTime =
   | { readonly all_day: true; readonly start: string; readonly end: string }
   | { readonly all_day: false; readonly start: string; readonly end: string };
 export const eventTime = (start: EventPoint, end: EventPoint, zone: string): EventTime =>
-  start.date !== undefined && end.date !== undefined
+  "date" in start && "date" in end
     ? { all_day: true, start: start.date, end: end.date }
     : {
         all_day: false,
-        start: zonedIso(instantOf(parseTime(start.dateTime!), start.timeZone ?? zone), zone),
-        end: zonedIso(instantOf(parseTime(end.dateTime!), end.timeZone ?? zone), zone),
+        start: zonedIso(eventInstant(start, zone), zone),
+        end: zonedIso(eventInstant(end, zone), zone),
       };
 
 /** A point of a range or an event, in words for the approval page. */

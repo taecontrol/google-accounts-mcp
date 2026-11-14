@@ -1,6 +1,8 @@
 import "./support/account-checks";
 import { env } from "cloudflare:workers";
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
+import { Effect } from "effect";
+import { TOOLS } from "../src/mcp/tools";
 import { answer, approve, decided, digest, get, page, post } from "./support/approvals";
 import {
   calendarFake,
@@ -12,7 +14,7 @@ import {
   readEventCall,
   searchCall,
 } from "./support/calendar";
-import { PERSONAL } from "./support/permissions";
+import { expectError, PERSONAL } from "./support/permissions";
 import { requests } from "./support/network";
 import { observeStatements } from "./support/db";
 import { testEnv, textOf } from "./support/worker";
@@ -24,6 +26,138 @@ const calendarPaths = () =>
     .map((url) => new URL(url).pathname);
 const repeatList = (...items: object[]) =>
   calendarFake(...Array.from({ length: 10 }, () => () => list(...items)));
+
+it.each(
+  ["search_events", "read_event"].flatMap((tool) =>
+    (["allow", "ask"] as const).flatMap((setting) =>
+      [false, true].map((explicit) => ({ tool, setting, explicit })),
+    ),
+  ),
+)(
+  "$tool excludes Google's literal primary entry at $setting, explicit ID: $explicit",
+  async ({ tool, setting, explicit }) => {
+    const f = await eventsFixture(tool, setting);
+    repeatList({ id: "primary", primary: true, accessRole: "owner", timeZone: "UTC" });
+    const sent = eventsFake({
+      primary: { list: Response.json({}), events: { e1: Response.json(eventFixture()) } },
+    });
+    const response =
+      tool === "search_events"
+        ? await searchCall(f, explicit ? { calendars: ["primary"] } : {})
+        : await readEventCall(f, explicit ? { calendar: "primary" } : {});
+    if (setting === "allow") await expectError(response, "not_found", /No such calendar/);
+    else {
+      const definition = TOOLS.find((entry) => entry.kind === "account" && entry.name === tool)!;
+      if (definition.kind !== "account") throw new Error("Missing Calendar tool");
+      const viewFailures: string[] = [];
+      const values = definition.view.values;
+      vi.spyOn(definition.view, "values").mockImplementation((...args) =>
+        values(...args).pipe(
+          Effect.tapError((failure) =>
+            Effect.sync(() => {
+              viewFailures.push(failure._tag === "ToolFailure" ? failure.code : "ViewUnavailable");
+            }),
+          ),
+        ),
+      );
+      const id = (await answer(response)).approval as string;
+      const view = await page(f, id);
+      if (tool === "search_events" && explicit) {
+        expect(view.request.values).toContainEqual({
+          name: "Not calendars of this account",
+          text: "primary",
+          from: "agent",
+        });
+        await approve(f, id);
+        expect((await get(f, id)).error).toMatchObject({ code: "not_found" });
+      } else {
+        expect(view.state).toMatchObject({ kind: "waiting", shown: false });
+        expect(viewFailures).toEqual(["not_found"]);
+      }
+    }
+    expect(sent).toEqual([]);
+    expect(calendarPaths().length).toBeGreaterThan(0);
+    expect(calendarPaths().every((path) => path === "/calendar/v3/users/me/calendarList")).toBe(
+      true,
+    );
+  },
+);
+
+it.each(["search_events", "read_event"])(
+  "unfolds calendar names and event titles in the $tool approval view",
+  async (tool) => {
+    const f = await eventsFixture(tool, "ask");
+    repeatList(
+      { ...PRIMARY_CALENDAR, summary: "Personal\nFake heading" },
+      { id: "busy", summary: "Busy\nAnother heading", accessRole: "freeBusyReader" },
+    );
+    eventsFake({
+      [PERSONAL]: {
+        events: { e1: Response.json(eventFixture({ summary: "Planning\nAnother action" })) },
+      },
+    });
+    const id = (
+      await answer(
+        tool === "search_events"
+          ? await searchCall(f, { calendars: [PERSONAL, "busy"] })
+          : await readEventCall(f),
+      )
+    ).approval as string;
+    const view = await page(f, id);
+    expect(view.state).toMatchObject({ kind: "waiting", shown: true });
+    if (tool === "search_events") {
+      expect(view.request.values).toContainEqual({
+        name: "Calendars",
+        text: `Personal Fake heading (${PERSONAL})`,
+        from: "calendar",
+      });
+      expect(view.request.values).toContainEqual({
+        name: "Only busy times visible",
+        text: "Busy Another heading (busy)",
+        from: "calendar",
+      });
+    } else {
+      expect(view.request.values).toContainEqual({
+        name: "Calendar",
+        text: `Personal Fake heading (${PERSONAL})`,
+        from: "calendar",
+      });
+      expect(view.request.values).toContainEqual({
+        name: "Event",
+        text: "Planning Another action",
+        from: "calendar",
+      });
+    }
+    expect(
+      view.request.values
+        .filter((value) => value.from === "calendar")
+        .every((value) => !value.text.includes("\n")),
+    ).toBe(true);
+  },
+);
+
+it("shows an all-day event's own zone as Google gave it, including an alias", async () => {
+  const f = await eventsFixture("read_event", "ask");
+  repeatList(PRIMARY_CALENDAR);
+  eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          eventFixture({
+            start: { date: "2026-11-20", timeZone: "Japan" },
+            end: { date: "2026-11-21", timeZone: "Japan" },
+          }),
+        ),
+      },
+    },
+  });
+  const id = (await answer(await readEventCall(f))).approval as string;
+  expect((await page(f, id)).request.values).toContainEqual({
+    name: "Starts",
+    text: "Nov 20, 2026 (all day); event's own zone: Japan",
+    from: "calendar",
+  });
+});
 
 it("seals search strings, builds the view without events, labels Calendar text, and returns the approved result through get_approval", async () => {
   const f = await eventsFixture("search_events", "ask");

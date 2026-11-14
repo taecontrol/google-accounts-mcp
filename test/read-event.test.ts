@@ -190,13 +190,17 @@ it("marks the observed hidden guest list without relying on attendeesOmitted", a
   expect(result).not.toHaveProperty("guests_left_out");
 });
 
-it.each([404, 410, "cancelled"])(
-  "returns not_found for a missing or cancelled event: %s",
-  async (status) => {
+it.each(
+  [404, 410, "cancelled"].flatMap((status) =>
+    [PERSONAL, SECONDARY_CALENDAR.id].map((calendar) => ({ status, calendar })),
+  ),
+)(
+  "returns not_found for a missing or cancelled event $status in $calendar",
+  async ({ status, calendar }) => {
     const f = await eventsFixture("read_event");
-    calendarFake(list(PRIMARY_CALENDAR));
+    calendarFake(list(PRIMARY_CALENDAR, SECONDARY_CALENDAR));
     eventsFake({
-      [PERSONAL]: {
+      [calendar]: {
         events: {
           e1:
             typeof status === "number"
@@ -206,12 +210,107 @@ it.each([404, 410, "cancelled"])(
       },
     });
     await expectError(
-      await readEventCall(f),
+      await readEventCall(f, { calendar }),
       "not_found",
-      `No event "e1" exists in ${PERSONAL}. A event ID works only in the account that returned it.`,
+      `No event "e1" exists in calendar "${calendar}" of ${PERSONAL}. An event ID works only in the calendar and account that returned it.`,
     );
   },
 );
+
+it("sends a canonical zone on get and preserves the call's original zone name", async () => {
+  const f = await eventsFixture("read_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  const sent = eventsFake({ [PERSONAL]: { events: { e1: Response.json(eventFixture()) } } });
+  expect((await answer(await readEventCall(f, { time_zone: "america/bogota" }))).time_zone).toBe(
+    "america/bogota",
+  );
+  expect(new URL(sent[0]!.url).searchParams.get("timeZone")).toBe("America/Bogota");
+});
+
+it("omits attendees without email from guests and never matches an email-less self attendee", async () => {
+  const f = await eventsFixture("read_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          eventFixture({
+            attendees: [
+              { displayName: "No address", self: true, responseStatus: "accepted" },
+              { email: "guest@example.com", responseStatus: "tentative" },
+            ],
+          }),
+        ),
+      },
+    },
+  });
+  const result = await answer(await readEventCall(f));
+  expect(result.guests).toEqual([
+    { email: "guest@example.com", response: "tentative", optional: false },
+  ]);
+  expect(result).not.toHaveProperty("my_response");
+});
+
+it("reads an offset dateTime beyond four-digit years without narrowing Google's year range", async () => {
+  const f = await eventsFixture("read_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          eventFixture({
+            start: { dateTime: "+010000-01-01T14:00:00.123456Z" },
+            end: { dateTime: "+010000-01-01T15:00:00.123456Z" },
+          }),
+        ),
+      },
+    },
+  });
+  expect(await answer(await readEventCall(f, { time_zone: "UTC" }))).toMatchObject({
+    start: "+010000-01-01T14:00:00+00:00",
+    end: "+010000-01-01T15:00:00+00:00",
+  });
+});
+
+it("bounds organizer and omits oversized links using JSON lengths so a 32,000-character htmlLink stays within the result budget", async () => {
+  const f = await eventsFixture("read_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          eventFixture({
+            organizer: { email: '"'.repeat(32_000), self: true },
+            hangoutLink: '"'.repeat(1000),
+            htmlLink: "x".repeat(32_000),
+          }),
+        ),
+      },
+    },
+  });
+  const rpc = await rpcResult(await readEventCall(f));
+  expect(rpc.isError).toBeUndefined();
+  const text = (rpc.content as Array<{ text: string }>)[0]!.text;
+  expect(text.length).toBeLessThanOrEqual(32_000);
+  const result = JSON.parse(text) as Record<string, unknown>;
+  expect(JSON.stringify(result.organizer).length).toBeLessThanOrEqual(320);
+  expect(String(result.organizer)).toMatch(/…$/);
+  expect(result).not.toHaveProperty("meet");
+  expect(result.link).toBe("");
+});
+
+it("keeps meet and link at exactly 2,000 JSON characters", async () => {
+  const f = await eventsFixture("read_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  const link = '"'.repeat(999);
+  expect(JSON.stringify(link).length).toBe(2000);
+  eventsFake({
+    [PERSONAL]: {
+      events: { e1: Response.json(eventFixture({ hangoutLink: link, htmlLink: link })) },
+    },
+  });
+  expect(await answer(await readEventCall(f))).toMatchObject({ meet: link, link });
+});
 
 it.each(["primary", "colleague@example.com", "public", "busy"])(
   "does not request events in calendar %s when it cannot be read",

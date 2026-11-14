@@ -26,6 +26,8 @@ it.each([
   ["2026-10-25T01:00:00Z", "Europe/Madrid", "2026-10-25T02:00:00+01:00"],
   ["2026-10-25T01:30", "Europe/Madrid", "2026-10-25T01:30:00+02:00"],
   ["2026-10-25T03:30", "Europe/Madrid", "2026-10-25T03:30:00+01:00"],
+  ["2026-10-25T02:30", "Europe/Madrid", "2026-10-25T02:30:00+02:00"],
+  ["2026-11-01T01:30", "America/New_York", "2026-11-01T01:30:00-04:00"],
   ["2026-04-05T01:30", "Australia/Sydney", "2026-04-05T01:30:00+11:00"],
   ["2026-11-01T00:30", "America/New_York", "2026-11-01T00:30:00-04:00"],
   ["2026-09-06", "America/Santiago", "2026-09-06T01:00:00-03:00"],
@@ -38,6 +40,14 @@ it.each([
   const decoded = Schema.decodeUnknownSync(TimeText)(text);
   expect(decoded).toBe(text);
   expect(zonedIso(instantOf(parseTime(decoded), zone), zone)).toBe(expected);
+});
+
+it("round-trips a historical offset with seconds and keeps the approval date on January 1", () => {
+  const ms = instantOf(parseTime("1900-01-01"), "America/Bogota");
+  const text = zonedIso(ms, "America/Bogota");
+  expect(text).toBe("1900-01-01T00:00:16-04:56");
+  expect(instantOf(parseTime(text), "America/Bogota")).toBe(ms);
+  expect(viewTime(text, "America/Bogota")).toBe("Jan 1, 1900 at 00:00 (America/Bogota)");
 });
 
 it.each([
