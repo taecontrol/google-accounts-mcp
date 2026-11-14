@@ -304,6 +304,104 @@ const approvalPreviews: Readonly<Record<string, ApprovalPageProps>> = {
       ],
     },
   },
+  "approval-update-event": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Change event",
+        action: "change an event",
+        joiner: "in",
+      },
+      values: [
+        {
+          name: "Calendar",
+          text: "Personal (alex.personal@example.com)",
+          from: "calendar",
+        },
+        {
+          name: "Event",
+          text: "Project planning\nNov 20, 2026 at 15:00 (Europe/Madrid)",
+          from: "calendar",
+        },
+        {
+          name: "Changes",
+          text: "One occurrence of a series. The rest of the series stays as it is.",
+          from: "agent",
+        },
+        { name: "Title now", text: "Project planning", from: "calendar" },
+        { name: "New title", text: "Planning the next project milestone", from: "agent" },
+        { name: "Starts now", text: "Nov 20, 2026 at 15:00 (Europe/Madrid)", from: "calendar" },
+        { name: "New start", text: "Nov 20, 2026 at 16:00 (Europe/Madrid)", from: "agent" },
+        { name: "Ends now", text: "Nov 20, 2026 at 16:00 (Europe/Madrid)", from: "calendar" },
+        { name: "New end", text: "Nov 20, 2026 at 17:00 (Europe/Madrid)", from: "agent" },
+        { name: "Event's own zone now", text: "America/Bogota", from: "calendar" },
+        { name: "New event's own zone", text: "Europe/Madrid", from: "agent" },
+        { name: "Location now", text: "Meeting room", from: "calendar" },
+        { name: "New location", text: "(removed)", from: "agent" },
+        { name: "Description now", text: "Review the draft budget.", from: "calendar" },
+        {
+          name: "New description",
+          text: "Review the budget <draft> & decide the next steps.\nBring your project notes.",
+          from: "agent",
+        },
+        { name: "Already a guest", text: "sam@example.com", from: "agent" },
+        { name: "Not a guest", text: "absent@example.com", from: "agent" },
+        {
+          name: "Google emails the invitation to this address",
+          text: "kim@example.com",
+          from: "agent",
+        },
+        {
+          name: "Google emails the change to this address",
+          text: "sam@example.com",
+          from: "calendar",
+        },
+        {
+          name: "Google emails the cancellation to this address",
+          text: "lee@example.com",
+          from: "calendar",
+        },
+      ],
+    },
+  },
+  "approval-delete-event": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Delete event",
+        action: "delete an event",
+        joiner: "from",
+      },
+      notes: [{ text: "Google emails each guest a cancellation.", warning: true }],
+      values: [
+        {
+          name: "Calendar",
+          text: "Personal (alex.personal@example.com)",
+          from: "calendar",
+        },
+        {
+          name: "Event",
+          text: "Weekly project planning\nNov 20, 2030 at 09:00 (America/Bogota)",
+          from: "calendar",
+        },
+        { name: "Deletes", text: "The whole series: every occurrence.", from: "agent" },
+        {
+          name: "Google emails the cancellation to these 2 addresses",
+          text: "sam@example.com\nkim@example.com",
+          from: "calendar",
+        },
+        {
+          name: "Also emailed",
+          text: "Guests invited only to single occurrences of this series, if any, also get a cancellation.",
+          from: "agent",
+        },
+      ],
+    },
+  },
   "approval-check-availability": {
     ...approvalBase,
     request: {
