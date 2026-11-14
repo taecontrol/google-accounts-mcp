@@ -166,6 +166,14 @@ it("publishes the expected annotations for every tool", async () => {
       name: "respond_to_event",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
+    {
+      name: "update_event",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
+    {
+      name: "delete_event",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
     { name: "get_approval", annotations: { readOnlyHint: true } },
     {
       name: "create_upload_link",
@@ -296,3 +304,26 @@ it("advertises closed argument objects for tools that refuse extra fields", asyn
   ])
     expect(listed.find((tool) => tool.name === name)!.inputSchema.additionalProperties).toBe(false);
 });
+
+it.each([
+  {
+    name: "update_event",
+    permissionDescription:
+      "Change events in this account's calendars: their title, time, place, description, and guests. Google emails the guests about each change.",
+  },
+  {
+    name: "delete_event",
+    permissionDescription:
+      "Delete events from this account's calendars. Google emails the guests a cancellation.",
+  },
+])(
+  "marks $name as irreversible and explains guest emails in its permission",
+  ({ name, permissionDescription }) => {
+    expect(TOOLS.find((tool) => tool.name === name)).toMatchObject({
+      kind: "account",
+      group: "Create and change events",
+      irreversible: true,
+      permissionDescription,
+    });
+  },
+);

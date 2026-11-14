@@ -3,6 +3,7 @@ import { network } from "./network";
 import { fixture, PERSONAL, toolCall } from "./permissions";
 import { setTool } from "./uploads";
 import type { AccountRow } from "./accounts";
+import { testEnv } from "./worker";
 
 // Google's documented calendarList and OAuth contracts, independent of production constants.
 export const CALENDAR_SCOPES = [
@@ -27,25 +28,46 @@ export function calendarFake(
   return requests;
 }
 
-type EventAnswer = Response | ((request: CalendarRequest) => Response | Promise<Response>);
+export type EventRequest = CalendarRequest & { body?: unknown };
+type EventAnswer = Response | ((request: EventRequest) => Response | Promise<Response>);
 export interface CalendarEvents {
   list?: EventAnswer;
   events?: Record<string, EventAnswer>;
+  patch?: Record<string, EventAnswer>;
+  delete?: Record<string, EventAnswer>;
+  instances?: Record<string, EventAnswer>;
 }
 /** Independent Google fixtures keyed by the calendar and event actually named in the URL. */
 export function eventsFake(answers: Record<string, CalendarEvents>) {
-  const requests: CalendarRequest[] = [];
+  const requests: EventRequest[] = [];
   network.use(
-    http.get("https://www.googleapis.com/calendar/v3/calendars/*", ({ request }) => {
-      requests.push(request);
+    http.all("https://www.googleapis.com/calendar/v3/calendars/*", async ({ request }) => {
+      const recorded: EventRequest = {
+        url: request.url,
+        method: request.method,
+        headers: request.headers,
+        redirect: request.redirect,
+        signal: request.signal,
+        ...(request.body === null ? {} : { body: await request.clone().json() }),
+      };
+      requests.push(recorded);
       const parts = new URL(request.url).pathname.split("/");
       const calendar = decodeURIComponent(parts[4]!);
       const event = parts[6] === undefined ? undefined : decodeURIComponent(parts[6]);
+      const entry = answers[calendar];
       const answer =
-        event === undefined ? answers[calendar]?.list : answers[calendar]?.events?.[event];
+        event === undefined
+          ? entry?.list
+          : request.method === "PATCH"
+            ? entry?.patch?.[event]
+            : request.method === "DELETE"
+              ? entry?.delete?.[event]
+              : parts[7] === "instances"
+                ? entry?.instances?.[event]
+                : entry?.events?.[event];
       if (!answer)
         throw new Error(`Unexpected Calendar events request: ${calendar}/${event ?? "list"}`);
-      return typeof answer === "function" ? answer(request) : answer.clone();
+      return typeof answer === "function" ? answer(recorded) : answer.clone();
     }),
   );
   return requests;
@@ -109,6 +131,7 @@ export const SECONDARY_CALENDAR = {
 // Observed API shape on 2026-11-14. An organizer has no attendee entry unless Google supplied one.
 export const eventFixture = (overrides: Record<string, unknown> = {}) => ({
   id: "e1",
+  etag: '"version-1"',
   status: "confirmed",
   summary: "Planning",
   start: { dateTime: "2026-11-20T14:00:00Z" },
@@ -159,3 +182,9 @@ export const respondCall = (
     response: "accepted",
     ...args,
   });
+export const eventChangeCall = (
+  f: Awaited<ReturnType<typeof fixture>>,
+  tool: "update_event" | "delete_event",
+  args: Record<string, unknown> = {},
+  workerEnv = testEnv(),
+) => toolCall(f.mcp, tool, { account: PERSONAL, event: "e1", ...args }, workerEnv);

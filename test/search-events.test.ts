@@ -12,6 +12,7 @@ import {
   CALENDAR_SCOPES,
   readEventCall,
   respondCall,
+  eventChangeCall,
 } from "./support/calendar";
 import {
   callRows,
@@ -1353,7 +1354,7 @@ it("refuses page with several calendars before approval, and a page Google refus
   expect(new URL(sent[0]!.url).searchParams.get("pageToken")).toBe("refused");
 });
 
-it.each(["search_events", "read_event", "respond_to_event"])(
+it.each(["search_events", "read_event", "respond_to_event", "update_event", "delete_event"] as const)(
   "defaults %s to deny and distinguishes an unavailable account from a denied tool",
   async (tool) => {
     const f = await fixture({ scopes: JSON.stringify(CALENDAR_SCOPES) });
@@ -1362,7 +1363,9 @@ it.each(["search_events", "read_event", "respond_to_event"])(
         ? searchCall(f)
         : tool === "read_event"
           ? readEventCall(f)
-          : respondCall(f);
+          : tool === "respond_to_event"
+            ? respondCall(f)
+            : eventChangeCall(f, tool, { title: "Changed" });
     await expectError(await call(), "account_not_available", /No account/);
     await setTool(f, "list_calendars", "allow");
     await expectError(await call(), "tool_not_allowed", new RegExp(`has not allowed ${tool}`));
@@ -1371,7 +1374,7 @@ it.each(["search_events", "read_event", "respond_to_event"])(
 );
 
 it.each(
-  ["search_events", "read_event", "respond_to_event"].flatMap((tool) =>
+  (["search_events", "read_event", "respond_to_event", "update_event", "delete_event"] as const).flatMap((tool) =>
     problemCases.map((problem) => ({ tool, ...problem })),
   ),
 )("refuses $tool at Calendar status $status before Google", async ({ tool, row, status }) => {
@@ -1381,7 +1384,9 @@ it.each(
       ? await searchCall(f)
       : tool === "read_event"
         ? await readEventCall(f)
-        : await respondCall(f),
+        : tool === "respond_to_event"
+          ? await respondCall(f)
+          : await eventChangeCall(f, tool, { title: "Changed" }),
     `account_${status}`,
     status === "missing_access"
       ? /no Calendar access/
