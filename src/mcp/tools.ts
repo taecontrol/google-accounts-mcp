@@ -94,8 +94,13 @@ import {
 } from "../google/availability";
 import { EventResponse, invitation, respondToEvent, WHOLE_SERIES } from "../google/respond";
 import { Created, createDraft, readDraft, uploadDraft } from "../google/draft";
-import { DeleteEventInput, UpdateEventInput, deletePlan, updatePlan, runChange } from "../google/event-change";
-import { DESCRIPTION_EXPECTS } from "../google/event-write";
+import {
+  DeleteEventInput,
+  UpdateEventInput,
+  deletePlan,
+  updatePlan,
+  runChange,
+} from "../google/event-change";
 import {
   MAX_SUBJECT,
   mailboxText,
@@ -128,6 +133,7 @@ import {
   windowIssue,
   eventPoints,
   checkedDescription,
+  DESCRIPTION_EXPECTS,
   timeValues,
   guestsValue,
   writeEvent,
@@ -1392,8 +1398,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
       repeat:
         'an object with every: "day", "week", or "month"; optional interval: a whole number from 1 to 99, 1 when absent; optional weekdays: 1 to 7 distinct lowercase day names spelled monday through sunday, only with every "week", including the weekday of start in the event\'s zone; optional until: a valid YYYY-MM-DD date from 1900 to 2999, on or after the date of start in that zone; optional count: a whole number from 1 to 730; until and count cannot be given together; without either, the rule has no end date',
       location: "a string of at most 1,000 characters without control characters",
-      description:
-        "plain text of at most 8,000 UTF-8 bytes after HTML encoding, counting each line break, tab, quote, and backslash as 2, without other control characters",
+      description: DESCRIPTION_EXPECTS,
       guests:
         "a list of at most 50 different bare email addresses, unique ignoring case, each at most 254 characters with one @ and a domain with a dot, without whitespace, control or format characters, display names, or the account's own address",
       meet: "a boolean",
