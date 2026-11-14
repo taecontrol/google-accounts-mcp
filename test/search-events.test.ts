@@ -1238,21 +1238,31 @@ it("fails as a tool error if the size-cut re-request leaves every calendar in er
   expect(sent).toHaveLength(2);
 });
 
-it("reserves escaped calendar errors and marks later calendars not_read when the envelopes fill the result", async () => {
+it("marks later calendars not_read when their page tokens fill the result", async () => {
   const f = await eventsFixture();
-  calendarFake(list(PRIMARY_CALENDAR));
-  const sent = eventsFake({ [PERSONAL]: { list: Response.json({}) } });
-  const ids = Array.from({ length: 19 }, (_, i) => String(i).padEnd(254, "\u0000"));
-  const rpc = await rpcResult(await searchCall(f, { calendars: [PERSONAL, ...ids] }));
+  // Calendar IDs cannot hold characters that JSON escapes, so long page tokens fill the envelopes.
+  const ids = Array.from({ length: 20 }, (_, i) => `calendar-${i}@group.calendar.google.com`);
+  calendarFake(
+    list(PRIMARY_CALENDAR, ...ids.map((id) => ({ id, summary: id, accessRole: "reader" }))),
+  );
+  const sent = eventsFake(
+    Object.fromEntries(
+      ids.map((id) => [
+        id,
+        { list: Response.json({ items: [], nextPageToken: "t".repeat(1_990) }) },
+      ]),
+    ),
+  );
+  const rpc = await rpcResult(await searchCall(f, { calendars: ids }));
   expect(rpc.isError).toBeUndefined();
   const text = (rpc.content as Array<{ text: string }>)[0]!.text;
   expect(text.length).toBeLessThanOrEqual(32_000);
   const result = JSON.parse(text) as SearchResult;
-  expect(result.calendars[0]).toEqual({ calendar: PERSONAL, events: [] });
-  expect(result.calendars.some((calendar) => calendar.error?.code === "not_found")).toBe(true);
-  expect(result.calendars.at(-1)).toMatchObject({ not_read: true });
+  expect(result.calendars[0]).toMatchObject({ calendar: ids[0], events: [] });
+  expect(result.calendars[0]!.next_page).toBeDefined();
+  expect(result.calendars.at(-1)).toEqual({ calendar: ids.at(-1), not_read: true });
   expect(result.note).toMatch(/size limit/);
-  expect(sent).toHaveLength(1);
+  expect(sent).toHaveLength(20);
 });
 
 it("keeps twenty 254-character unlisted IDs below the MCP result budget without any events request", async () => {
@@ -1274,6 +1284,10 @@ it.each([
   { field: "calendars", value: [] },
   { field: "calendars", value: [""] },
   { field: "calendars", value: ["c".repeat(255)] },
+  { field: "calendars", value: ["Team (team@example.com)\nPersonal"] },
+  { field: "calendars", value: ["team@example.com\u0000"] },
+  { field: "calendars", value: ["team@example.com\u0085"] },
+  { field: "calendars", value: ["team@example.com\u2028"] },
   { field: "calendars", value: Array.from({ length: 21 }, () => PERSONAL) },
   { field: "from", value: "2026-02-30" },
   { field: "to", value: "1899-01-01" },

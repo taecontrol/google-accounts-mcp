@@ -402,6 +402,8 @@ it.each([
   { field: "account", value: false },
   { field: "calendar", value: "" },
   { field: "calendar", value: "c".repeat(255) },
+  { field: "calendar", value: "team@example.com\nPersonal" },
+  { field: "calendar", value: "team@example.com\u2029" },
   { field: "event", value: "" },
   { field: "event", value: "." },
   { field: "event", value: ".." },
