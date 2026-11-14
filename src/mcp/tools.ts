@@ -51,7 +51,33 @@ import {
 } from "./failures";
 import { GROUP_SERVICE, type Group } from "./groups";
 import { SERVICES, type Service } from "../google/services";
-import { listCalendars, MAX_CALENDARS, MAX_CALENDARS_CHARACTERS } from "../google/calendar";
+import {
+  CalendarId,
+  calendarContext,
+  readableCalendar,
+  listCalendars,
+  MAX_CALENDARS,
+  MAX_CALENDARS_CHARACTERS,
+} from "../google/calendar";
+import {
+  TimeText,
+  ZoneName,
+  parseTime,
+  rangeOf,
+  viewTime,
+  zonedIso,
+} from "../google/calendar-time";
+import {
+  DEFAULT_EVENT_LIMIT,
+  MAX_EVENT_LIMIT,
+  MAX_EVENT_CALENDARS,
+  MAX_EVENT_QUERY,
+  MAX_EVENT_PAGE,
+  EventId,
+  eventView,
+  readEvent,
+  searchEvents,
+} from "../google/events";
 import type { Created } from "../once/store";
 import { createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
@@ -316,6 +342,36 @@ const MessagesInput = Schema.Struct({
     Schema.isUnique(),
   ),
 });
+const SearchEventsInput = Schema.Struct({
+  account: Schema.String,
+  calendars: Schema.optionalKey(
+    Schema.Array(CalendarId).check(Schema.isBetweenLength(1, MAX_EVENT_CALENDARS)),
+  ),
+  from: TimeText,
+  to: TimeText,
+  time_zone: Schema.optionalKey(ZoneName),
+  query: Schema.optionalKey(Schema.String.check(Schema.isBetweenLength(1, MAX_EVENT_QUERY))),
+  limit: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_EVENT_LIMIT })),
+  ),
+  page: Schema.optionalKey(Schema.String.check(Schema.isBetweenLength(1, MAX_EVENT_PAGE))),
+}).check(
+  Schema.makeFilter((args) => {
+    if (args.page !== undefined && (args.calendars?.length ?? 1) > 1)
+      return { path: ["page"], issue: "requires exactly one calendar" };
+    if (
+      args.time_zone !== undefined ||
+      (parseTime(args.from).kind === "instant") === (parseTime(args.to).kind === "instant")
+    ) {
+      const range = rangeOf(args.from, args.to, args.time_zone ?? "UTC");
+      if (Result.isFailure(range)) return { path: ["to"], issue: range.failure.field!.expects };
+    }
+    return true;
+  }),
+);
+const zoneExpects = "UTC or an IANA zone name with a slash, such as America/Bogota";
+const timeExpects =
+  "a valid date or date-time in years 1900 to 2999: YYYY-MM-DD or YYYY-MM-DDTHH:MM[:SS[.fff]], with an optional Z or ±HH:MM offset";
 const messagesExpects = {
   account: "a string",
   messages: `a list of 1 to ${MAX_ITEMS} different message IDs that read_thread returned`,
@@ -1159,6 +1215,131 @@ export const TOOLS: ReadonlyArray<Tool> = [
     view: { action: "list the calendars", joiner: "of", values: () => Effect.succeed([]) },
     run: (send, account) =>
       listCalendars(send).pipe(Effect.map((list) => ({ account: account.email, ...list }))),
+  }),
+  accountTool({
+    name: "search_events",
+    label: "Search events",
+    group: "See calendars and events",
+    irreversible: false,
+    annotations: { readOnlyHint: true },
+    permissionDescription:
+      "See the events of this account's calendars in a time range: their titles, times, places, organizers, and number of guests.",
+    description:
+      "Lists events in a time range in one Google account, grouped by calendar and ordered by start time. `account` is an address from list_accounts. `calendars` is an optional list of 1 to 20 calendar IDs from list_calendars, each 1 to 254 characters; without it, the tool searches the primary calendar. Google's alias `primary` is not an ID from list_calendars. Unlisted calendars get not_found. Calendars where the account sees only busy times get invalid_arguments; use check_availability for those. `from` and `to` are required: a date means the start of that day, a date-time without an offset is read in the call's zone, and a date-time with Z or ±HH:MM names an instant. Years are 1900 to 2999, seconds are optional, and fractions of a second are ignored. `to` is exclusive and must be after `from`. `time_zone` is UTC or an IANA name with a slash, such as America/Bogota; without it the call uses the primary calendar's zone. Every timed result has seconds and the call zone's offset, as YYYY-MM-DDTHH:MM:SS±HH:MM. All-day start and end stay dates, and end is the day after the last day. An event is in range when it ends after from and starts before to. Repeating events appear as occurrences, with `series` naming the series; cancelled events and working locations are left out. Other special events have `type`: out_of_office, focus_time, birthday, or from_gmail. `query` is optional Google free-text search, 1 to 500 characters, over titles, descriptions, locations, and guest and organizer names and addresses. `limit` is 1 to 50 events per calendar, 25 by default; the range has no length limit. `next_page` means there is more, even next to empty `events`: repeat the same call with calendars set to that one calendar and `page` set to next_page, at most 2,000 characters. A page needs exactly one calendar. A calendar-local failure has `error: { code, message }` instead of events. Account-wide and server failures fail the call; when every calendar fails, the call returns a tool error. Each event has its ID, title, start, end, all_day, optional location and organizer, and guest_count without rooms. `my_response`, when present, is the account's own guest answer: accepted, declined, tentative, or needs_action. On the primary calendar it uses Google's self entry; elsewhere it matches the account's address. `guests_hidden` means the organizer hid the guests or Google omitted them, so guest_count counts only the visible guests. Titles and locations are cut with … to 200 JSON characters each. A result has at most 32,000 JSON characters. At its size limit, `note` explains the cut, and later calendars have `not_read: true` and no events. Call again for each calendar with next_page or not_read. When the owner sets this tool to ask, it returns a pending approval with a link instead of events; get_approval returns the result after the owner approves.",
+    input: SearchEventsInput,
+    expects: {
+      account: "a string",
+      calendars: "a list of 1 to 20 calendar IDs from list_calendars, each 1 to 254 characters",
+      from: timeExpects,
+      to: `${timeExpects}, after from in the call's time zone`,
+      time_zone: zoneExpects,
+      query: "a string of 1 to 500 characters",
+      limit: "a whole number from 1 to 50",
+      page: "the next_page value of an earlier result, 1 to 2,000 characters, with exactly one calendar",
+    },
+    view: {
+      action: "search the calendar events",
+      joiner: "of",
+      values: (args, send) =>
+        Effect.gen(function* () {
+          const ctx = yield* calendarContext(send, args.time_zone);
+          const range = yield* Effect.fromResult(rangeOf(args.from, args.to, ctx.zone));
+          const listed: string[] = [];
+          const unlisted: string[] = [];
+          const busy: string[] = [];
+          for (const id of args.calendars ?? [undefined]) {
+            const calendar = readableCalendar(ctx, id);
+            if (Result.isSuccess(calendar))
+              listed.push(`${calendar.success.name} (${calendar.success.calendar})`);
+            else if (calendar.failure.code === "not_found") {
+              if (id === undefined) return yield* Effect.fail(calendar.failure);
+              unlisted.push(id);
+            } else {
+              const entry = ctx.calendars.find(
+                (calendar) => calendar.calendar === (id ?? ctx.primary?.calendar),
+              )!;
+              busy.push(`${entry.name} (${entry.calendar})`);
+            }
+          }
+          const values: ViewValue[] = [];
+          if (listed.length)
+            values.push({ name: "Calendars", text: listed.join("\n"), from: "calendar" });
+          if (unlisted.length)
+            values.push({
+              name: "Not calendars of this account",
+              text: unlisted.join("\n"),
+              from: "agent",
+            });
+          if (busy.length)
+            values.push({
+              name: "Only busy times visible",
+              text: busy.join("\n"),
+              from: "calendar",
+            });
+          values.push({
+            name: "Range",
+            text: `${viewTime(zonedIso(range.from, ctx.zone), ctx.zone, false)} to ${viewTime(zonedIso(range.to, ctx.zone), ctx.zone)}`,
+            from: "agent",
+          });
+          if (args.query !== undefined)
+            values.push({ name: "Query", text: args.query, from: "agent" });
+          values.push({
+            name: "Limit",
+            text: String(args.limit ?? DEFAULT_EVENT_LIMIT),
+            from: "agent",
+          });
+          if (args.page !== undefined)
+            values.push({ name: "Page", text: args.page, from: "agent" });
+          return values;
+        }),
+    },
+    run: (send, account, args) => searchEvents(send, { ...args, account: account.email }),
+  }),
+  accountTool({
+    name: "read_event",
+    label: "Read event",
+    group: "See calendars and events",
+    irreversible: false,
+    annotations: { readOnlyHint: true },
+    permissionDescription: "Read one event in full: its description, guests, and their answers.",
+    description:
+      "Reads one event of one Google account, with its description and guests. `account` is an address from list_accounts. `calendar` is an optional calendar ID from list_calendars, 1 to 254 characters; without it the tool reads the primary calendar. Google's alias `primary` is not an ID from list_calendars. Unlisted calendars get not_found; a calendar where the account sees only busy times gets invalid_arguments, and check_availability gives those times. `event` is an event ID from search_events, 1 to 1,024 letters, digits, hyphens, or underscores; it works only in the calendar and account that returned it. An occurrence ID reads that occurrence, with `series` naming its series. A series ID reads the series and adds `recurrence`, Google's rule lines as given. A missing or cancelled event gets not_found. `time_zone` is UTC or an IANA name with a slash, such as America/Bogota; without it the call uses the primary calendar's zone. All times use that zone, have seconds, and have the format YYYY-MM-DDTHH:MM:SS±HH:MM. All-day start and end are dates, and end is the day after the last day. The result has account, calendar, time_zone, event, title, start, end, all_day, optional location and organizer, description, guests, status (confirmed or tentative), and link to Google Calendar. Description is plain text, with HTML converted when present. Each guest has email, optional name, response (accepted, declined, tentative, or needs_action), and optional as a boolean; rooms are left out. `my_response` is the account's own guest answer when an entry exists: Google's self entry in the primary calendar, or an address match elsewhere. `guests_hidden` means the organizer hid the list or Google omitted guests; guests then holds only what Google gave. `meet` is the Google Meet link when present. Non-regular events have `type`: out_of_office, focus_time, birthday, from_gmail, or working_location. Title and location are cut with … to 1,000 JSON characters each. Description is at most 10,000 JSON characters and a cut ends with [The rest of the description was left out.]. Guests are at most 8,000 JSON characters, with guests_left_out counting the rest; recurrence is at most 4,000 JSON characters, keeping whole lines, with recurrence_left_out counting the rest. The result stays within 32,000 JSON characters. When the owner sets this tool to ask, it returns a pending approval with a link instead of the event; get_approval returns the result after the owner approves.",
+    input: Schema.Struct({
+      account: Schema.String,
+      calendar: Schema.optionalKey(CalendarId),
+      event: EventId,
+      time_zone: Schema.optionalKey(ZoneName),
+    }),
+    expects: {
+      account: "a string",
+      calendar: "a calendar ID from list_calendars, 1 to 254 characters",
+      event: "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores",
+      time_zone: zoneExpects,
+    },
+    view: {
+      action: "read a calendar event",
+      joiner: "in",
+      values: (args, send) =>
+        Effect.gen(function* () {
+          const ctx = yield* calendarContext(send, args.time_zone);
+          const calendar = yield* Effect.fromResult(readableCalendar(ctx, args.calendar));
+          const event = yield* eventView(send, calendar, args.event, ctx.zone);
+          return [
+            {
+              name: "Calendar",
+              text: `${calendar.name} (${calendar.calendar})`,
+              from: "calendar" as const,
+            },
+            { name: "Event", text: event.title, from: "calendar" as const },
+            {
+              name: "Starts",
+              text: `${viewTime(event.start, ctx.zone)}${event.own_zone && event.own_zone !== ctx.zone ? `; event's own zone: ${event.own_zone}` : ""}`,
+              from: "calendar" as const,
+            },
+          ];
+        }),
+    },
+    run: (send, account, args) => readEvent(send, { ...args, account: account.email }),
   }),
   {
     kind: "plain",

@@ -1,11 +1,18 @@
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { Send } from "../mcp/tools";
 import { ToolFailure } from "../mcp/failures";
 import { shorten } from "./bounds";
+import { ZoneName } from "./calendar-time";
 
 const API = "https://www.googleapis.com/calendar/v3";
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
-export const get = <A>(send: Send, path: string, schema: Schema.Codec<A, unknown>) =>
+export const CalendarId = Schema.String.check(Schema.isBetweenLength(1, 254));
+export const get = <A>(
+  send: Send,
+  path: string,
+  schema: Schema.Codec<A, unknown>,
+  refused: (status: number) => ToolFailure = unavailable,
+) =>
   Effect.gen(function* () {
     const response = yield* send(
       (token, signal) =>
@@ -15,7 +22,7 @@ export const get = <A>(send: Send, path: string, schema: Schema.Codec<A, unknown
           signal,
         }),
     );
-    if (!response.ok) return yield* Effect.fail(unavailable());
+    if (!response.ok) return yield* Effect.fail(refused(response.status));
     const text = yield* Effect.tryPromise({
       try: () => response.text(),
       catch: () => new ToolFailure({ code: "google_unavailable", unknown: true }),
@@ -23,6 +30,62 @@ export const get = <A>(send: Send, path: string, schema: Schema.Codec<A, unknown
     const body = yield* Effect.try({ try: (): unknown => JSON.parse(text), catch: unavailable });
     return yield* Schema.decodeUnknownEffect(schema)(body).pipe(Effect.mapError(unavailable));
   });
+
+export interface CalendarContext {
+  readonly calendars: readonly Calendar[];
+  readonly primary: Calendar | undefined;
+  readonly zone: string;
+}
+export const calendarContext = (
+  send: Send,
+  timeZone?: string,
+): Effect.Effect<CalendarContext, ToolFailure> =>
+  readCalendarList(send).pipe(
+    Effect.flatMap(({ calendars }) => {
+      const primary = calendars.find((calendar) => calendar.primary);
+      const zone = timeZone ?? primary?.time_zone;
+      if (zone === undefined || !Schema.is(ZoneName)(zone))
+        return Effect.fail(
+          new ToolFailure({
+            code: "invalid_arguments",
+            field: {
+              name: "time_zone",
+              expects:
+                "given as an IANA zone name: this account has no valid primary calendar zone",
+            },
+          }),
+        );
+      return Effect.succeed({ calendars, primary, zone });
+    }),
+  );
+
+/** The single access check for every event read, including approval views. */
+export const readableCalendar = (
+  ctx: CalendarContext,
+  id: string | undefined,
+): Result.Result<Calendar, ToolFailure> => {
+  const calendar =
+    id === undefined ? ctx.primary : ctx.calendars.find((calendar) => calendar.calendar === id);
+  if (!calendar || calendar.calendar === "primary")
+    return Result.fail(
+      new ToolFailure({
+        code: "not_found",
+        said: "No such calendar in the account's Google Calendar list; leave calendars out to use the primary calendar, or use IDs from list_calendars.",
+      }),
+    );
+  if (calendar.access === "free_busy")
+    return Result.fail(
+      new ToolFailure({
+        code: "invalid_arguments",
+        field: {
+          name: "calendar",
+          expects:
+            "a calendar where this account can read events: it sees only busy times here; use check_availability for those",
+        },
+      }),
+    );
+  return Result.succeed(calendar);
+};
 
 const CalendarList = Schema.Struct({
   items: Schema.optionalKey(

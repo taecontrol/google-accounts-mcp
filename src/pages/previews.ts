@@ -202,6 +202,64 @@ const attachmentPreview: ApprovalPageProps = {
   },
 };
 const approvalPreviews: Readonly<Record<string, ApprovalPageProps>> = {
+  "approval-search-events": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Search events",
+        action: "search the calendar events",
+        joiner: "of",
+      },
+      values: [
+        {
+          name: "Calendars",
+          text: "Personal (alex.personal@example.com)\nProject milestones (project@group.calendar.google.com)",
+          from: "calendar",
+        },
+        { name: "Not calendars of this account", text: "primary", from: "agent" },
+        {
+          name: "Only busy times visible",
+          text: "Northwind team (team@example.com)",
+          from: "calendar",
+        },
+        {
+          name: "Range",
+          text: "Nov 20, 2026 at 00:00 to Nov 27, 2026 at 00:00 (America/Bogota)",
+          from: "agent",
+        },
+        { name: "Query", text: "project planning", from: "agent" },
+        { name: "Limit", text: "25", from: "agent" },
+        { name: "Page", text: "next-page-token", from: "agent" },
+      ],
+    },
+  },
+  "approval-read-event": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Read event",
+        action: "read a calendar event",
+        joiner: "in",
+      },
+      values: [
+        {
+          name: "Calendar",
+          text: "Project milestones (project@group.calendar.google.com)",
+          from: "calendar",
+        },
+        { name: "Event", text: "Project planning with the Northwind team", from: "calendar" },
+        {
+          name: "Starts",
+          text: "Nov 20, 2026 at 09:00 (America/Bogota); event's own zone: Europe/Madrid",
+          from: "calendar",
+        },
+      ],
+    },
+  },
   "approval-waiting-attachments": attachmentPreview,
   "approval-waiting": approvalBase,
   "approval-waiting-long-names": {

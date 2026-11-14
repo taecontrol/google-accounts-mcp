@@ -180,7 +180,7 @@ const tokenFailure = (error: TokenError): ToolFailure => {
     case "AccountGone":
       return new ToolFailure({ code: "account_not_available" });
     case "GoogleUnavailable":
-      return new ToolFailure({ code: "google_unavailable" });
+      return new ToolFailure({ code: "google_unavailable", accountWide: true });
     case "RequestLost":
       return new ToolFailure({ code: "google_unavailable", unknown: true });
     case "Unavailable":

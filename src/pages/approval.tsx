@@ -94,18 +94,29 @@ const SOURCES = {
   agent: "written by the agent",
   gmail: "read from Gmail",
   draft: "read from a draft",
+  calendar: "read from Google Calendar",
 } as const;
 type Values = ApprovalRequest["values"];
 const mixed = (values: Values) => new Set(values.map((value) => value.from)).size > 1;
 /** Introduce where the shaded values were read, without guessing who wrote a draft. */
-const whose = (values: Values) =>
-  mixed(values)
-    ? "The agent wrote part of the shaded text below, and the server read the rest from Gmail. Each caption says which."
+const whose = (values: Values) => {
+  const sources = [
+    ...(values.some((value) => value.from === "gmail") ? ["Gmail"] : []),
+    ...(values.some((value) => value.from === "draft") ? ["a draft in Gmail"] : []),
+    ...(values.some((value) => value.from === "calendar") ? ["Google Calendar"] : []),
+  ];
+  if (mixed(values))
+    return values.some((value) => value.from === "agent")
+      ? `The agent wrote part of the shaded text below, and the server read the rest from ${sources.join(" and ")}. Each caption says which.`
+      : `The server read the shaded text below from ${sources.join(" and ")}. Each caption says which.`;
+  return values[0]?.from === "calendar"
+    ? "The server read the shaded text below from Google Calendar. The agent did not write it."
     : values[0]?.from === "draft"
       ? "The server read the shaded text below from a draft in Gmail. The agent or you may have written it."
       : values[0]?.from === "gmail"
         ? "The server read the shaded text below from Gmail. The agent did not write it."
         : "The agent wrote the shaded text below.";
+};
 
 const minutes = (count: number) => (count === 1 ? "1 minute" : `${count} minutes`);
 

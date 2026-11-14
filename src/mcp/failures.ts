@@ -150,7 +150,14 @@ export type FailureCode = keyof typeof failures;
 export const reasonLabel = (code: string): string =>
   Object.hasOwn(failures, code) ? failures[code as FailureCode].label : code;
 
-export type Missing = "thread" | "message" | "draft" | "attachment" | "label";
+export type Missing =
+  | "thread"
+  | "message"
+  | "draft"
+  | "attachment"
+  | "label"
+  | "calendar"
+  | "event";
 export const notFound = (kind: Missing, id: string | readonly string[]): ToolFailure =>
   new ToolFailure({ code: "not_found", missing: { kind, id } });
 export const messageTooLarge = (
@@ -179,6 +186,8 @@ export const uploadNotAvailable = (id: string): ToolFailure =>
 export const uploadNotReady = (): ToolFailure => new ToolFailure({ code: "upload_not_ready" });
 type FailureData = {
   service?: Service;
+  /** Token acquisition failed for the account, rather than one Calendar resource. */
+  accountWide?: true;
   about?: { input: string; email: string; tool?: string };
   unknown?: boolean;
   /** The once row was released; do not classify this as an unknown call. */
@@ -228,6 +237,33 @@ const missingMessage = ({ kind, id }: NonNullable<ToolFailure["missing"]>, email
       ? `No ${kind} "${ids[0]}"`
       : `None of the ${kind}s ${ids.map((id) => `"${id}"`).join(", ")}`;
   return `${subject} exists in ${email}. A ${kind} ID works only in the account that returned it.`;
+};
+const fieldMessage = (field: NonNullable<ToolFailure["field"]>) =>
+  `The ${field.name} field must be ${field.expects}.`;
+
+/** Only calendar-local failures can be represented without the execution's full context. */
+export const calendarError = (
+  failure: ToolFailure,
+  email: string,
+): { code: "not_found" | "invalid_arguments" | "google_unavailable"; message: string } | null => {
+  const code = failure.code;
+  if (
+    failure.accountWide ||
+    (code !== "not_found" && code !== "invalid_arguments" && code !== "google_unavailable")
+  )
+    return null;
+  return {
+    code,
+    message:
+      failure.said ??
+      (failure.field
+        ? fieldMessage(failure.field)
+        : failure.missing
+          ? missingMessage(failure.missing, email)
+          : code === "google_unavailable"
+            ? failures.google_unavailable.message("", email)
+            : failures[code].message()),
+  };
 };
 /** Mark only the request that creates or sends, never a preparing read or write. */
 export const creating = <A>(
@@ -307,7 +343,7 @@ export function classify(
               failure.said ??
                 fileMessage ??
                 (failure.field
-                  ? `The ${failure.field.name} field must be ${failure.field.expects}.`
+                  ? fieldMessage(failure.field)
                   : failure.missing
                     ? missingMessage(failure.missing, text.email)
                     : failure.over
