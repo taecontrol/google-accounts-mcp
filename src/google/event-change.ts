@@ -440,11 +440,15 @@ export const deletePlan = (
       const instances = yield* get(
         send,
         `calendars/${encodeURIComponent(calendar.calendar)}/events/${encodeURIComponent(input.event)}/instances?${params}`,
-        Schema.Struct({ items: Schema.optionalKey(Schema.Array(Schema.Unknown)) }),
+        Schema.Struct({
+          items: Schema.optionalKey(Schema.Array(Schema.Unknown)),
+          nextPageToken: Schema.optionalKey(Schema.NonEmptyString),
+        }),
         (status) =>
           status === 404 || status === 410 ? notFound("event", input.event) : unavailable(),
       );
-      if (instances.items?.length) return yield* Effect.fail(pastSeries());
+      if (instances.items?.length || instances.nextPageToken !== undefined)
+        return yield* Effect.fail(pastSeries());
     }
     const values = baseValues(read);
     values.push({

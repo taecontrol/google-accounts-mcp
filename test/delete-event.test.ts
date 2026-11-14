@@ -310,3 +310,29 @@ it("rejects a series starting exactly now without requesting instances or deleti
   );
   expect(sent.map((r) => r.method)).toEqual(["GET"]);
 });
+
+it("does not delete a series when an empty instance page still has a next page", async () => {
+  const f = await eventsFixture("delete_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  const sent = eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          eventFixture({
+            recurrence: ["RRULE:FREQ=WEEKLY"],
+            start: { dateTime: "2030-11-20T14:00:00Z" },
+            end: { dateTime: "2030-11-20T15:00:00Z" },
+          }),
+        ),
+      },
+      instances: { e1: Response.json({ items: [], nextPageToken: "more-instances" }) },
+      delete: { e1: new Response(null, { status: 204 }) },
+    },
+  });
+  await expectError(
+    await eventChangeCall(f, "delete_event"),
+    "invalid_arguments",
+    /event field.*series has occurrences in the past/,
+  );
+  expect(sent.map((r) => r.method)).toEqual(["GET", "GET"]);
+});
