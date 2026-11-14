@@ -180,7 +180,7 @@ it("shows invitation answers under Respond to invitations with the email and not
   const html = await (await f.mcp.browser.get(`/connections/${f.connection.id}`)).text();
   const text = textOf(html);
   const permission =
-    "Accept, decline, or answer maybe to invitations in this account's primary calendar, with a note the agent writes. Google emails the answer and the note to the organizer. Other guests who can see the guest list can read them, and Google may email them too.";
+    "Accept, decline, or answer maybe to invitations in this account's primary calendar, with a note the agent writes. Google emails the answer and the note to the organizer. Other guests who can see the guest list, and people the organizer's calendar is shared with, can read them, and Google may email them to those guests too. An answer without a note removes the earlier note.";
   expect(pageProps(html).tools.find((tool) => tool.name === "respond_to_event")).toEqual({
     name: "respond_to_event",
     label: "Respond to invitation",
