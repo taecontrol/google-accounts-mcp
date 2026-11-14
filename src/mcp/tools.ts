@@ -463,13 +463,10 @@ const CheckAvailabilityInput = Schema.Struct({
   to: TimeText,
   time_zone: Schema.optionalKey(ZoneName),
   calendars: Schema.optionalKey(
-    Schema.Array(
-      // A line break inside one ID would read as two IDs on the approval page.
-      CalendarId.check(
-        // oxlint-disable-next-line no-control-regex -- IDs must not hold characters that break view lines.
-        Schema.makeFilter((id) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(id)),
-      ),
-    ).check(Schema.isBetweenLength(1, MAX_AVAILABILITY_CALENDARS), Schema.isUnique()),
+    Schema.Array(CalendarId).check(
+      Schema.isBetweenLength(1, MAX_AVAILABILITY_CALENDARS),
+      Schema.isUnique(),
+    ),
   ),
 }).check(
   Schema.makeFilter((args) => {
