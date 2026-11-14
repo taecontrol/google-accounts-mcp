@@ -8,7 +8,6 @@ import { observeStatements, setOwner } from "./support/db";
 import { ORIGIN, OWNER_EMAIL, testEnv } from "./support/worker";
 import { decodeCredential, accountStatus } from "../src/accounts/model";
 import { listAccounts } from "../src/accounts/store";
-import { parseGrantedScopes } from "../src/google/client";
 import { readOwner } from "../src/owner/owner";
 
 const outcome = (response: Response) => {
@@ -128,8 +127,10 @@ it.each(["invalid state", "cookie prefix", "exactly ten minutes"])(
 );
 
 it("shows Needs reconnect before missing Gmail permissions", () => {
-  expect(accountStatus("needs_reconnect", parseGrantedScopes(""))).toEqual({
-    kind: "needs_reconnect",
+  expect(accountStatus("needs_reconnect", [], "gmail", true)).toEqual({
+    status: { kind: "needs_reconnect" },
+    granted: 0,
+    required: 5,
   });
 });
 

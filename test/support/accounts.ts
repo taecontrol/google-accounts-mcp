@@ -115,7 +115,9 @@ export async function ownerBrowser() {
   return browser;
 }
 export async function start(browser: Browser, id?: string) {
-  const response = await browser.post(id ? `/accounts/${id}/reconnect` : "/accounts/connect");
+  const response = await browser.post(id ? `/accounts/${id}/reconnect` : "/accounts/connect", {
+    services: "gmail",
+  });
   expect(response.status, "owner can start a Google flow").toBe(200);
   const body = await response.json<{ outcome: string; url: string }>();
   expect(body.outcome).toBe("ok");

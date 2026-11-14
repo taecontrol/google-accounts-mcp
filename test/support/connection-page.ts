@@ -3,6 +3,7 @@ import { parseAccountId } from "../../src/accounts/model";
 import { parseConnectionId } from "../../src/connections/model";
 import type { FramePage } from "../../src/pages/page";
 
+import { services } from "./services";
 type ConnectionPage = Extract<FramePage, { _tag: "Connection" }>;
 
 export const connectionPage = {
@@ -27,28 +28,28 @@ export const connectionPage = {
       name: "Personal",
       email: "alex.personal@example.com",
       workspace: false,
-      status: { kind: "ready" },
+      services: services(),
     },
     {
       id: parseAccountId("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")!,
       name: "Northwind",
       email: "alex@northwind.example",
       workspace: true,
-      status: { kind: "ready" },
+      services: services(),
     },
     {
       id: parseAccountId("cccccccc-cccc-4ccc-8ccc-cccccccccccc")!,
       name: "Projects",
       email: "alex.projects@example.com",
       workspace: false,
-      status: { kind: "needs_reconnect" },
+      services: services(5, 1, "needs_reconnect"),
     },
     {
       id: parseAccountId("dddddddd-dddd-4ddd-8ddd-dddddddddddd")!,
       name: "Fabrikam Holdings International, Finance and Legal Operations",
       email: "alexandra.personal-archive@fabrikam-holdings.example",
       workspace: true,
-      status: { kind: "ready" },
+      services: services(),
     },
   ] satisfies AccountView[],
   tools: [
@@ -69,7 +70,6 @@ export const connectionPage = {
     },
   ],
   settings: { "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:list_labels": "allow" as const },
-  requiredGmailScopes: 5,
 } satisfies ConnectionPage;
 
 export const groupedConnectionPage = {
@@ -110,6 +110,25 @@ export const groupedConnectionPage = {
     "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb:search_threads": "ask",
     "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb:draft": "ask",
   },
+} satisfies ConnectionPage;
+
+export const serviceConnectionPage = {
+  ...groupedConnectionPage,
+  accounts: connectionPage.accounts.map((account, i) => ({
+    ...account,
+    services: services(5, i === 0 ? 0 : i === 1 ? 1 : 3),
+  })),
+  tools: [
+    ...groupedConnectionPage.tools,
+    {
+      name: "list_calendars",
+      group: "See calendars and events",
+      label: "List calendars",
+      irreversible: false,
+      description:
+        "See the names of this account's calendars, what it can do in each, and their time zones.",
+    },
+  ],
 } satisfies ConnectionPage;
 
 /**

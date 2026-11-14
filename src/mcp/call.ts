@@ -29,7 +29,7 @@ import {
 import type { Config } from "../config";
 import type { ActiveConnection } from "../connections/model";
 import { normalizeEmail, type Owner } from "../owner/owner";
-import type { AccountStatus, Credential } from "../accounts/model";
+import { apiNotEnabled } from "../google/errors";
 import {
   allowedAccountStatement,
   decodeAllowedAccount,
@@ -45,6 +45,7 @@ import {
 } from "../calls/store";
 import {
   decodeArgs,
+  serviceOf,
   TOOLS,
   type DecodedArgs,
   type Send,
@@ -110,7 +111,18 @@ const notAllowed = (seen: unknown, about?: ToolFailure["about"]) =>
     code: seen ? "tool_not_allowed" : "account_not_available",
     ...(about ? { about } : {}),
   });
-type Allowed = { credential: Credential; status: AccountStatus };
+type Allowed = Awaited<ReturnType<typeof decodeAllowedAccount>>;
+/** Scope completeness is independent of account health, including an expired admin block. */
+const accessFailure = (allowed: Allowed, about?: ToolFailure["about"]): ToolFailure | null => {
+  const { status, granted, required } = allowed.access;
+  return granted !== required || status.kind === "unreadable"
+    ? new ToolFailure({
+        code: status.kind === "ready" ? "account_missing_access" : `account_${status.kind}`,
+        service: allowed.service,
+        ...(about ? { about } : {}),
+      })
+    : null;
+};
 type Pair = { readonly account: string; readonly tool: string };
 /** A source account's refusal names it. The call's own account needs no such note. */
 const aboutPair = (pair: Pair, i: number): ToolFailure["about"] =>
@@ -277,8 +289,9 @@ export async function executeAccount(
         })
         .pipe(
           Effect.mapError((failure) => {
-            // A classified token failure after building the send follows its 401 response.
-            if (sends && !failure.unknown) seen.status = 401;
+            // API-disabled refusals follow a 403; classified token failures follow a 401.
+            if (sends && !failure.unknown)
+              seen.status = failure.code === "api_not_enabled" ? 403 : 401;
             return failure;
           }),
           Effect.tap((response) =>
@@ -392,8 +405,13 @@ export function accountRequests(
   deadline: number,
   signal?: AbortSignal,
 ): { send: Send; close: () => void } {
-  if (allowed.status.kind === "missing_access" || allowed.status.kind === "unreadable")
-    throw new ToolFailure({ code: `account_${allowed.status.kind}` });
+  const refused = accessFailure(allowed, {
+    input: allowed.credential.email,
+    email: allowed.credential.email,
+  });
+  if (refused) throw refused;
+  // A reconnect during a running call may drop this service. `still` checks settings, and token
+  // reloads may use the new credential; this call can finish. The next call checks the new scopes.
   // A tool can send several requests at once, so each attempt owns its timer.
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const session = googleSession(ctx, allowed.credential);
@@ -419,6 +437,15 @@ export function accountRequests(
       Effect.mapError(tokenFailure),
       Effect.catchDefect((defect) =>
         defect instanceof ToolFailure ? Effect.fail(defect) : Effect.die(defect),
+      ),
+      Effect.flatMap((response) =>
+        Effect.promise(() => apiNotEnabled(response)).pipe(
+          Effect.flatMap((disabled) =>
+            disabled
+              ? Effect.fail(new ToolFailure({ code: "api_not_enabled", service: allowed.service }))
+              : Effect.succeed(response),
+          ),
+        ),
       ),
     );
   return {
@@ -522,18 +549,16 @@ export async function runCall(
             throw check.refused;
           }
           const about = aboutPair(pairs[i]!, i);
-          const allowed = await decodeAllowedAccount(check.row, ctx.config.tokenKey);
+          const service = serviceOf(pairs[i]!.tool);
+          if (!service) throw new ToolFailure({ code: "server_unavailable" });
+          const allowed = await decodeAllowedAccount(check.row, ctx.config.tokenKey, service);
           checked.push(allowed);
           if (!i) email = allowed.credential.email;
-          if (
-            (i || ask) &&
-            ["needs_reconnect", "missing_access", "unreadable"].includes(allowed.status.kind)
-          )
+          const refused = accessFailure(allowed, about);
+          if (refused) throw refused;
+          if ((i || ask) && allowed.access.status.kind === "needs_reconnect")
             throw new ToolFailure({
-              code: `account_${allowed.status.kind}` as
-                | "account_needs_reconnect"
-                | "account_missing_access"
-                | "account_unreadable",
+              code: "account_needs_reconnect",
               ...(about ? { about } : {}),
             });
         }

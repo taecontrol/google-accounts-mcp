@@ -49,7 +49,9 @@ import {
   tooLarge,
   ToolFailure,
 } from "./failures";
-import type { Group } from "./groups";
+import { GROUP_SERVICE, type Group } from "./groups";
+import { SERVICES, type Service } from "../google/services";
+import { listCalendars, MAX_CALENDARS, MAX_CALENDARS_CHARACTERS } from "../google/calendar";
 import type { Created } from "../once/store";
 import { createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
@@ -484,21 +486,31 @@ export const TOOLS: ReadonlyArray<Tool> = [
     label: "List accounts",
     annotations: { readOnlyHint: true },
     description:
-      "Lists the Google accounts this connection can use, as a JSON array. An empty array means the owner has not given this connection access to any account.",
+      "Lists the Google accounts this connection can use, as a JSON array. Each entry has account (its email address), name, and services, with gmail and/or calendar and each service's status and optional message. Only services with at least one tool set to ask or allow on that account appear. An empty array means the owner has not given this connection access to any account.",
     run: (ctx) =>
       listVisibleAccounts(ctx).pipe(
         Effect.map((accounts) =>
           accounts.map((a) => ({
             account: a.email,
             name: a.name,
-            services: {
-              gmail: {
-                status: a.status.kind,
-                ...(a.status.kind === "ready"
-                  ? {}
-                  : { message: accountMessage(a.status.kind, a.email, ctx.origin) }),
-              },
-            },
+            services: Object.fromEntries(
+              SERVICES.flatMap((service) => {
+                const access = a.services[service];
+                if (!access) return [];
+                const status = access.status.kind;
+                return [
+                  [
+                    service,
+                    {
+                      status,
+                      ...(status === "ready"
+                        ? {}
+                        : { message: accountMessage(status, a.email, ctx.origin, service) }),
+                    },
+                  ],
+                ];
+              }),
+            ),
           })),
         ),
       ),
@@ -1133,6 +1145,21 @@ export const TOOLS: ReadonlyArray<Tool> = [
     },
     create: (_send, _account, args, confirm) => sendExisting(confirm, args.draft),
   }),
+  accountTool({
+    name: "list_calendars",
+    annotations: { readOnlyHint: true },
+    group: "See calendars and events",
+    irreversible: false,
+    label: "List calendars",
+    permissionDescription:
+      "See the names of this account's calendars, what it can do in each, and their time zones.",
+    description: `Lists the calendars in one account's Google Calendar list. \`account\` is the address of an account that list_accounts returns. The result has account and calendars. Each calendar has calendar (its ID), name (the account's name for it, shortened to 100 characters), primary (true for the primary calendar), access (owner, writer, reader, or free_busy), and time_zone (Google's time zone, omitted when Google gives none). Hidden and deleted calendars are left out, as in the account's Google Calendar list. Calendars come primary first, then by access in the order owner, writer, reader, free_busy, then by name and ID in locale-independent order. The server reads at most eight pages of 250 calendars. The result holds at most ${MAX_CALENDARS} calendars and ${MAX_CALENDARS_CHARACTERS.toLocaleString("en-US")} characters in the serialized calendars array. When calendars are left out, omitted counts those read but left out, and note explains the cut. A left-out calendar's ID still works in other tools. When the page cap is reached, note says that the account has more calendars than the server counted. When the owner sets this tool to ask, it returns a pending approval with a link instead of calendars; get_approval returns the calendars after the owner approves.`,
+    input: Schema.Struct({ account: Schema.String }),
+    expects: { account: "a string" },
+    view: { action: "list the calendars", joiner: "of", values: () => Effect.succeed([]) },
+    run: (send, account) =>
+      listCalendars(send).pipe(Effect.map((list) => ({ account: account.email, ...list }))),
+  }),
   {
     kind: "plain",
     name: "get_approval",
@@ -1181,6 +1208,11 @@ export const TOOLS: ReadonlyArray<Tool> = [
 export const parseAccountTool = (raw: unknown): AccountTool | null => {
   const tool = TOOLS.find((t) => t.kind === "account" && t.name === raw);
   return tool?.kind === "account" ? tool.name : null;
+};
+/** A tool belongs to its group's service. Unknown stored tool names grant no service. */
+export const serviceOf = (name: string): Service | null => {
+  const tool = TOOLS.find((tool) => tool.kind === "account" && tool.name === name);
+  return tool?.kind === "account" ? GROUP_SERVICE[tool.group] : null;
 };
 
 export type ListedTools = {

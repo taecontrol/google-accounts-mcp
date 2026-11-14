@@ -2,15 +2,7 @@ import { Data, Effect, Schema } from "effect";
 import { decodeJwt } from "jose";
 import type { Config } from "../config";
 import { normalizeEmail } from "../owner/owner";
-
-export const GMAIL_SCOPES = ["gmail.readonly", "gmail.compose", "gmail.send", "gmail.modify"]
-  .map((scope) => `https://www.googleapis.com/auth/${scope}`)
-  .concat("https://mail.google.com/");
-export type GmailScopes = ReadonlyArray<string> & { readonly __gmailScopes: unique symbol };
-export const parseGrantedScopes = (scope: unknown): GmailScopes =>
-  GMAIL_SCOPES.filter(
-    (s) => typeof scope === "string" && scope.split(/\s+/).includes(s),
-  ) as unknown as GmailScopes;
+import { scopesOf, type Service } from "./services";
 export type GoogleAccountEmail = string & { readonly __googleAccountEmail: unique symbol };
 export interface GoogleIdentity {
   readonly sub: string;
@@ -39,14 +31,20 @@ const object = (value: unknown): Record<string, unknown> =>
 
 export function authorizationUrl(
   config: Config,
-  p: { origin: string; state: string; challenge: string; loginHint?: string },
+  p: {
+    origin: string;
+    state: string;
+    challenge: string;
+    services: readonly Service[];
+    loginHint?: string;
+  },
 ): URL {
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.search = new URLSearchParams({
     client_id: config.google.clientId,
     redirect_uri: `${p.origin}/google/callback`,
     response_type: "code",
-    scope: ["openid", "email", ...GMAIL_SCOPES].join(" "),
+    scope: ["openid", "email", ...scopesOf(p.services)].join(" "),
     access_type: "offline",
     prompt: p.loginHint ? "consent" : "consent select_account",
     state: p.state,

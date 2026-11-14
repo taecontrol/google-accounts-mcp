@@ -11,7 +11,6 @@ it("escapes HTML delimiters and preserves the exact host in hydration props", as
     frame: { host, current: "accounts", ownerEmail: OWNER_EMAIL },
     accounts: [],
     alert: null,
-    requiredGmailScopes: 5,
   };
   const html = await renderPage(page).text();
   expect(html).not.toContain("<script>alert(1)</script>");

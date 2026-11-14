@@ -4,11 +4,11 @@ import { expect, it } from "vite-plus/test";
 import { CALENDAR_SCOPES } from "./support/calendar";
 import { SCOPES, google } from "./support/google";
 import { accounts, finish, NOW, ownerBrowser, start } from "./support/accounts";
-import { dump } from "./support/db";
-import { answer, approve, get, rows } from "./support/approvals";
+import { dump, observeStatements } from "./support/db";
+import { answer, approve, decided, digest, get, page, post, rows } from "./support/approvals";
 import { expectError, fixture, googleTraffic, PERSONAL, toolCall } from "./support/permissions";
 import { attachCall, attaching, copy, setTool } from "./support/uploads";
-import { ORIGIN } from "./support/worker";
+import { ORIGIN, testEnv } from "./support/worker";
 
 const chosen = async (
   browser: Awaited<ReturnType<typeof ownerBrowser>>,
@@ -100,7 +100,7 @@ it("stores a partial Calendar grant and warns about its incomplete access", asyn
 it.each(["connect", "reconnect"])(
   "keeps all stored data unchanged when %s grants none of the chosen scopes",
   async (kind) => {
-    const f = await fixture();
+    const f = await fixture({ sub: "personal" });
     const before = await dump();
     const url = await chosen(
       f.mcp.browser,
@@ -185,7 +185,7 @@ const gmailInputs = [
   ["restore_messages", { messages: ["abc"] }],
   ["delete_messages", { messages: ["abc"] }],
   ["get_attachment", { message: "abc", attachment: "2" }],
-  ["send_message", { to: ["sam@example.com"], body: "Hi" }],
+  ["send_message", { to: ["sam@example.com"], subject: "Hello", body: "Hi" }],
   ["send_reply", { message: "abc", body: "Hi" }],
   ["forward_message", { message: "abc", to: ["sam@example.com"] }],
   ["send_draft", { draft: "abc" }],
@@ -277,4 +277,64 @@ it("lists only the services each connection uses and hides deny and obsolete-onl
     .bind(f.northwind.id)
     .run();
   expect(await answer(await toolCall(f.mcp, "list_accounts"))).toEqual([]);
+});
+
+it.each(["allow", "ask"] as const)(
+  "refuses a source's expired admin block without its Gmail scopes at %s",
+  async (setting) => {
+    const f = await attaching("send_message", setting);
+    await setTool(f, "get_attachment", "allow", f.northwind);
+    await env.DB.prepare(
+      "UPDATE accounts SET scopes = ?, health = 'blocked_by_admin', blocked_until = ?, access_token = NULL, access_expires_at = NULL WHERE id = ?",
+    )
+      .bind(JSON.stringify(CALENDAR_SCOPES), NOW - 1, f.northwind.id)
+      .run();
+    const before = googleTraffic().length;
+    await expectError(
+      await attachCall(f, [copy]),
+      "account_blocked_by_admin",
+      new RegExp(`admin blocked this server for ${f.northwind.email}`),
+    );
+    expect(googleTraffic()).toHaveLength(before);
+    expect(await rows()).toEqual([]);
+  },
+);
+
+it("refuses an approved copied attachment when its source loses Gmail between view and decision", async () => {
+  const f = await attaching("send_message", "ask");
+  await setTool(f, "get_attachment", "allow", f.northwind);
+  const id = (await answer(await attachCall(f, [copy]))).approval as string;
+  const shown = await digest(f, id);
+  let changed = false;
+  const db = observeStatements(env.DB, async (sql) => {
+    if (!changed && sql.startsWith("UPDATE approvals SET state = 'approved'")) {
+      changed = true;
+      await env.DB.prepare("UPDATE accounts SET scopes = ? WHERE id = ?")
+        .bind(JSON.stringify(CALENDAR_SCOPES), f.northwind.id)
+        .run();
+    }
+  });
+  const result = await decided(
+    await post(f, id, "approve", { digest: shown }, testEnv({ DB: db })),
+  );
+  expect(result.state.kind).toBe("failed");
+  expect((await get(f, id)).error).toEqual({
+    code: "account_missing_access",
+    message: expect.stringContaining(`no Gmail access to ${f.northwind.email}`),
+  });
+  expect(google.sends).toEqual([]);
+  expect(google.uploads).toEqual([]);
+});
+
+it("does not read an approval's attachment source after its Gmail access is dropped", async () => {
+  const f = await attaching("send_message", "ask");
+  await setTool(f, "get_attachment", "allow", f.northwind);
+  const id = (await answer(await attachCall(f, [copy]))).approval as string;
+  await env.DB.prepare("UPDATE accounts SET scopes = ? WHERE id = ?")
+    .bind(JSON.stringify(CALENDAR_SCOPES), f.northwind.id)
+    .run();
+  const before = googleTraffic().length;
+  const view = await page(f, id);
+  expect(view.state).toMatchObject({ kind: "waiting", shown: false });
+  expect(googleTraffic()).toHaveLength(before);
 });

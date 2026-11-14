@@ -35,11 +35,9 @@ export type FramePage =
         irreversible: boolean;
       }>;
       readonly settings: Readonly<Record<string, "ask" | "allow">>;
-      readonly requiredGmailScopes: number;
     }
   | {
       readonly _tag: "Accounts";
-      readonly requiredGmailScopes: number;
       readonly frame: Frame;
       readonly accounts: ReadonlyArray<AccountView>;
       readonly alert: AccountsAlert | null;

@@ -1,6 +1,6 @@
 import { endApprovals, changeGuard } from "../approvals/store";
 import type { CallContext } from "../mcp/call";
-import type { AccountTool } from "../mcp/tools";
+import { serviceOf, type AccountTool } from "../mcp/tools";
 import { permittedWhere } from "../permissions/store";
 import type { OwnerEmail } from "../owner/owner";
 import { Effect } from "effect";
@@ -9,7 +9,8 @@ import type { Owner } from "../owner/owner";
 import type { Name } from "../names";
 import { keyId, type Sealed } from "../seal";
 import type { TokenKey } from "../config";
-import { parseGrantedScopes, type Grant } from "../google/client";
+import type { Grant } from "../google/client";
+import { SERVICES, type Service } from "../google/services";
 import {
   accountStatus,
   decodeCredential,
@@ -68,16 +69,28 @@ function decodeView(row: ViewRow, prefix: string): AccountView {
     name: row.name,
     email: row.email,
     workspace: row.hd !== null,
-    status: accountStatus(
-      row.health,
-      parseGrantedScopes(scopes.join(" ")),
-      [row.refresh_key, row.access_key].every((value) => value === null || value === prefix),
-    ),
+    services: Object.fromEntries(
+      SERVICES.map((service) => [
+        service,
+        accountStatus(
+          row.health,
+          scopes,
+          service,
+          [row.refresh_key, row.access_key].every((value) => value === null || value === prefix),
+        ),
+      ]),
+    ) as AccountView["services"],
   };
 }
-const listing = (db: D1Database, owner: Owner, where = "", values: (string | number)[] = []) =>
+const listing = (
+  db: D1Database,
+  owner: Owner,
+  where = "",
+  values: (string | number)[] = [],
+  columns = viewColumns,
+) =>
   db
-    .prepare(`SELECT ${viewColumns} FROM accounts a WHERE a.state = 'live'
+    .prepare(`SELECT ${columns} FROM accounts a WHERE a.state = 'live'
     AND ${ownerGuard("?1", "?2")} ${where} ORDER BY a.created_at, a.id`)
     .bind(owner.generation, owner.email, ...values);
 export const accountsStatement = (db: D1Database, owner: Owner) => listing(db, owner);
@@ -93,15 +106,38 @@ const decodeListing = (statement: D1PreparedStatement, tokenKey: TokenKey) =>
 export const listAccounts = (db: D1Database, owner: Owner, tokenKey: TokenKey) =>
   decodeListing(listing(db, owner), tokenKey);
 export const listVisibleAccounts = (ctx: CallContext) =>
-  decodeListing(
-    listing(
-      ctx.db,
-      ctx.owner,
-      `AND ${permittedWhere({ connection: "?3", now: "?4", ownerEmail: "?2" })}`,
-      [ctx.connection.connectionId, ctx.now()],
-    ),
-    ctx.config.tokenKey,
-  );
+  Effect.tryPromise({
+    try: async () => {
+      const rows = await listing(
+        ctx.db,
+        ctx.owner,
+        `AND ${permittedWhere({ connection: "?3", now: "?4", ownerEmail: "?2" })}`,
+        [ctx.connection.connectionId, ctx.now()],
+        `${viewColumns}, (SELECT json_group_array(p.tool) FROM permissions p WHERE p.account_id = a.id AND p.connection_id = ?3) AS tools`,
+      ).all<ViewRow & { tools: string }>();
+      const prefix = `v1.${await keyId(ctx.config.tokenKey)}.`;
+      return rows.results.flatMap((row) => {
+        const tools: unknown = JSON.parse(row.tools);
+        if (!Array.isArray(tools) || !tools.every((tool) => typeof tool === "string"))
+          throw new Error("Invalid account permissions");
+        const services = new Set(tools.map(serviceOf).filter((service) => service !== null));
+        if (!services.size) return [];
+        const view = decodeView(row, prefix);
+        return [
+          {
+            ...view,
+            services: Object.fromEntries(
+              SERVICES.filter((service) => services.has(service)).map((service) => [
+                service,
+                view.services[service],
+              ]),
+            ) as Partial<AccountView["services"]>,
+          },
+        ];
+      });
+    },
+    catch: () => new Unavailable(),
+  });
 export const allowedAccountColumns = `${viewColumns}, a.version, a.blocked_until, a.refresh_token, a.access_token, a.access_expires_at`;
 export const allowedAccountStatement = (ctx: CallContext, tool: AccountTool, account: OwnerEmail) =>
   ctx.db
@@ -117,11 +153,11 @@ export const allowedAccountStatement = (ctx: CallContext, tool: AccountTool, acc
       tool,
       ctx.now(),
     );
-export const decodeAllowedAccount = async (row: unknown, tokenKey: TokenKey) => {
+export const decodeAllowedAccount = async (row: unknown, tokenKey: TokenKey, service: Service) => {
   const credential = decodeCredential(row);
   if (!credential) throw new Error("Invalid allowed credential");
   const view = decodeView(row as ViewRow, `v1.${await keyId(tokenKey)}.`);
-  return { credential, status: view.status };
+  return { credential, service, access: view.services[service] };
 };
 export const seenAccountStatement = (ctx: CallContext, account: OwnerEmail) =>
   ctx.db

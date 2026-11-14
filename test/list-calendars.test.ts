@@ -203,8 +203,8 @@ it("asks to list the calendars of the account with no values and runs only after
   const requests = calendarFake(Response.json({ items: [{ id: "mine", summary: "Mine" }] }));
   const id = (await answer(await list(f))).approval as string;
   const view = await page(f, id);
-  expect(view.request.action).toBe("list the calendars");
-  expect(view.request.joiner).toBe("of");
+  expect(view.request.tool.action).toBe("list the calendars");
+  expect(view.request.tool.joiner).toBe("of");
   expect(view.request.values).toEqual([]);
   expect(requests).toEqual([]);
   await approve(f, id);

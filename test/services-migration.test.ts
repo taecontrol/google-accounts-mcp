@@ -2,7 +2,7 @@ import "./support/account-checks";
 import { env } from "cloudflare:workers";
 import { expect, it } from "vite-plus/test";
 import type { TestEnv } from "./env";
-import { accounts, seedAccount } from "./support/accounts";
+import { accounts, NOW, seedAccount } from "./support/accounts";
 import { CALENDAR_SCOPES } from "./support/calendar";
 import { SCOPES } from "./support/google";
 
@@ -10,10 +10,12 @@ it("keeps only previously granted Gmail scopes on every legacy row without chang
   await seedAccount({ scopes: JSON.stringify(["openid", ...SCOPES, ...CALENDAR_SCOPES, "email"]) });
   await seedAccount({
     email: "partial@example.com",
+    created_at: NOW + 1,
     scopes: JSON.stringify([CALENDAR_SCOPES[0], SCOPES[0], "other"]),
   });
   await seedAccount({
     email: "removed@example.com",
+    created_at: NOW + 2,
     state: "removed",
     refresh_token: null,
     access_token: null,

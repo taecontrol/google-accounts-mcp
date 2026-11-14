@@ -1,5 +1,6 @@
 import { Data, Effect } from "effect";
 import { accountMessage } from "../accounts/model";
+import { serviceInfo, type Service } from "../google/services";
 import type { Outcome } from "../calls/store";
 import { WAITING_LIMIT } from "../approvals/model";
 import type { ConnectionId } from "../connections/model";
@@ -79,8 +80,14 @@ export const failures = {
   account_missing_access: {
     outcome: "failed",
     label: "Account missing access",
-    message: (_: string, email: string, origin: string) =>
-      accountMessage("missing_access", email, origin),
+    message: (
+      _: string,
+      email: string,
+      origin: string,
+      _tool: string,
+      _connection: ConnectionId,
+      service: Service,
+    ) => accountMessage("missing_access", email, origin, service),
   },
   account_unreadable: {
     outcome: "failed",
@@ -93,6 +100,19 @@ export const failures = {
     label: "Google did not complete the request",
     message: (_: string, email: string) =>
       `Google could not complete the request for ${email}. Try again later.`,
+  },
+  api_not_enabled: {
+    outcome: "failed",
+    label: "Google API not enabled",
+    message: (
+      _: string,
+      email: string,
+      _origin: string,
+      _tool: string,
+      _connection: ConnectionId,
+      service: Service,
+    ) =>
+      `The ${serviceInfo[service].api} is not enabled in the owner's Google Cloud project, so Google refused the request for ${email}. Ask the owner to enable it in Google Cloud and try again.`,
   },
   outcome_unknown: {
     outcome: "repeat",
@@ -121,6 +141,7 @@ export const failures = {
       origin: string,
       tool: string,
       connection: ConnectionId,
+      service: Service,
     ) => string;
   }
 >;
@@ -157,6 +178,7 @@ export const uploadNotAvailable = (id: string): ToolFailure =>
   new ToolFailure({ code: "upload_not_available", about: { input: id, email: "" } });
 export const uploadNotReady = (): ToolFailure => new ToolFailure({ code: "upload_not_ready" });
 type FailureData = {
+  service?: Service;
   about?: { input: string; email: string; tool?: string };
   unknown?: boolean;
   /** The once row was released; do not classify this as an unknown call. */
@@ -176,10 +198,22 @@ type FailureData = {
   /** The field that is wrong, with what it must be. */
   field?: { name: string; expects: string };
 } & (
+  | {
+      code: "account_missing_access" | "api_not_enabled";
+      service: Service;
+      file?: never;
+      limit?: never;
+    }
   | { code: "attachment_too_large"; file: FileInfo; limit: number }
   | { code: "attachment_not_readable"; file: FileInfo; limit?: never }
   | {
-      code: Exclude<keyof typeof failures, "attachment_too_large" | "attachment_not_readable">;
+      code: Exclude<
+        keyof typeof failures,
+        | "attachment_too_large"
+        | "attachment_not_readable"
+        | "account_missing_access"
+        | "api_not_enabled"
+      >;
       file?: never;
       limit?: never;
     }
@@ -241,7 +275,14 @@ export function classify(
     failure.unknown &&
     text.annotations?.readOnlyHint === false
       ? `Google did not confirm the request for ${text.email}. It may have taken effect. Sending the same call again is safe.`
-      : entry.message(text.input, text.email, text.origin, text.tool, text.connection);
+      : entry.message(
+          text.input,
+          text.email,
+          text.origin,
+          text.tool,
+          text.connection,
+          failure.service!,
+        );
   const describe = (message: string) => {
     if (!failure.leftover) return message;
     const draft =

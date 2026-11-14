@@ -29,7 +29,11 @@ const requestsAt = async (now: () => number, signal?: AbortSignal) => {
       owner: { generation: owner.generation, email: owner.email! },
       now,
     },
-    { credential: await credential(row.id), status: { kind: "ready" } },
+    {
+      credential: await credential(row.id),
+      service: "gmail",
+      access: { status: { kind: "ready" }, granted: 5, required: 5 },
+    },
     DEADLINE,
     signal,
   );

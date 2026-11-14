@@ -8,8 +8,11 @@ export const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events.freebusy",
 ];
 export const CALENDAR_LIST = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
-export function calendarFake(...answers: Array<Response | ((request: Request) => Response)>) {
-  const requests: Request[] = [];
+type CalendarRequest = Pick<Request, "url" | "method" | "headers" | "redirect" | "signal">;
+export function calendarFake(
+  ...answers: Array<Response | ((request: CalendarRequest) => Response)>
+) {
+  const requests: CalendarRequest[] = [];
   network.use(
     http.get(CALENDAR_LIST, ({ request }) => {
       requests.push(request);

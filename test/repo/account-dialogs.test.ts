@@ -131,12 +131,15 @@ it.each([390, 1280])(
         page.setDefaultTimeout(2000);
         try {
           const destination = `https://google.example/authorize?flow=${encodeURIComponent(action)}`;
-          const posts: string[] = [];
+          const posts: Array<{ path: string; services: string[] }> = [];
           await page.route("https://google.example/**", (route) =>
             route.fulfill({ contentType: "text/html", body: "Fake Google authorization" }),
           );
           await page.route("**/accounts/**", (route) => {
-            posts.push(new URL(route.request().url()).pathname);
+            posts.push({
+              path: new URL(route.request().url()).pathname,
+              services: new URLSearchParams(route.request().postData()!).getAll("services"),
+            });
             return route.fulfill({
               contentType: "application/json",
               body: JSON.stringify({ outcome, url: destination }),
@@ -157,6 +160,30 @@ it.each([390, 1280])(
             .getByRole("button", { name: action, exact: true })
             .filter({ visible: true })
             .click();
+          const dialog = page.getByRole("dialog");
+          await dialog.waitFor();
+          expect(await dialog.getByRole("heading").innerText()).toBe(
+            action === "Reconnect" ? "Reconnect Projects" : "Connect a Google account",
+          );
+          expect(await dialog.innerText()).toContain(
+            "A Workspace organization can block Calendar for apps it doesn't trust.",
+          );
+          const gmail = dialog.getByRole("checkbox", { name: "Gmail", exact: true });
+          const calendar = dialog.getByRole("checkbox", { name: "Calendar", exact: true });
+          const proceed = dialog.getByRole("button", { name: "Continue to Google" });
+          expect(await gmail.isChecked()).toBe(action === "Reconnect");
+          expect(await calendar.isChecked()).toBe(action === "Reconnect");
+          expect(await proceed.isDisabled()).toBe(action !== "Reconnect");
+          if (action === "Reconnect") await gmail.uncheck();
+          else {
+            await gmail.check();
+            await calendar.check();
+          }
+          expect(await proceed.isEnabled()).toBe(true);
+          expect(
+            await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          ).toBe(true);
+          await proceed.click();
           if (outcome === "ok") {
             await page.waitForURL(destination);
             expect(navigations).toEqual([destination]);
@@ -170,9 +197,13 @@ it.each([390, 1280])(
             expect(navigations).toEqual([]);
           }
           expect(posts).toEqual([
-            action === "Reconnect"
-              ? "/accounts/22222222-2222-4222-8222-222222222222/reconnect"
-              : "/accounts/connect",
+            {
+              path:
+                action === "Reconnect"
+                  ? "/accounts/22222222-2222-4222-8222-222222222222/reconnect"
+                  : "/accounts/connect",
+              services: action === "Reconnect" ? ["calendar"] : ["gmail", "calendar"],
+            },
           ]);
         } finally {
           await page.close();
@@ -269,7 +300,7 @@ it.each([390, 1280])(
         ],
         [
           "Research",
-          "Missing access. Google granted 2 of the 5 permissions Gmail needs. Reconnect and check every box.",
+          "Missing access. Google granted 2 of 5 permissions Gmail needs. Reconnect and check every box.",
           true,
         ],
         ["Recovery", "Can't read its stored access. Check TOKEN_KEY.", false],
@@ -325,6 +356,8 @@ it("marks failure alerts as warnings and keeps success alerts neutral", async ()
       );
       await page.goto(origin);
       await page.getByRole("button", { name: "Connect a Google account" }).click();
+      await page.getByRole("checkbox", { name: "Gmail", exact: true }).check();
+      await page.getByRole("button", { name: "Continue to Google" }).click();
       const alert = page.getByRole("status");
       await alert.waitFor();
       expect(await alert.getAttribute("class"), outcome).toContain("bg-warning");
@@ -349,8 +382,15 @@ it("enables Connect again when Back restores the page from the browser cache", a
     const connect = page.getByRole("button", { name: "Connect a Google account" });
     const navigation = page.waitForRequest("https://google.example/authorize");
     await connect.click();
+    await page.getByRole("checkbox", { name: "Gmail", exact: true }).check();
+    await page.getByRole("button", { name: "Continue to Google" }).click();
     await navigation;
-    expect(await connect.isDisabled()).toBe(true);
+    expect(
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Continuing…", exact: true })
+        .isDisabled(),
+    ).toBe(true);
     await page.evaluate(() =>
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
     );
@@ -360,13 +400,13 @@ it("enables Connect again when Back restores the page from the browser cache", a
   }
 });
 
-it("uses the server's required Gmail permission count", async () => {
+it("uses each service record's required permission count", async () => {
   const page = await browser.newPage();
   try {
     await page.goto(`${origin}/?required=7`);
     const row = page.locator("tbody tr").filter({ hasText: "Research" });
     await row.waitFor();
-    expect(await row.innerText()).toContain("Google granted 2 of the 7 permissions Gmail needs.");
+    expect(await row.innerText()).toContain("Google granted 2 of 7 permissions Gmail needs.");
   } finally {
     await page.close();
   }
@@ -394,6 +434,14 @@ it.each([390, 1280])(
         await menu.click();
         const sent = page.waitForRequest((request) => request.method() === "POST");
         await page.getByRole("menuitem", { name: "Reconnect", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        expect(await dialog.getByRole("checkbox", { name: "Gmail", exact: true }).isChecked()).toBe(
+          true,
+        );
+        expect(
+          await dialog.getByRole("checkbox", { name: "Calendar", exact: true }).isChecked(),
+        ).toBe(name === "Work");
+        await dialog.getByRole("button", { name: "Continue to Google" }).click();
         expect(new URL((await sent).url()).pathname).toBe(`/accounts/${id}/reconnect`);
         await page.getByRole("status").waitFor();
         expect(await menu.isEnabled()).toBe(true);
@@ -401,6 +449,87 @@ it.each([390, 1280])(
           await page.getByRole("button", { name: "Connect a Google account" }).isEnabled(),
         ).toBe(true);
       }
+    } finally {
+      await page.close();
+    }
+  },
+);
+
+it.each([390, 1280])(
+  "distinguishes unchosen, partial, and ready Calendar access at %s px",
+  async (width) => {
+    const page = await browser.newPage({ viewport: { width, height: 1000 } });
+    try {
+      await page.goto(origin);
+      const rows = page.locator(width < 768 ? '[data-slot="item"]' : "tbody tr");
+      const personal = rows.filter({
+        has: page.getByRole("button", { name: "Actions for Personal", exact: true }),
+      });
+      expect(await personal.innerText()).toContain("Gmail");
+      expect(
+        await personal.getByText("Not connected", { exact: true }).getAttribute("class"),
+      ).toContain("text-muted-foreground");
+      expect(await personal.getByRole("button", { name: "Reconnect", exact: true }).count()).toBe(
+        0,
+      );
+      const research = rows.filter({
+        has: page.getByRole("button", { name: "Actions for Research", exact: true }),
+      });
+      expect(await research.innerText()).toContain(
+        "Google granted 1 of 3 permissions Calendar needs.",
+      );
+      expect(await research.getByText("Missing access.", { exact: true }).count()).toBe(2);
+      for (const title of await research.getByText("Missing access.", { exact: true }).all())
+        expect(await title.getAttribute("class")).toContain("text-destructive");
+      expect(await research.getByRole("button", { name: "Reconnect", exact: true }).count()).toBe(
+        1,
+      );
+      const both = rows.filter({
+        has: page.getByRole("button", { name: "Actions for Both", exact: true }),
+      });
+      expect(await both.getByText("Ready", { exact: true }).count()).toBe(2);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    } finally {
+      await page.close();
+    }
+  },
+);
+
+it("starts an unreadable account's reconnect from its granted scopes", async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(origin);
+    await page
+      .getByRole("button", { name: "Actions for Recovery", exact: true })
+      .filter({ visible: true })
+      .click();
+    await page.getByRole("menuitem", { name: "Reconnect", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    expect(await dialog.getByRole("checkbox", { name: "Gmail", exact: true }).isChecked()).toBe(
+      false,
+    );
+    expect(await dialog.getByRole("checkbox", { name: "Calendar", exact: true }).isChecked()).toBe(
+      true,
+    );
+  } finally {
+    await page.close();
+  }
+});
+
+it.each(["connected", "reconnected"])(
+  "warns when a %s sign-in has incomplete chosen services",
+  async (kind) => {
+    const page = await browser.newPage();
+    try {
+      await page.goto(`${origin}/?alert=${kind}&incomplete`);
+      const alert = page.getByRole("status");
+      await alert.waitFor();
+      expect(await alert.getAttribute("class")).toContain("bg-warning");
+      expect(await alert.innerText()).toContain(
+        "Google didn't grant all of Calendar's access, so agents can't use Calendar on it. Reconnect and check every box on Google's screen.",
+      );
     } finally {
       await page.close();
     }

@@ -16,7 +16,6 @@ import {
 } from "./store";
 
 import { parseAccountId } from "../accounts/model";
-import { GMAIL_SCOPES } from "../google/client";
 import { accountsStatement, decodeAccounts } from "../accounts/store";
 import { permissionsStatement, decodePermissions } from "../permissions/store";
 import { TOOLS, parseAccountTool } from "../mcp/tools";
@@ -159,6 +158,5 @@ connectionRoutes.get("/connections/:id", ownerOnly, async (c) => {
       group: t.group,
       irreversible: t.irreversible,
     })),
-    requiredGmailScopes: GMAIL_SCOPES.length,
   });
 });

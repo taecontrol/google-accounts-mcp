@@ -34,7 +34,7 @@ export const problemCases: Array<{ status: string; row: Partial<AccountRow>; mes
   {
     status: "missing_access",
     row: { scopes: "[]" },
-    message: `Google did not grant all the Gmail access this server asks for on ${PERSONAL}. Ask the owner to reconnect it at ${ORIGIN}/accounts and check every box.`,
+    message: `This server has no Gmail access to ${PERSONAL}. Ask the owner to reconnect it at ${ORIGIN}/accounts with Gmail chosen and every box checked.`,
   },
   {
     status: "unreadable",

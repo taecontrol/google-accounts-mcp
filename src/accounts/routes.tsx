@@ -6,7 +6,8 @@ import type { PageEnv } from "../http/context";
 import { ownerOnly } from "../owner/routes";
 import { renderPage } from "../pages/render";
 import { parseName } from "../names";
-import { authorizationUrl, exchangeCode, revoke, GMAIL_SCOPES } from "../google/client";
+import { authorizationUrl, exchangeCode, revoke } from "../google/client";
+import { chosenScopes, parseServices, serviceInfo } from "../google/services";
 import { open, seal } from "../seal";
 import { newAccountId, parseAccountId } from "./model";
 import {
@@ -38,7 +39,6 @@ accountRoutes.get("/accounts", ownerOnly, async (c) => {
   return renderPage(
     {
       _tag: "Accounts",
-      requiredGmailScopes: GMAIL_SCOPES.length,
       frame: {
         host: new URL(c.req.url).host,
         ownerEmail: c.get("owner").email,
@@ -56,6 +56,8 @@ for (const purpose of ["add", "reconnect"] as const)
     ownerOnly,
     readForm,
     async (c) => {
+      const services = parseServices(c.get("form").getAll("services"));
+      if (!services) return c.json({ outcome: "invalid" }, 400);
       const owner = c.get("owner");
       let target: { id: import("./model").AccountId; version: number; email: string } | null = null;
       if (purpose === "reconnect") {
@@ -73,8 +75,9 @@ for (const purpose of ["add", "reconnect"] as const)
             version: target.version,
             generation: owner.generation,
             startedAt: Date.now(),
+            services,
           }
-        : { purpose: "add", generation: owner.generation, startedAt: Date.now() };
+        : { purpose: "add", generation: owner.generation, startedAt: Date.now(), services };
       const flow = await beginFlow(start);
       c.header("Set-Cookie", flow.setCookie);
       return c.json({
@@ -83,6 +86,7 @@ for (const purpose of ["add", "reconnect"] as const)
           origin: new URL(c.req.url).origin,
           state: flow.state,
           challenge: flow.challenge,
+          services,
           loginHint: target?.email,
         }).href,
       });
@@ -131,6 +135,11 @@ accountRoutes.get("/google/callback", ownerOnly, async (c) => {
               ? "no_refresh_token"
               : "didnt_finish",
     });
+  const scopes = chosenScopes(exchanged.success.scopes, flow.services);
+  if (!scopes.length) return reply({ kind: "no_access" });
+  const incomplete = flow.services.filter((service) =>
+    serviceInfo[service].scopes.some((scope) => !scopes.includes(scope)),
+  );
   const id = flow.purpose === "add" ? newAccountId() : flow.account;
   const result = await Effect.runPromise(
     Effect.result(
@@ -143,7 +152,7 @@ accountRoutes.get("/google/callback", ownerOnly, async (c) => {
           }),
           catch: () => new Unavailable(),
         });
-        const sealed = { ...grant, ...tokens, id };
+        const sealed = { ...grant, scopes, ...tokens, id };
         if (flow.purpose === "add") return yield* addAccount(c.env.DB, owner, sealed, Date.now());
         return yield* reconnectAccount(c.env.DB, owner, { id, version: flow.version }, sealed);
       }),
@@ -155,9 +164,9 @@ accountRoutes.get("/google/callback", ownerOnly, async (c) => {
     case "OwnerChanged":
       return reply({ kind: "didnt_finish" });
     case "Connected":
-      return reply({ kind: "connected", address: outcome.address });
+      return reply({ kind: "connected", address: outcome.address, incomplete });
     case "Reconnected":
-      return reply({ kind: "reconnected", address: outcome.address });
+      return reply({ kind: "reconnected", address: outcome.address, incomplete });
     case "AlreadyConnected":
       return reply({ kind: "already_connected", address: outcome.address });
     case "AddressTaken":

@@ -69,7 +69,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { ConnectionView } from "../connections/model";
-import { GROUPS } from "../mcp/groups";
+import { GROUPS, GROUP_SERVICE } from "../mcp/groups";
+import { SERVICES, serviceInfo, type Service } from "../google/services";
+import { accountWideStatus } from "../accounts/model";
 import type { FramePage } from "./page";
 import { OwnerFrame } from "./frame";
 import { AccountStatusText } from "./accounts";
@@ -134,6 +136,10 @@ export function ConnectionPage(props: Props) {
     name,
     tools: props.tools.filter((tool) => tool.group === name),
   })).filter((group) => group.tools.length > 0);
+  const services = SERVICES.map((service) => ({
+    service,
+    groups: groups.filter((group) => GROUP_SERVICE[group.name] === service),
+  })).filter(({ groups }) => groups.length > 0);
   const [controls, setControls] = useState<Record<string, ControlState>>(() =>
     Object.fromEntries(
       props.accounts.flatMap((a) =>
@@ -382,8 +388,7 @@ export function ConnectionPage(props: Props) {
                         : value
                           ? ""
                           : countsOf(states);
-                  const showGroups =
-                    !open && groups.length > 1 && !value && phase !== "unconfirmed";
+                  const showGroups = !open && groups.length > 1 && phase !== "unconfirmed";
                   return (
                     <Collapsible
                       key={account.id}
@@ -410,19 +415,15 @@ export function ConnectionPage(props: Props) {
                             {account.email}
                             {account.workspace && " · Workspace"}
                           </p>
-                          {account.status.kind !== "ready" && (
+                          {accountWideStatus(account) && (
                             <p className="max-w-2xl pt-1 text-sm text-muted-foreground">
-                              <AccountStatusText
-                                account={account}
-                                requiredGmailScopes={props.requiredGmailScopes}
-                              />{" "}
-                              If a tool is set to Ask first or Allowed, {connection.name} sees this
-                              problem too.{" "}
+                              <AccountStatusText account={account} /> If a tool is set to Ask first
+                              or Allowed, {connection.name} sees this problem too.{" "}
                               <a
                                 href="/accounts"
                                 className="text-foreground underline underline-offset-4"
                               >
-                                {["needs_reconnect", "missing_access"].includes(account.status.kind)
+                                {accountWideStatus(account)?.kind === "needs_reconnect"
                                   ? "Reconnect on Accounts"
                                   : "Go to Accounts"}
                               </a>
@@ -451,88 +452,110 @@ export function ConnectionPage(props: Props) {
                         </div>
                       </div>
                       {showGroups && (
-                        <dl
+                        <div
                           className={cn(
-                            "flex flex-col gap-1.5 pt-4 text-sm",
+                            "flex flex-col gap-4 pt-4 text-sm",
                             phase === "saving" && "opacity-50",
                           )}
                         >
-                          {groups.map((group) => {
-                            const states = group.tools.map(
-                              (tool) => controls[keyOf(account, tool)]!,
-                            );
-                            const value = commonValue(states);
-                            return (
-                              <div key={group.name} className="flex gap-3">
-                                <dt className="w-40 shrink-0 text-muted-foreground @3xl:w-44">
-                                  {group.name}
-                                </dt>
-                                <dd
-                                  className={cn(
-                                    "min-w-0 flex-1",
-                                    value === "deny" && "text-muted-foreground",
-                                  )}
-                                >
-                                  {value ? labelOf(value) : countsOf(states)}
-                                </dd>
-                              </div>
-                            );
-                          })}
-                        </dl>
+                          {services.map(({ service, groups }) => (
+                            <div key={service} className="flex flex-col gap-2">
+                              <ServiceHeading
+                                service={service}
+                                account={account}
+                                connection={connection.name}
+                              />
+                              <dl className="flex flex-col gap-1.5">
+                                {groups.map((group) => {
+                                  const states = group.tools.map(
+                                    (tool) => controls[keyOf(account, tool)]!,
+                                  );
+                                  const value = commonValue(states);
+                                  return (
+                                    <div key={group.name} className="flex gap-3">
+                                      <dt className="w-40 shrink-0 text-muted-foreground @3xl:w-44">
+                                        {group.name}
+                                      </dt>
+                                      <dd
+                                        className={cn(
+                                          "min-w-0 flex-1",
+                                          value === "deny" && "text-muted-foreground",
+                                        )}
+                                      >
+                                        {value ? labelOf(value) : countsOf(states)}
+                                      </dd>
+                                    </div>
+                                  );
+                                })}
+                              </dl>
+                            </div>
+                          ))}
+                        </div>
                       )}
                       <CollapsibleContent>
                         <div className="flex flex-col gap-5 pt-6 @3xl:gap-3 @3xl:pt-4">
-                          {groups.map((group) => {
-                            const heading = `${account.id}-${group.name.replaceAll(" ", "-")}`;
-                            return (
-                              <div
-                                key={group.name}
-                                role="group"
-                                aria-labelledby={heading}
-                                className="flex flex-col gap-1 @3xl:flex-row @3xl:gap-3"
-                              >
-                                <h4
-                                  id={heading}
-                                  className="text-sm leading-snug text-muted-foreground @3xl:w-44 @3xl:shrink-0 @3xl:pt-1.5"
-                                >
-                                  {group.name}
-                                </h4>
-                                <ItemGroup className="min-w-0 flex-1 gap-0 has-data-[size=xs]:gap-0">
-                                  {group.tools.map((tool) => {
-                                    const state = controls[keyOf(account, tool)]!;
-                                    return (
-                                      <Item
-                                        key={tool.name}
-                                        size="xs"
-                                        className="flex-nowrap items-start gap-3 rounded-none border-0 px-0 py-1"
-                                      >
-                                        <ItemContent className="min-w-0 py-0.5">
-                                          <ItemTitle className="line-clamp-none font-normal">
-                                            {tool.label}
-                                          </ItemTitle>
-                                          <ItemDescription className="line-clamp-none">
-                                            {tool.description}
-                                          </ItemDescription>
-                                        </ItemContent>
-                                        <ItemActions>
-                                          <PermissionControl
-                                            label={`${tool.label} on ${account.name} for ${connection.name}`}
-                                            value={state.phase === "unconfirmed" ? "" : state.value}
-                                            phase={state.phase}
-                                            choose={(wanted) =>
-                                              wanted === "allow" && tool.irreversible
-                                                ? askToConfirm({ account, tool, wanted })
-                                                : void save(account, [tool], wanted)
-                                            }
-                                          />
-                                        </ItemActions>
-                                      </Item>
-                                    );
-                                  })}
-                                </ItemGroup>
-                              </div>
-                            );
-                          })}
+                          {services.map(({ service, groups }) => (
+                            <div key={service} className="flex flex-col gap-3">
+                              <ServiceHeading
+                                service={service}
+                                account={account}
+                                connection={connection.name}
+                              />
+                              {groups.map((group) => {
+                                const heading = `${account.id}-${group.name.replaceAll(" ", "-")}`;
+                                return (
+                                  <div
+                                    key={group.name}
+                                    role="group"
+                                    aria-labelledby={heading}
+                                    className="flex flex-col gap-1 @3xl:flex-row @3xl:gap-3"
+                                  >
+                                    <h5
+                                      id={heading}
+                                      className="text-sm leading-snug text-muted-foreground @3xl:w-44 @3xl:shrink-0 @3xl:pt-1.5"
+                                    >
+                                      {group.name}
+                                    </h5>
+                                    <ItemGroup className="min-w-0 flex-1 gap-0 has-data-[size=xs]:gap-0">
+                                      {group.tools.map((tool) => {
+                                        const state = controls[keyOf(account, tool)]!;
+                                        return (
+                                          <Item
+                                            key={tool.name}
+                                            size="xs"
+                                            className="flex-nowrap items-start gap-3 rounded-none border-0 px-0 py-1"
+                                          >
+                                            <ItemContent className="min-w-0 py-0.5">
+                                              <ItemTitle className="line-clamp-none font-normal">
+                                                {tool.label}
+                                              </ItemTitle>
+                                              <ItemDescription className="line-clamp-none">
+                                                {tool.description}
+                                              </ItemDescription>
+                                            </ItemContent>
+                                            <ItemActions>
+                                              <PermissionControl
+                                                label={`${tool.label} on ${account.name} for ${connection.name}`}
+                                                value={
+                                                  state.phase === "unconfirmed" ? "" : state.value
+                                                }
+                                                phase={state.phase}
+                                                choose={(wanted) =>
+                                                  wanted === "allow" && tool.irreversible
+                                                    ? askToConfirm({ account, tool, wanted })
+                                                    : void save(account, [tool], wanted)
+                                                }
+                                              />
+                                            </ItemActions>
+                                          </Item>
+                                        );
+                                      })}
+                                    </ItemGroup>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ))}
                         </div>
                       </CollapsibleContent>
                     </Collapsible>
@@ -646,6 +669,31 @@ export function ConnectionPage(props: Props) {
         />
       )}
     </OwnerFrame>
+  );
+}
+function ServiceHeading({
+  service,
+  account,
+  connection,
+}: {
+  service: Service;
+  account: Account;
+  connection: string;
+}) {
+  const access = account.services[service];
+  return (
+    <>
+      <h4 className="text-sm font-medium">{serviceInfo[service].name}</h4>
+      {!accountWideStatus(account) && access.status.kind === "missing_access" && (
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          {access.granted ? "Missing access." : "Not connected on this account."} If a tool is set
+          to Ask first or Allowed, {connection} sees this problem too.{" "}
+          <a href="/accounts" className="text-foreground underline underline-offset-4">
+            {access.granted ? "Reconnect on Accounts" : "Go to Accounts"}
+          </a>
+        </p>
+      )}
+    </>
   );
 }
 function PermissionControl({

@@ -76,7 +76,7 @@ async function selected(group: Locator, value: "Allowed" | "Not allowed" | "Ask 
   for (const name of ["Not allowed", "Ask first", "Allowed"] as const)
     expect(await segment(group, name).getAttribute("aria-checked")).toBe(String(value === name));
 }
-async function open(width = 1280, fixture?: "groups" | "irreversible") {
+async function open(width = 1280, fixture?: "groups" | "irreversible" | "services") {
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   page.setDefaultTimeout(1500);
   await page.goto(fixture ? `${origin}/?${fixture}` : origin);
@@ -91,6 +91,55 @@ async function open(width = 1280, fixture?: "groups" | "irreversible") {
   await page.evaluate(() => document.fonts.ready);
   return page;
 }
+
+it.each([390, 1280])(
+  "shows service headings and missing access in expanded and collapsed accounts at %s px",
+  async (width) => {
+    const page = await open(width, "services");
+    try {
+      const personal = panel(page, "Personal");
+      expect(await personal.getByRole("heading", { level: 4 }).allTextContents()).toEqual([
+        "Gmail",
+        "Calendar",
+      ]);
+      expect(await personal.getByRole("heading", { level: 5 }).allTextContents()).toEqual([
+        "Find and read",
+        "Draft",
+        "Send",
+        "See calendars and events",
+      ]);
+      const missing = personal.getByText(/Not connected on this account/);
+      expect(await missing.innerText()).toContain(
+        "If a tool is set to Ask first or Allowed, Claude sees this problem too.",
+      );
+      expect(await missing.getAttribute("class")).toContain("text-muted-foreground");
+      expect(await missing.locator('a[href="/accounts"]').count()).toBe(1);
+      const northwind = panel(page, "Northwind");
+      expect(await northwind.getByRole("heading", { level: 4 }).allTextContents()).toEqual([
+        "Gmail",
+        "Calendar",
+      ]);
+      expect(await northwind.getByText(/Missing access/).count()).toBe(1);
+      expect(await northwind.locator("dl dt").allTextContents()).toEqual([
+        "Find and read",
+        "Draft",
+        "Send",
+        "See calendars and events",
+      ]);
+      await page.getByRole("button", { name: "Northwind", exact: true }).click();
+      expect(await northwind.getByRole("heading", { level: 4 }).allTextContents()).toEqual([
+        "Gmail",
+        "Calendar",
+      ]);
+      expect(await northwind.getByText(/Missing access/).count()).toBe(1);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    } finally {
+      await page.close();
+    }
+  },
+);
 async function frames(page: Page) {
   await page.evaluate(
     () =>
@@ -788,7 +837,7 @@ it("orders groups once per account, preserves tool order and starts only the fir
   const page = await open(1280, "groups");
   try {
     const first = panel(page, "Personal");
-    expect(await first.getByRole("heading", { level: 4 }).allTextContents()).toEqual([
+    expect(await first.getByRole("heading", { level: 5 }).allTextContents()).toEqual([
       "Find and read",
       "Draft",
       "Send",
@@ -815,9 +864,9 @@ it("orders groups once per account, preserves tool order and starts only the fir
       expect(await accountControl(page, name).isVisible()).toBe(true);
       expect(await control(page, name).isVisible()).toBe(false);
     }
-    expect(await page.getByRole("heading", { level: 4 }).count()).toBe(3);
+    expect(await page.getByRole("heading", { level: 5 }).count()).toBe(3);
     await page.getByRole("button", { name: "Northwind", exact: true }).click();
-    expect(await panel(page).getByRole("heading", { level: 4 }).allTextContents()).toEqual([
+    expect(await panel(page).getByRole("heading", { level: 5 }).allTextContents()).toEqual([
       "Find and read",
       "Draft",
       "Send",
@@ -827,7 +876,7 @@ it("orders groups once per account, preserves tool order and starts only the fir
   }
 });
 
-it("shows ordered group values or counts only for a closed mixed account, and removes them after a lost answer", async () => {
+it("shows ordered group summaries for closed accounts and removes them after a lost answer", async () => {
   const page = await open(390, "groups");
   try {
     const routes = await pending(page);
@@ -851,7 +900,7 @@ it("shows ordered group values or counts only for a closed mixed account, and re
     expect(await control(page).isVisible()).toBe(true);
     expect(await panel(page).locator("dl").count()).toBe(0);
     await header.click();
-    expect(await panel(page, "Projects").locator("dl").count()).toBe(0);
+    expect(await panel(page, "Projects").locator("dl").count()).toBe(1);
     expect(await panel(page).getByText("Mixed", { exact: true }).count()).toBe(0);
     expect(await panel(page).locator('[data-slot="badge"]').count()).toBe(0);
     const sent = page.waitForRequest((request) => request.method() === "POST");
