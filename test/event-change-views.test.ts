@@ -321,75 +321,87 @@ it.each(
   if (["unlisted", "reader", "busy"].includes(kind)) expect(sent).toEqual([]);
 });
 
-it.each(["removed guest", "changed duration", "changed end zone", "new guest"])(
-  "writes nothing when the run differs from the approved plan: %s",
-  async (kind) => {
-    const tool = kind === "new guest" ? "delete_event" : "update_event";
-    const f = await eventsFixture(tool, "ask");
-    repeatList(PRIMARY_CALENDAR);
-    let changed = false;
-    const sent = eventsFake({
-      [PERSONAL]: {
-        events: {
-          e1: () =>
-            Response.json(
-              eventFixture({
-                attendees:
-                  kind === "removed guest"
-                    ? changed
-                      ? []
-                      : [guest]
-                    : kind === "new guest" && changed
-                      ? [guest]
-                      : [],
-                ...(kind === "changed duration" && changed
-                  ? { end: { dateTime: "2026-11-20T16:00:00Z" } }
-                  : {}),
-                ...(kind === "changed end zone"
-                  ? {
-                      end: {
-                        dateTime: "2026-11-20T15:00:00Z",
-                        timeZone: changed ? "Europe/Madrid" : "America/Bogota",
-                      },
-                    }
-                  : {}),
-                etag: changed ? '"version-2"' : '"version-1"',
-              }),
-            ),
-        },
-        patch: { e1: Response.json({ id: "e1", htmlLink: "changed" }) },
-        delete: { e1: new Response(null, { status: 204 }) },
+it.each([
+  "removed guest",
+  "changed duration",
+  "changed end seconds",
+  "changed end zone",
+  "new guest",
+])("writes nothing when the run differs from the approved plan: %s", async (kind) => {
+  const tool = kind === "new guest" ? "delete_event" : "update_event";
+  const f = await eventsFixture(tool, "ask");
+  repeatList(PRIMARY_CALENDAR);
+  let changed = false;
+  const sent = eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: () =>
+          Response.json(
+            eventFixture({
+              attendees:
+                kind === "removed guest"
+                  ? changed
+                    ? []
+                    : [guest]
+                  : kind === "new guest" && changed
+                    ? [guest]
+                    : [],
+              ...(kind === "changed duration" && changed
+                ? { end: { dateTime: "2026-11-20T16:00:00Z" } }
+                : {}),
+              ...(kind === "changed end seconds"
+                ? {
+                    end: {
+                      dateTime: changed ? "2026-11-20T15:00:55Z" : "2026-11-20T15:00:05Z",
+                    },
+                  }
+                : {}),
+              ...(kind === "changed end zone"
+                ? {
+                    end: {
+                      dateTime: "2026-11-20T15:00:00Z",
+                      timeZone: changed ? "Europe/Madrid" : "America/Bogota",
+                    },
+                  }
+                : {}),
+              etag: changed ? '"version-2"' : '"version-1"',
+            }),
+          ),
       },
-    });
-    const id = (
-      await answer(
-        await eventChangeCall(
-          f,
-          tool,
-          kind === "removed guest"
-            ? { title: "Changed", add_guests: [guest.email] }
-            : kind === "changed duration" || kind === "changed end zone"
-              ? { start: "2026-11-20T11:00" }
-              : {},
-        ),
-      )
-    ).approval as string;
-    const shown = await digest(f, id);
-    const db = observeStatements(env.DB, (sql) => {
-      if (sql.startsWith("UPDATE approvals SET state = 'approved'")) changed = true;
-    });
-    expect(
-      (await decided(await post(f, id, "approve", { digest: shown }, testEnv({ DB: db })))).state
-        .kind,
-    ).toBe("failed");
-    expect(changed).toBe(true);
-    expect((await get(f, id)).error).toEqual({
-      code: "google_unavailable",
-      message: expect.stringMatching(/event changed after the approval.*Call again/),
-    });
-    expect(sent.map((r) => r.method)).toEqual(["GET", "GET", "GET"]);
-  },
-);
+      patch: { e1: Response.json({ id: "e1", htmlLink: "changed" }) },
+      delete: { e1: new Response(null, { status: 204 }) },
+    },
+  });
+  const id = (
+    await answer(
+      await eventChangeCall(
+        f,
+        tool,
+        kind === "removed guest"
+          ? { title: "Changed", add_guests: [guest.email] }
+          : kind === "changed duration" ||
+              kind === "changed end seconds" ||
+              kind === "changed end zone"
+            ? { start: "2026-11-20T11:00" }
+            : {},
+      ),
+    )
+  ).approval as string;
+  const shown = await digest(f, id);
+  const db = observeStatements(env.DB, (sql) => {
+    if (sql.startsWith("UPDATE approvals SET state = 'approved'")) changed = true;
+  });
+  expect(
+    (await decided(await post(f, id, "approve", { digest: shown }, testEnv({ DB: db })))).state
+      .kind,
+  ).toBe("failed");
+  expect(changed).toBe(true);
+  expect((await get(f, id)).error).toEqual({
+    code: "google_unavailable",
+    message: expect.stringMatching(/event changed after the approval.*Call again/),
+  });
+  expect(sent.map((r) => r.method)).toEqual(["GET", "GET", "GET"]);
+});
 
 it.each(["update_event", "delete_event"] as const)(
   "$tool uses the run read's etag when the approved values stay the same",
@@ -537,4 +549,50 @@ it("shows the covered last day before and after an all-day move", async () => {
     { name: "Last day now", text: "Nov 22, 2026 (all day)", from: "calendar" },
     { name: "New last day", text: "Nov 29, 2026 (all day)", from: "agent" },
   ]);
+});
+
+it("shows a deleted event's own zones when they differ from the view's zone", async () => {
+  const f = await eventsFixture("delete_event", "ask");
+  repeatList(PRIMARY_CALENDAR);
+  eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          eventFixture({
+            start: { dateTime: "2026-11-20T14:00:00Z", timeZone: "Europe/Madrid" },
+            end: { dateTime: "2026-11-20T15:00:00Z", timeZone: "Asia/Tokyo" },
+          }),
+        ),
+      },
+    },
+  });
+  const id = (await answer(await eventChangeCall(f, "delete_event"))).approval as string;
+  expect((await page(f, id)).request.values).toEqual([
+    ...base,
+    { name: "Deletes", text: "This event", from: "agent" },
+    {
+      name: "Event's own zone",
+      text: "start: Europe/Madrid, end: Asia/Tokyo",
+      from: "calendar",
+    },
+  ]);
+});
+
+it("shows the exact written times when a kept or computed side carries seconds", async () => {
+  const f = await eventsFixture("update_event", "ask");
+  repeatList(PRIMARY_CALENDAR);
+  eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(eventFixture({ end: { dateTime: "2026-11-20T15:00:05Z" } })),
+      },
+    },
+  });
+  const id = (await answer(await eventChangeCall(f, "update_event", { start: "2026-11-20T11:00" })))
+    .approval as string;
+  expect((await page(f, id)).request.values).toContainEqual({
+    name: "Exact times written",
+    text: "start: 2026-11-20T11:00:00-05:00\nend: 2026-11-20T12:00:05-05:00",
+    from: "agent",
+  });
 });

@@ -173,10 +173,40 @@ interface PointZones {
   end: string | undefined;
 }
 const sameZones = (a: PointZones, b: PointZones) => a.start === b.start && a.end === b.end;
+const ownZone = (point: EventPoint) =>
+  point.timeZone === undefined ? undefined : (canonicalZone(point.timeZone) ?? point.timeZone);
+const ownZones = (event: ChangeEvent): PointZones => ({
+  start: ownZone(event.start),
+  end: ownZone(event.end),
+});
 const zoneText = (zones: PointZones) =>
   zones.start === zones.end
     ? (zones.start ?? "(none)")
     : `start: ${zones.start ?? "(none)"}, end: ${zones.end ?? "(none)"}`;
+/** The event's own zone, shown when it differs from the zone that the view's times use. */
+const ownZoneValues = (zones: PointZones, zone: string): ViewValue[] =>
+  [zones.start, zones.end].some((own) => own !== undefined && own !== (canonicalZone(zone) ?? zone))
+    ? [{ name: "Event's own zone", text: zoneText(zones), from: "calendar" }]
+    : [];
+/**
+ * The view's times show minutes. When a written time keeps seconds or a fraction, as a kept or
+ * computed side can, the exact text joins the view, so the approved view binds every written value.
+ */
+const exactTimes = (body: Record<string, unknown>): ViewValue[] => {
+  const points = [body.start, body.end] as Array<{ dateTime?: string | null }>;
+  return points.some((point) => {
+    const seconds = /T\d{2}:\d{2}:(\d{2})(\.\d+)?/.exec(point.dateTime ?? "");
+    return seconds !== null && (seconds[1] !== "00" || seconds[2] !== undefined);
+  })
+    ? [
+        {
+          name: "Exact times written",
+          text: `start: ${points[0]!.dateTime}\nend: ${points[1]!.dateTime}`,
+          from: "agent",
+        },
+      ]
+    : [];
+};
 interface ChangedTimes {
   before: EventTime;
   after: EventTime;
@@ -191,9 +221,7 @@ const timeChange = (
 ): Result.Result<ChangedTimes, ToolFailure> => {
   zone = canonicalZone(zone) ?? zone;
   const before = eventTime(event.start, event.end, zone);
-  const ownZone = (point: EventPoint) =>
-    point.timeZone === undefined ? undefined : (canonicalZone(point.timeZone) ?? point.timeZone);
-  const beforeZones = { start: ownZone(event.start), end: ownZone(event.end) };
+  const beforeZones = ownZones(event);
   const unchanged = {
     before,
     after: before,
@@ -457,23 +485,14 @@ export const updatePlan = (
             from: "agent",
           },
         );
+      values.push(...exactTimes(times.body));
     }
     if (!sameZones(times.beforeZones, times.afterZones)) {
       values.push(
         { name: "Event's own zone now", text: zoneText(times.beforeZones), from: "calendar" },
         { name: "New event's own zone", text: zoneText(times.afterZones), from: "agent" },
       );
-    } else if (
-      [times.beforeZones.start, times.beforeZones.end].some(
-        (own) => own !== undefined && own !== canonicalZone(ctx.zone),
-      )
-    ) {
-      values.push({
-        name: "Event's own zone",
-        text: zoneText(times.beforeZones),
-        from: "calendar",
-      });
-    }
+    } else values.push(...ownZoneValues(times.beforeZones, ctx.zone));
     field("location", "Location", event.location ?? "", input.location);
     field("description", "Description", oldDescription, input.description, description);
     if (guests.attendees !== undefined) body.attendees = guests.attendees;
@@ -534,6 +553,7 @@ export const deletePlan = (
             : "This event",
       from: "agent",
     });
+    values.push(...ownZoneValues(ownZones(event), ctx.zone));
     const guests = guestEntries(event, input.account).map((entry) => entry.email);
     if (event.attendeesOmitted) values.push(unknownGuests());
     else if (guests.length) values.push(guestsValue(guests, "the cancellation", "calendar"));
