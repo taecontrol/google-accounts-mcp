@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import type { Confirm, Send } from "../mcp/tools";
+import type { Send, Sending } from "../mcp/tools";
 import { notFound, ToolFailure } from "../mcp/failures";
 import { readCalendarList } from "./calendar";
 import { Attendee, findEvent } from "./events";
@@ -60,21 +60,34 @@ export const invitation = (send: Send, input: { account: string; event: string }
       );
     return { calendar, event, mine, organizer: event.organizer.email };
   });
+export type Invitation = Effect.Success<ReturnType<typeof invitation>>;
 
 const PatchAnswer = Schema.Struct({ attendees: Schema.optionalKey(Schema.Array(Attendee)) });
-export const respondToEvent = (
-  send: Send,
-  confirm: Confirm,
-  input: { account: string; event: string; response: typeof EventResponse.Type; note?: string },
-) =>
+export interface RespondInput {
+  readonly account: string;
+  readonly event: string;
+  readonly response: typeof EventResponse.Type;
+  readonly note?: string;
+}
+export interface RespondResult {
+  readonly account: string;
+  readonly event: string;
+  readonly my_response: typeof EventResponse.Type;
+}
+/**
+ * Writes the answer for an invitation that this run read; its etag ties the write to that read.
+ * Only the confirmed channel reaches it: runChange checks the setting just before the write.
+ */
+export const answerInvitation = (
+  sending: Sending,
+  { calendar, event, mine }: Invitation,
+  input: RespondInput,
+): Effect.Effect<RespondResult, ToolFailure> =>
   Effect.gen(function* () {
-    const { calendar, event, mine } = yield* invitation(send, input);
     // Google always gives an etag. Without one the write could not be tied to this read.
     const etag = event.etag;
     if (etag === undefined)
       return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
-    // Only Confirm may send a Calendar write: it checks the setting again just before it.
-    const sending = yield* confirm.check;
     const response = yield* sending(
       (token, signal) =>
         new Request(

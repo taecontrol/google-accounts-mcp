@@ -381,9 +381,9 @@ interface ChangeResult {
   event: string;
   link?: string;
 }
-interface ChangePlan {
+export interface ChangePlan<R = ChangeResult> {
   values: ViewValue[];
-  write: (sending: Sending) => Effect.Effect<ChangeResult, ToolFailure>;
+  write: (sending: Sending) => Effect.Effect<R, ToolFailure>;
 }
 const changedWhileRunning = () =>
   new ToolFailure({
@@ -577,15 +577,17 @@ export const deletePlan = (
   });
 
 /** The plan and its write share one read; only the confirmed channel can write it. */
-export const runChange = (
-  plan: Effect.Effect<ChangePlan, ToolFailure>,
+export const runChange = <R>(
+  plan: Effect.Effect<ChangePlan<R>, ToolFailure>,
   { confirm, approved }: { confirm: Confirm; approved: ReadonlyArray<ViewValue> | null },
 ) =>
   Effect.gen(function* () {
     const current = yield* plan;
     if (
       approved !== null &&
-      (approved.length !== current.values.length ||
+      // Every page shows at least one value, so an empty approval never stands for a real page.
+      (approved.length === 0 ||
+        approved.length !== current.values.length ||
         current.values.some((value, index) => {
           const before = approved[index]!;
           return (

@@ -2,7 +2,8 @@ import "./support/account-checks";
 import { expect, it } from "vite-plus/test";
 import { HttpResponse } from "msw";
 import { Effect } from "effect";
-import { respondToEvent } from "../src/google/respond";
+import { answerInvitation, invitation } from "../src/google/respond";
+import { runChange } from "../src/google/event-change";
 import type { Send, Sending } from "../src/mcp/tools";
 import { answer, page } from "./support/approvals";
 import {
@@ -482,10 +483,14 @@ it("keeps an unreadable patch body unknown and passes the abort signal to each r
   };
   const result = await Effect.runPromise(
     Effect.result(
-      respondToEvent(
-        send,
-        { late: send, check: Effect.succeed(send as Sending) },
-        { account: PERSONAL, event: "e1", response: "accepted" },
+      invitation(send, { account: PERSONAL, event: "e1" }).pipe(
+        Effect.flatMap((found) =>
+          answerInvitation(send as Sending, found, {
+            account: PERSONAL,
+            event: "e1",
+            response: "accepted",
+          }),
+        ),
       ),
     ),
   );
@@ -563,4 +568,35 @@ it("publishes the primary-calendar, note readers and note clearing contract with
       note: { type: "string" },
     },
   });
+});
+
+it("writes nothing for an empty approved page, even when the run cannot build one either", async () => {
+  let checks = 0;
+  let writes = 0;
+  const result = await Effect.runPromise(
+    Effect.result(
+      runChange(
+        Effect.succeed({
+          values: [],
+          write: () => {
+            writes++;
+            return Effect.succeed({ account: PERSONAL, event: "e1", my_response: "accepted" });
+          },
+        }),
+        {
+          confirm: {
+            late: (() => Effect.die("unused")) as unknown as Send,
+            check: Effect.sync(() => {
+              checks++;
+              return (() => Effect.die("unused")) as unknown as Sending;
+            }),
+          },
+          approved: [],
+        },
+      ),
+    ),
+  );
+  expect(result).toMatchObject({ _tag: "Failure", failure: { code: "google_unavailable" } });
+  expect(checks).toBe(0);
+  expect(writes).toBe(0);
 });
