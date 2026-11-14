@@ -55,7 +55,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import type { AccountView } from "../accounts/model";
+import { accountWideStatus, type AccountView } from "../accounts/model";
+import { SERVICES, serviceInfo, type Service } from "../google/services";
 import type { AccountsAlert } from "../accounts/flow";
 import { OwnerFrame, PageHeader } from "./frame";
 import type { Frame } from "./page";
@@ -79,9 +80,20 @@ function alertMessage(alert: AccountsAlert | null): string | null {
   if (!alert) return null;
   switch (alert.kind) {
     case "connected":
-      return `Connected ${alert.address}.`;
-    case "reconnected":
-      return `Reconnected ${alert.address}. Every connection keeps the permissions it had for this account.`;
+    case "reconnected": {
+      const start = `${alert.kind === "connected" ? "Connected" : "Reconnected"} ${alert.address}.`;
+      if (alert.incomplete.length) {
+        const names = new Intl.ListFormat("en", { type: "conjunction" }).format(
+          alert.incomplete.map((service) => serviceInfo[service].name),
+        );
+        return `${start} Google didn't grant all of ${names}'s access, so agents can't use ${names} on it. Reconnect and check every box on Google's screen.`;
+      }
+      return alert.kind === "connected"
+        ? start
+        : `${start} Every connection keeps the permissions it had for this account.`;
+    }
+    case "no_access":
+      return "Nothing changed. Google didn't grant any of the access you chose. Try again and check the boxes on Google's screen.";
     case "already_connected":
       return `${alert.address} is already connected. Reconnect it from its row.`;
     case "address_taken":
@@ -107,36 +119,56 @@ function alertMessage(alert: AccountsAlert | null): string | null {
   }
 }
 const fixable = (account: AccountView) =>
-  account.status.kind === "needs_reconnect" || account.status.kind === "missing_access";
-export function AccountStatusText({
-  account,
-  requiredGmailScopes,
-}: {
-  account: AccountView;
-  requiredGmailScopes: number;
-}) {
-  const status = account.status;
-  if (status.kind === "unreadable")
+  accountWideStatus(account)?.kind === "needs_reconnect" ||
+  (!accountWideStatus(account) &&
+    SERVICES.some((service) => {
+      const access = account.services[service];
+      return access.status.kind === "missing_access" && access.granted > 0;
+    }));
+export function AccountStatusText({ account }: { account: AccountView }) {
+  const status = accountWideStatus(account);
+  if (status?.kind === "unreadable")
     return (
       <span className="text-muted-foreground">Can't read its stored access. Check TOKEN_KEY.</span>
     );
-  if (status.kind === "ready") return <span className="text-muted-foreground">Ready</span>;
-  const title =
-    status.kind === "needs_reconnect"
-      ? "Needs reconnect"
-      : status.kind === "blocked_by_admin"
-        ? "Blocked by admin"
-        : "Missing access";
-  const detail =
-    status.kind === "needs_reconnect"
-      ? "Google stopped accepting this server's access. Reconnect to restore it."
-      : status.kind === "blocked_by_admin"
-        ? "The organization's admin blocked this app. The server checks again at most every 10 minutes, when an agent uses this account."
-        : `Google granted ${status.granted} of the ${requiredGmailScopes} permissions Gmail needs. Reconnect and check every box.`;
+  if (status) {
+    const reconnect = status.kind === "needs_reconnect";
+    return (
+      <span className="text-muted-foreground">
+        <span className={reconnect ? "text-destructive" : "text-foreground"}>
+          {reconnect ? "Needs reconnect" : "Blocked by admin"}.
+        </span>{" "}
+        {reconnect
+          ? "Google stopped accepting this server's access. Reconnect to restore it."
+          : "The organization's admin blocked this app. The server checks again at most every 10 minutes, when an agent uses this account."}
+      </span>
+    );
+  }
   return (
-    <span className="text-muted-foreground">
-      <span className={fixable(account) ? "text-destructive" : "text-foreground"}>{title}.</span>{" "}
-      {detail}
+    <span className="flex flex-col gap-2">
+      {SERVICES.map((service) => {
+        const access = account.services[service];
+        const missing = access.status.kind === "missing_access";
+        const partial = missing && access.granted > 0;
+        return (
+          <span key={service} className="flex items-baseline gap-2">
+            <span className="text-muted-foreground">{serviceInfo[service].name}</span>
+            <span className={missing ? "text-muted-foreground" : "text-foreground"}>
+              {partial ? (
+                <>
+                  <span className="text-destructive">Missing access.</span> Google granted{" "}
+                  {access.granted} of {access.required} permissions {serviceInfo[service].name}{" "}
+                  needs. Reconnect and check every box.
+                </>
+              ) : missing ? (
+                "Not connected"
+              ) : (
+                "Ready"
+              )}
+            </span>
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -152,35 +184,41 @@ export function AccountsPage({
   frame,
   accounts,
   alert,
-  requiredGmailScopes,
 }: {
   readonly frame: Frame;
   readonly accounts: ReadonlyArray<AccountView>;
   readonly alert: AccountsAlert | null;
-  readonly requiredGmailScopes: number;
 }) {
   const [message, setMessage] = useState(
     () =>
       alert && {
         text: alertMessage(alert),
-        warning: !["connected", "reconnected", "removed", "already_connected"].includes(alert.kind),
+        warning:
+          ((alert.kind === "connected" || alert.kind === "reconnected") &&
+            alert.incomplete.length > 0) ||
+          !["connected", "reconnected", "removed", "already_connected"].includes(alert.kind),
       },
   );
   const [busy, setBusy] = useState(false);
+  const [connecting, setConnecting] = useState<AccountView | "new" | null>(null);
   const [dialog, setDialog] = useState<{ account: AccountView; action: "name" | "remove" } | null>(
     null,
   );
   useEffect(() => {
     const restore = (event: PageTransitionEvent) => {
-      if (event.persisted) setBusy(false);
+      if (event.persisted) {
+        setBusy(false);
+        setConnecting(null);
+      }
     };
     window.addEventListener("pageshow", restore);
     return () => window.removeEventListener("pageshow", restore);
   }, []);
-  const begin = async (account?: AccountView) => {
+  const begin = async (services: readonly Service[], account?: AccountView) => {
     setBusy(true);
     const result = await postAction(
       account ? `/accounts/${account.id}/reconnect` : "/accounts/connect",
+      services.map((service) => ["services", service]),
     );
     if (result.outcome === "ok" && result.url) {
       window.location.assign(result.url);
@@ -191,13 +229,14 @@ export function AccountsPage({
       warning: true,
     });
     setBusy(false);
+    setConnecting(null);
   };
   const reconnect = (account: AccountView, mobile = false) => (
     <Button
       variant="outline"
       className={mobile ? "w-full" : undefined}
       disabled={busy}
-      onClick={() => void begin(account)}
+      onClick={() => setConnecting(account)}
     >
       Reconnect
     </Button>
@@ -220,7 +259,7 @@ export function AccountsPage({
           Rename
         </DropdownMenuItem>
         {!fixable(account) && (
-          <DropdownMenuItem onSelect={() => void begin(account)}>Reconnect</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setConnecting(account)}>Reconnect</DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -240,7 +279,7 @@ export function AccountsPage({
             title="Accounts"
             description="Google accounts your agents can use. Each connection sees only the ones you grant."
           />
-          <Button disabled={busy} onClick={() => void begin()}>
+          <Button disabled={busy} onClick={() => setConnecting("new")}>
             Connect a Google account
           </Button>
         </div>
@@ -290,10 +329,7 @@ export function AccountsPage({
                         <Address account={account} />
                       </TableCell>
                       <TableCell className="max-w-64 py-4 align-top whitespace-normal">
-                        <AccountStatusText
-                          account={account}
-                          requiredGmailScopes={requiredGmailScopes}
-                        />
+                        <AccountStatusText account={account} />
                       </TableCell>
                       <TableCell className="py-4 pr-0 align-top">
                         <div className="flex items-center justify-end gap-2">
@@ -317,21 +353,15 @@ export function AccountsPage({
                       </ItemTitle>
                       <ItemDescription className="line-clamp-none wrap-anywhere">
                         <Address account={account} />
-                        {account.status.kind === "ready" && " · Ready"}
                       </ItemDescription>
                     </ItemContent>
                     <ItemActions className="-mt-1.5 -mr-2">{menu(account)}</ItemActions>
-                    {account.status.kind !== "ready" && (
-                      <ItemContent className="basis-full gap-3">
-                        <ItemDescription className="line-clamp-none">
-                          <AccountStatusText
-                            account={account}
-                            requiredGmailScopes={requiredGmailScopes}
-                          />
-                        </ItemDescription>
-                        {fixable(account) && reconnect(account, true)}
-                      </ItemContent>
-                    )}
+                    <ItemContent className="basis-full gap-3">
+                      <ItemDescription className="line-clamp-none">
+                        <AccountStatusText account={account} />
+                      </ItemDescription>
+                      {fixable(account) && reconnect(account, true)}
+                    </ItemContent>
                   </Item>
                 </div>
               ))}
@@ -339,6 +369,15 @@ export function AccountsPage({
           </>
         )}
       </div>
+      {connecting && (
+        <ServiceDialog
+          key={connecting === "new" ? "new" : connecting.id}
+          account={connecting === "new" ? undefined : connecting}
+          busy={busy}
+          close={() => setConnecting(null)}
+          submit={(services) => void begin(services, connecting === "new" ? undefined : connecting)}
+        />
+      )}
       {dialog && (
         <AccountDialog
           key={`${dialog.account.id}-${dialog.action}`}
@@ -347,6 +386,83 @@ export function AccountsPage({
         />
       )}
     </OwnerFrame>
+  );
+}
+function ServiceDialog({
+  account,
+  busy,
+  close,
+  submit,
+}: {
+  account?: AccountView;
+  busy: boolean;
+  close: () => void;
+  submit: (services: readonly Service[]) => void;
+}) {
+  const [chosen, setChosen] = useState<readonly Service[]>(() =>
+    account ? SERVICES.filter((service) => account.services[service].granted > 0) : [],
+  );
+  const descriptions: Record<Service, string> = {
+    gmail: "Read, draft, send, and organize mail.",
+    calendar: "See calendars and events, create and change events, and answer invitations.",
+  };
+  return (
+    <Dialog open onOpenChange={(open) => !open && !busy && close()}>
+      <DialogContent>
+        <form
+          className="flex flex-col gap-6"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (chosen.length && !busy) submit(chosen);
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle className="wrap-anywhere">
+              {account ? `Reconnect ${account.name}` : "Connect a Google account"}
+            </DialogTitle>
+            <DialogDescription>
+              Choose what agents can reach in this account. Google asks you to allow each one.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            {SERVICES.map((service) => (
+              <Field key={service} orientation="horizontal">
+                <Checkbox
+                  id={`service-${service}`}
+                  checked={chosen.includes(service)}
+                  disabled={busy}
+                  onCheckedChange={(checked) =>
+                    setChosen((previous) =>
+                      checked === true
+                        ? [...previous, service]
+                        : previous.filter((s) => s !== service),
+                    )
+                  }
+                />
+                <FieldContent>
+                  <FieldLabel htmlFor={`service-${service}`}>
+                    {serviceInfo[service].name}
+                  </FieldLabel>
+                  <FieldDescription>{descriptions[service]}</FieldDescription>
+                </FieldContent>
+              </Field>
+            ))}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            A Workspace organization can block Calendar for apps it doesn't trust. If Google shows a
+            page saying this app is blocked, connect again without Calendar.
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={busy} onClick={close}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || !chosen.length}>
+              {busy ? "Continuing…" : "Continue to Google"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 function AccountDialog({

@@ -34,11 +34,23 @@ import {
   type ApprovalContext,
 } from "./store";
 import { openResult, sealResult } from "./text";
-import type { Send, Tool, DecodedArgs } from "../mcp/tools";
+import { serviceOf, type Send, type Tool, type DecodedArgs } from "../mcp/tools";
 import { WINDOW } from "../once/store";
 import { approvalView } from "./view";
 
 type Dependencies = ApprovalContext & { config: Config; origin: string; files: KVNamespace };
+/** SQL order and duplicate account rows do not identify a use; its ID and tool do. */
+const decodeUses = (approval: Approval, rows: readonly unknown[], config: Config) =>
+  Promise.all(
+    approval.uses.map((use) => {
+      const row = rows.find(
+        (row) => typeof row === "object" && row !== null && "id" in row && row.id === use.account,
+      );
+      const service = serviceOf(use.tool);
+      if (!row || !service) throw new ToolFailure({ code: "server_unavailable" });
+      return decodeAllowedAccount(row, config.tokenKey, service);
+    }),
+  );
 /** Every unknown create outcome retains the tool's own recovery instructions. */
 async function unknownNotice(
   deps: Dependencies,
@@ -67,24 +79,23 @@ async function viewOf(
       : null;
   const preparing = reads ? preparation(Date.now, reads.deadline - SEND_RESERVE) : null;
   const requests = new Map<string, ReturnType<typeof accountRequests>>();
-  const sourceIds = new Set(approval.uses.slice(1).map((use) => use.account));
   let loading: Promise<Awaited<ReturnType<typeof decodeAllowedAccount>>[]> | undefined;
   const from = (account: string, source = false): Send =>
     sourceRead((build) =>
       Effect.gen(function* () {
         loading ??= Effect.runPromise(viewCredential(deps, approval.id, Date.now())).then((rows) =>
-          Promise.all(rows.map((row) => decodeAllowedAccount(row, deps.config.tokenKey))),
+          decodeUses(approval, rows, deps.config),
         );
         const all = yield* Effect.tryPromise({
           try: () => loading!,
           catch: () => new ToolFailure({ code: "server_unavailable" }),
         });
         const allowed = all.find(
-          (value) =>
-            value.credential.email === account && (!source || sourceIds.has(value.credential.id)),
+          (value, i) => value.credential.email === account && (source ? i > 0 : i === 0),
         );
         if (!allowed) return yield* Effect.fail(new ToolFailure({ code: "account_not_available" }));
-        let request = requests.get(account);
+        const key = `${allowed.credential.id}:${allowed.service}`;
+        let request = requests.get(key);
         if (!request) {
           request = accountRequests(
             { ...deps, now: Date.now },
@@ -92,7 +103,7 @@ async function viewOf(
             reads!.deadline,
             reads!.signal,
           );
-          requests.set(account, request);
+          requests.set(key, request);
         }
         return yield* request.send(build);
       }),
@@ -232,20 +243,12 @@ export const decide = (
         let payload: StoredPayload | null = null;
         let retainNotice = false;
         try {
-          const all = await Promise.all(
-            decision.credentials.map((row) => decodeAllowedAccount(row, deps.config.tokenKey)),
-          );
-          const allowed = all.find((value) => value.credential.id === approval.uses[0]!.account);
+          const all = await decodeUses(approval, decision.credentials, deps.config);
+          const allowed = all[0];
           if (!allowed) throw new WriteUncertain();
           const accounts = {
             own: allowed,
-            others: new Map(
-              all
-                .filter((value) =>
-                  approval.uses.slice(1).some((use) => use.account === value.credential.id),
-                )
-                .map((value) => [value.credential.email, value]),
-            ),
+            others: new Map(all.slice(1).map((value) => [value.credential.email, value])),
           };
           const executed = await executeAccount(
             call,

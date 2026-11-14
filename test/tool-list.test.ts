@@ -19,7 +19,7 @@ const plainTools = [
   {
     name: "list_accounts",
     description:
-      "Lists the Google accounts this connection can use, as a JSON array. An empty array means the owner has not given this connection access to any account.",
+      "Lists the Google accounts this connection can use, as a JSON array. Each entry has account (its email address), name, and services, with gmail and/or calendar and each service's status and optional message. Only services with at least one tool set to ask or allow on that account appear. An empty array means the owner has not given this connection access to any account.",
     inputSchema: { type: "object", properties: {} },
     annotations: { readOnlyHint: true },
   },
@@ -154,6 +154,7 @@ it("publishes the expected annotations for every tool", async () => {
       name: "send_draft",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
+    { name: "list_calendars", annotations: { readOnlyHint: true } },
     { name: "get_approval", annotations: { readOnlyHint: true } },
     {
       name: "create_upload_link",

@@ -4,7 +4,7 @@ import "./support/account-checks";
 import { accounts, finish, ownerBrowser, seedAccount, start } from "./support/accounts";
 import { SCOPES } from "./support/google";
 
-it("retains every Google scope while counting only Gmail permissions", async () => {
+it("stores only the scopes of the chosen service", async () => {
   const granted = [
     "openid",
     "email",
@@ -13,8 +13,8 @@ it("retains every Google scope while counting only Gmail permissions", async () 
   ];
   const b = await ownerBrowser();
   const result = await finish(b, (await start(b)).url, { scope: granted.join(" ") });
-  expect(JSON.parse((await accounts())[0]!.scopes)).toEqual(granted);
-  expect(result.text).toContain("Google granted 1 of the 5 permissions Gmail needs.");
+  expect(JSON.parse((await accounts())[0]!.scopes)).toEqual([SCOPES[0]]);
+  expect(result.text).toContain("Google granted 1 of 5 permissions Gmail needs.");
 });
 
 it("rejects the wrong SQLite storage type without changing the account", async () => {

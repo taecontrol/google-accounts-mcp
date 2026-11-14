@@ -384,6 +384,7 @@ it.each(["POST", "undeclared sending account", "undeclared third account"])(
     const own = await decodeAllowedAccount(
       await allowedAccountStatement(ctx, tool.name, normalizeEmail(PERSONAL)!).first(),
       ctx.config.tokenKey,
+      "gmail",
     );
     const source = await decodeAllowedAccount(
       await allowedAccountStatement(
@@ -392,6 +393,7 @@ it.each(["POST", "undeclared sending account", "undeclared third account"])(
         normalizeEmail(NORTHWIND)!,
       ).first(),
       ctx.config.tokenKey,
+      "gmail",
     );
     const target =
       kind === "POST"

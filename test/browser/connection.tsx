@@ -4,13 +4,16 @@ import {
   connectionPage,
   groupedConnectionPage,
   irreversibleConnectionPage,
+  serviceConnectionPage,
 } from "../support/connection-page";
 import "../../src/styles.css";
 
 const query = new URLSearchParams(location.search);
-const props = query.has("irreversible")
-  ? irreversibleConnectionPage
-  : query.has("groups")
-    ? groupedConnectionPage
-    : connectionPage;
+const props = query.has("services")
+  ? serviceConnectionPage
+  : query.has("irreversible")
+    ? irreversibleConnectionPage
+    : query.has("groups")
+      ? groupedConnectionPage
+      : connectionPage;
 createRoot(document.getElementById("root")!).render(<ConnectionPage {...props} />);

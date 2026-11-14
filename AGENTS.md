@@ -14,6 +14,7 @@ When you design or prototype a page, start from shadcn components and apply Refa
 
 - Write everything in this repository in English: code, docs, issues, pull requests, and product text. Issues live in this repository's GitHub tracker.
 - The owner's Google accounts hold real mail. Call Google APIs against them only with the owner's permission, and never send, delete, or change mail in a real account without the owner's explicit approval for that action.
+- Read a real calendar only with the owner's permission. Create, change, delete, or answer only test events, with guests only among the owner's own accounts.
 - Deploy only when the owner asks for it in the conversation.
 - Keep `.gitignore` in place before you run `vp check --fix`; otherwise it can rewrite `node_modules` and corrupt the pnpm store.
 - When you stop `pnpm dev`, stop its entire process group so that Vite and workerd do not keep running.

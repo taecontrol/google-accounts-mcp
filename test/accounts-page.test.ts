@@ -20,7 +20,10 @@ it.each(["unknown", "removed", "earlier generation"])(
     const b = await ownerBrowser();
     const before = await dump();
     for (const action of ["reconnect", "remove"]) {
-      const response = await b.post(`/accounts/${id}/${action}`, { disconnect: "1" });
+      const response = await b.post(`/accounts/${id}/${action}`, {
+        disconnect: "1",
+        services: "gmail",
+      });
       expect(await response.json()).toEqual({ outcome: "not_found" });
       expect(response.headers.getSetCookie()).toEqual([]);
     }
@@ -49,7 +52,7 @@ it.each(["unchecked", "confirmed", "failed", "timeout", "no token", "damaged tok
     }
     const pending = b.post(
       `/accounts/${row.id}/remove`,
-      kind === "unchecked" ? {} : { disconnect: "1" },
+      kind === "unchecked" ? {} : { disconnect: "1", services: "gmail" },
       { env: testEnv({ DB: db }) },
     );
     if (kind === "timeout") {
@@ -122,14 +125,18 @@ it.each(["name", "remove", "connect", "reconnect"])(
     const b = await ownerBrowser();
     const path = action === "connect" ? "/accounts/connect" : `/accounts/${row.id}/${action}`;
     const before = await dump();
-    const gate = await b.post(path, { name: "Work" }, { env: testEnv({ DB: brokenDb() }) });
+    const gate = await b.post(
+      path,
+      { name: "Work", services: "gmail" },
+      { env: testEnv({ DB: brokenDb() }) },
+    );
     expect(gate.status).toBe(503);
     expect(gate.headers.get("Content-Type")).toContain("text/html");
     expect(await dump()).toEqual(before);
     if (action !== "connect") {
       const failed = await b.post(
         path,
-        { name: "Work" },
+        { name: "Work", services: "gmail" },
         { env: testEnv({ DB: statementFailingDb(/accounts/) }) },
       );
       expect(await failed.json()).toEqual({

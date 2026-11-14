@@ -1,9 +1,25 @@
 import type { ApprovalPageProps } from "../approvals/model";
 import { TOOLS } from "../mcp/tools";
-import { GMAIL_SCOPES } from "../google/client";
+import { accountStatus, type AccountView } from "../accounts/model";
+import { SERVICES, serviceInfo } from "../google/services";
 import { MAX_ITEMS } from "../google/gmail";
 import type { ConnectionView } from "../connections/model";
 import type { Page } from "./page";
+
+const servicePreview = (
+  gmail = 5,
+  calendar = 0,
+  health: "ready" | "needs_reconnect" | "blocked_by_admin" = "ready",
+  readable = true,
+): AccountView["services"] => {
+  const scopes = [
+    ...serviceInfo.gmail.scopes.slice(0, gmail),
+    ...serviceInfo.calendar.scopes.slice(0, calendar),
+  ];
+  return Object.fromEntries(
+    SERVICES.map((service) => [service, accountStatus(health, scopes, service, readable)]),
+  ) as AccountView["services"];
+};
 
 const connections: ReadonlyArray<ConnectionView> = [
   {
@@ -59,28 +75,28 @@ const permissionAccounts: ReadonlyArray<import("../accounts/model").AccountView>
     name: "Personal",
     email: "alex.personal@example.com",
     workspace: false,
-    status: { kind: "ready" },
+    services: servicePreview(),
   },
   {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-000000000002" as import("../accounts/model").AccountId,
     name: "Northwind",
     email: "alex@northwind.example",
     workspace: true,
-    status: { kind: "ready" },
+    services: servicePreview(5, 1),
   },
   {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-000000000003" as import("../accounts/model").AccountId,
     name: "Projects",
     email: "alex.projects@example.com",
     workspace: false,
-    status: { kind: "needs_reconnect" },
+    services: servicePreview(5, 0, "needs_reconnect"),
   },
   {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-000000000004" as import("../accounts/model").AccountId,
     name: "Fabrikam Holdings International, Finance and Legal Operations",
     email: "alexandra.personal-archive@fabrikam-holdings.example",
     workspace: true,
-    status: { kind: "ready" },
+    services: servicePreview(5, 3),
   },
 ];
 const permissionTools = TOOLS.filter((tool) => tool.kind === "account").map((tool) => ({
@@ -110,7 +126,6 @@ const connectionPreview = (scenario: string): Page => {
       ),
     ),
     tools: permissionTools,
-    requiredGmailScopes: GMAIL_SCOPES.length,
   };
 };
 const approvalBase: ApprovalPageProps = {
@@ -814,40 +829,46 @@ export const previews: Readonly<Record<string, Page>> = {
         name: "Personal",
         email: "alex.personal@example.com",
         workspace: false,
-        status: { kind: "ready" },
+        services: servicePreview(),
       },
       {
         id: "22222222-2222-4222-8222-222222222222" as import("../accounts/model").AccountId,
         name: "Side projects",
         email: "alex.projects@example.com",
         workspace: false,
-        status: { kind: "needs_reconnect" },
+        services: servicePreview(5, 0, "needs_reconnect"),
       },
       {
         id: "33333333-3333-4333-8333-333333333333" as import("../accounts/model").AccountId,
         name: "Work",
         email: "alex@harbor.example",
         workspace: true,
-        status: { kind: "blocked_by_admin" },
+        services: servicePreview(5, 3, "blocked_by_admin"),
       },
       {
         id: "44444444-4444-4444-8444-444444444444" as import("../accounts/model").AccountId,
         name: "Research and operations shared inbox",
         email: "research@harbor.example",
         workspace: true,
-        status: { kind: "missing_access", granted: 2 },
+        services: servicePreview(5, 1),
       },
       {
         id: "55555555-5555-4555-8555-555555555555" as import("../accounts/model").AccountId,
         name: "Recovery",
         email: "recovery@example.com",
         workspace: false,
-        status: { kind: "unreadable" },
+        services: servicePreview(5, 0, "ready", false),
+      },
+      {
+        id: "66666666-6666-4666-8666-666666666666" as import("../accounts/model").AccountId,
+        name: "Shared calendars",
+        email: "shared@example.com",
+        workspace: false,
+        services: servicePreview(5, 3),
       },
     ],
-    alert: { kind: "reconnected", address: "alex.personal@example.com" },
+    alert: { kind: "reconnected", address: "alex.personal@example.com", incomplete: ["calendar"] },
     _tag: "Accounts",
-    requiredGmailScopes: GMAIL_SCOPES.length,
     frame: { host, ownerEmail: "owner@example.com", current: "accounts" },
   },
   "consent-expired": { _tag: "ConsentExpired" },

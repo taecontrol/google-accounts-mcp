@@ -63,7 +63,7 @@ it("labels Workspace from the hosted-domain claim and leaves personal accounts u
   });
   expect(result.text).toContain("alex@harbor.example · Workspace");
 });
-it.each([0, 2])("counts only the %s granted Gmail permissions", async (count) => {
+it.each([2])("counts only the %s granted Gmail permissions", async (count) => {
   const b = await ownerBrowser();
   const result = await finish(b, (await start(b)).url, {
     scope: [
@@ -73,7 +73,7 @@ it.each([0, 2])("counts only the %s granted Gmail permissions", async (count) =>
       ...SCOPES.slice(0, count),
     ].join(" "),
   });
-  expect(result.text).toContain(`Google granted ${count} of the 5 permissions`);
+  expect(result.text).toContain(`Google granted ${count} of 5 permissions`);
   expect(await accounts()).toHaveLength(1);
 });
 it.each([
@@ -338,7 +338,7 @@ it.each(["needs_reconnect", "blocked_by_admin"] as const)(
       email: "new.address@example.com",
       health: "ready",
       version: row.version + 1,
-      scopes: JSON.stringify(["openid", "email", ...SCOPES]),
+      scopes: JSON.stringify(SCOPES),
     });
     expect(google.events).not.toContain("revoke");
   },

@@ -261,7 +261,7 @@ it.each([
     await expectError(
       await attachCall(f, [copy]),
       "account_missing_access",
-      `Google did not grant all the Gmail access this server asks for on ${account.email}. Ask the owner to reconnect it at ${ORIGIN}/accounts and check every box.`,
+      `This server has no Gmail access to ${account.email}. Ask the owner to reconnect it at ${ORIGIN}/accounts with Gmail chosen and every box checked.`,
     );
     expect(await rows()).toEqual([]);
     expect(google.messageRequests).toEqual([]);

@@ -313,6 +313,7 @@ it.each([200, 503])(
     const allowed = await decodeAllowedAccount(
       await allowedAccountStatement(ctx, tool.name, normalizeEmail(PERSONAL)!).first(),
       ctx.config.tokenKey,
+      "gmail",
     );
     const broken: typeof tool = {
       ...tool,
@@ -367,6 +368,7 @@ it.each([
   const allowed = await decodeAllowedAccount(
     await allowedAccountStatement(ctx, tool.name, normalizeEmail(PERSONAL)!).first(),
     ctx.config.tokenKey,
+    "gmail",
   );
   const bypass: typeof tool = {
     ...tool,
@@ -587,6 +589,7 @@ it.each(["attachment_too_large", "attachment_not_readable"] as const)(
     const allowed = await decodeAllowedAccount(
       await allowedAccountStatement(ctx, tool.name, normalizeEmail(PERSONAL)!).first(),
       ctx.config.tokenKey,
+      "gmail",
     );
     const file = { filename: "report.pdf", type: "application/pdf", size: 1_000 };
     const original = code === "attachment_too_large" ? tooLarge(file, 500) : notReadable(file);
@@ -695,6 +698,7 @@ it.each([200, 400])("leaves no call or request timer after a send answered %s", 
   const allowed = await decodeAllowedAccount(
     await allowedAccountStatement(ctx, tool.name, normalizeEmail(PERSONAL)!).first(),
     ctx.config.tokenKey,
+    "gmail",
   );
   if (status === 400) google.sendAnswers.push(() => new Response(null, { status }));
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

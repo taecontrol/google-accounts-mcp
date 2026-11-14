@@ -1,10 +1,11 @@
 import { Schema } from "effect";
 import { GenerationSchema, type Generation } from "../owner/owner";
 import { parseAccountId, type AccountId } from "./model";
+import { ChosenServices, SERVICES, type Service } from "../google/services";
 export type FlowStart = (
   | { purpose: "add" }
   | { purpose: "reconnect"; account: AccountId; version: number }
-) & { generation: Generation; startedAt: number };
+) & { generation: Generation; startedAt: number; services: readonly Service[] };
 export type FlowState = FlowStart & { verifier: string };
 const attributes = "HttpOnly; Secure; SameSite=Lax; Path=/";
 const b64 = (value: Uint8Array) =>
@@ -32,6 +33,7 @@ const FlowSchema = Schema.Struct({
   verifier: Schema.String.check(Schema.isPattern(/^[\w-]{43}$/)),
   generation: GenerationSchema,
   startedAt: Schema.Int,
+  services: ChosenServices,
   account: Schema.optional(Schema.String),
   version: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
 });
@@ -67,6 +69,7 @@ export function takeFlow(
         verifier: value.verifier,
         generation: value.generation,
         startedAt: value.startedAt,
+        services: value.services,
       },
       clearCookie,
     };
@@ -81,20 +84,14 @@ export function takeFlow(
             verifier: value.verifier,
             generation: value.generation,
             startedAt: value.startedAt,
+            services: value.services,
           }
         : null,
     clearCookie,
   };
 }
 const AddressAlert = Schema.Struct({
-  kind: Schema.Literals([
-    "connected",
-    "reconnected",
-    "already_connected",
-    "changed",
-    "removed",
-    "removed_unconfirmed",
-  ]),
+  kind: Schema.Literals(["already_connected", "changed", "removed", "removed_unconfirmed"]),
   address: Schema.String,
 });
 const SimpleAlert = Schema.Struct({
@@ -104,11 +101,17 @@ const SimpleAlert = Schema.Struct({
     "client_refused",
     "no_refresh_token",
     "unconfirmed",
+    "no_access",
   ]),
 });
 const AlertSchema = Schema.Union([
   AddressAlert,
   SimpleAlert,
+  Schema.Struct({
+    kind: Schema.Literals(["connected", "reconnected"]),
+    address: Schema.String,
+    incomplete: Schema.Array(Schema.Literals(SERVICES)),
+  }),
   Schema.Struct({
     kind: Schema.Literal("address_taken"),
     address: Schema.String,

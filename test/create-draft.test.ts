@@ -162,7 +162,7 @@ it.each([400, 404])(
 it("checks missing access before taking a row and succeeds after access is restored", async () => {
   const f = await draftFixture();
   await env.DB.prepare("UPDATE accounts SET scopes = '[]' WHERE id = ?").bind(f.personal.id).run();
-  await expectError(await draftCall(f), "account_missing_access", /Google did not grant/);
+  await expectError(await draftCall(f), "account_missing_access", /no Gmail access/);
   expect(await onceRows()).toEqual([]);
   await env.DB.prepare("UPDATE accounts SET scopes = ? WHERE id = ?")
     .bind(f.personal.scopes, f.personal.id)

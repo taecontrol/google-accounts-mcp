@@ -68,7 +68,7 @@ it("renders the tools in GROUPS order and in tool-list order inside a group", as
   // Each used group's heading, then its tools, in order.
   const used = GROUPS.filter((group) => tools.some((tool) => tool.group === group));
   const positions = used.flatMap((group) => [
-    first.indexOf(`>${group}</h4>`),
+    first.indexOf(`>${group}</h5>`),
     ...tools
       .filter((tool) => tool.group === group)
       .map((tool) => first.indexOf(`aria-label="${tool.label} on Personal for Claude"`)),
@@ -121,8 +121,7 @@ it.each(problemCases)(
       needs_reconnect: "Google stopped accepting this server's access. Reconnect to restore it.",
       blocked_by_admin:
         "The organization's admin blocked this app. The server checks again at most every 10 minutes, when an agent uses this account.",
-      missing_access:
-        "Google granted 0 of the 5 permissions Gmail needs. Reconnect and check every box.",
+      missing_access: "Not connected on this account.",
       unreadable: "Can't read its stored access. Check TOKEN_KEY.",
     };
     expect(text).toContain(wording[status]!);

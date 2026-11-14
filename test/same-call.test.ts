@@ -683,7 +683,7 @@ it("executeAccount fails closed on an unclassified exception after the creating 
   const tool = TOOLS.find((tool) => tool.name === "create_draft")!;
   if (tool.kind !== "account" || !tool.create) throw new Error("Missing creating tool");
   const raw = await allowedAccountStatement(ctx, tool.name, normalizeEmail(PERSONAL)!).first();
-  const allowed = await decodeAllowedAccount(raw, ctx.config.tokenKey);
+  const allowed = await decodeAllowedAccount(raw, ctx.config.tokenKey, "gmail");
   const create = tool.create;
   const broken = {
     ...tool,
