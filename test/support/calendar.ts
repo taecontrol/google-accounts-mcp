@@ -66,6 +66,33 @@ export function freeBusyFake(
   return requests;
 }
 
+export interface CalendarPatchRequest extends CalendarRequest {
+  readonly body: string;
+}
+/** Record the wire body, not a reconstructed subset of it. */
+export function patchEventsFake(
+  ...answers: Array<Response | ((request: CalendarPatchRequest) => Response | Promise<Response>)>
+) {
+  const requests: CalendarPatchRequest[] = [];
+  network.use(
+    http.patch("https://www.googleapis.com/calendar/v3/calendars/*", async ({ request }) => {
+      const recorded = {
+        url: request.url,
+        method: request.method,
+        headers: request.headers,
+        redirect: request.redirect,
+        signal: request.signal,
+        body: await request.text(),
+      };
+      requests.push(recorded);
+      const answer = answers.shift();
+      if (!answer) throw new Error("Unexpected Calendar patch");
+      return typeof answer === "function" ? answer(recorded) : answer;
+    }),
+  );
+  return requests;
+}
+
 export const PRIMARY_CALENDAR = {
   id: PERSONAL,
   summary: "Personal",
@@ -113,3 +140,22 @@ export const readEventCall = (
   f: Awaited<ReturnType<typeof fixture>>,
   args: Record<string, unknown> = {},
 ) => toolCall(f.mcp, "read_event", { account: PERSONAL, event: "e1", ...args });
+
+export const invitationFixture = (overrides: Record<string, unknown> = {}) =>
+  eventFixture({
+    etag: '"invitation-v1"',
+    eventType: "default",
+    organizer: { email: "host@example.com" },
+    attendees: [{ email: PERSONAL, self: true, responseStatus: "needsAction" }],
+    ...overrides,
+  });
+export const respondCall = (
+  f: Awaited<ReturnType<typeof fixture>>,
+  args: Record<string, unknown> = {},
+) =>
+  toolCall(f.mcp, "respond_to_event", {
+    account: PERSONAL,
+    event: "e1",
+    response: "accepted",
+    ...args,
+  });
