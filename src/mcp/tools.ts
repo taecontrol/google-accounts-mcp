@@ -78,6 +78,14 @@ import {
   readEvent,
   searchEvents,
 } from "../google/events";
+import {
+  MAX_AVAILABILITY_CALENDARS,
+  MAX_AVAILABILITY_DAYS,
+  MAX_BUSY_TIMES,
+  availabilityCalendars,
+  availabilityRange,
+  checkAvailability,
+} from "../google/availability";
 import type { Created } from "../once/store";
 import { createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
@@ -371,6 +379,32 @@ const SearchEventsInput = Schema.Struct({
   }),
 );
 const zoneExpects = "UTC or an IANA zone name with a slash, such as America/Bogota";
+const CheckAvailabilityInput = Schema.Struct({
+  account: Schema.String,
+  from: TimeText,
+  to: TimeText,
+  time_zone: Schema.optionalKey(ZoneName),
+  calendars: Schema.optionalKey(
+    Schema.Array(CalendarId).check(
+      Schema.isBetweenLength(1, MAX_AVAILABILITY_CALENDARS),
+      Schema.isUnique(),
+    ),
+  ),
+}).check(
+  Schema.makeFilter((args) => {
+    const fromInstant = parseTime(args.from).kind === "instant";
+    const toInstant = parseTime(args.to).kind === "instant";
+    if (args.time_zone !== undefined || fromInstant === toInstant) {
+      // The order of two instants is zone-independent; their wall-clock span is not.
+      const range =
+        args.time_zone !== undefined || !fromInstant
+          ? availabilityRange(args.from, args.to, args.time_zone ?? "UTC")
+          : rangeOf(args.from, args.to, "UTC");
+      if (Result.isFailure(range)) return { path: ["to"], issue: range.failure.field!.expects };
+    }
+    return true;
+  }),
+);
 const timeExpects =
   "a valid date or date-time in years 1900 to 2999: YYYY-MM-DD or YYYY-MM-DDTHH:MM[:SS[.fff]], with an optional Z or ±HH:MM offset";
 const messagesExpects = {
@@ -1346,6 +1380,59 @@ export const TOOLS: ReadonlyArray<Tool> = [
         }),
     },
     run: (send, account, args) => readEvent(send, { ...args, account: account.email }),
+  }),
+  accountTool({
+    name: "check_availability",
+    label: "Check availability",
+    group: "See calendars and events",
+    irreversible: false,
+    annotations: { readOnlyHint: true },
+    permissionDescription:
+      "See the busy times of this account's calendars and of other people's calendars that the account can see, without the details of their events.",
+    description: `Returns busy times, not free times, for calendars visible to one Google account, without event titles or details. \`account\` is an address from list_accounts. To find a time free in every account, call once per account and compare the busy times. \`calendars\` is an optional list of 1 to ${MAX_AVAILABILITY_CALENDARS} different calendar IDs from list_calendars or people's addresses, each 1 to 254 characters; without it, the tool checks the primary calendar. Google's alias \`primary\` is not an ID. Calendars where the account sees only busy times are supported. \`from\` and \`to\` are required: a date means the start of that day, a date-time without an offset is read in the call's zone, and a date-time with Z or ±HH:MM names an instant. Years are 1900 to 2999, seconds are optional, and fractions of a second are ignored. \`time_zone\` is UTC or an IANA name with a slash, such as America/Bogota; without it the call uses the primary calendar's zone. \`to\` is exclusive, must be after \`from\`, and must be at most ${MAX_AVAILABILITY_DAYS} days later on the call zone's wall clock. The result has account, time_zone, and calendars, with one entry per named ID in call order. Each entry has calendar and busy, a list of { start, end } with start included and end excluded, clipped to the range and sorted by start. Times use the call's zone, with seconds and its offset, as YYYY-MM-DDTHH:MM:SS±HH:MM, also for all-day events. An all-day event on a calendar in another zone is busy from midnight to midnight in that calendar's zone, so its busy time may not line up with the days of the call's zone. A calendar Google cannot check, a group address, or an ID Google answers under another ID has error: { code, message } instead of busy. Groups are not expanded; name each person's address instead. A result holds at most ${MAX_BUSY_TIMES} busy times, filled in the order of calendars. A calendar that does not fit gets error with no partial busy list; later calendars still fit if space remains, so name the most important calendars first. Shorten the range or name fewer calendars to avoid that error. When every calendar fails, the call returns a tool error. When the owner sets this tool to ask, it returns a pending approval with a link instead of busy times; get_approval returns the result after the owner approves.`,
+    input: CheckAvailabilityInput,
+    expects: {
+      account: "a string",
+      from: timeExpects,
+      to: `${timeExpects}, after from in the call's time zone and at most 31 days after from`,
+      time_zone: zoneExpects,
+      calendars:
+        "a list of 1 to 20 different calendar IDs from list_calendars or people's addresses, each 1 to 254 characters",
+    },
+    view: {
+      action: "check the busy times",
+      joiner: "of",
+      values: (args, send) =>
+        Effect.gen(function* () {
+          const ctx = yield* calendarContext(send, args.time_zone);
+          const range = yield* Effect.fromResult(rangeOf(args.from, args.to, ctx.zone));
+          const calendars = yield* Effect.fromResult(availabilityCalendars(ctx, args.calendars));
+          const listed: string[] = [];
+          const others: string[] = [];
+          for (const id of calendars) {
+            const calendar =
+              id === "primary" ? undefined : ctx.calendars.find((entry) => entry.calendar === id);
+            if (calendar) listed.push(`${unfold(calendar.name)} (${calendar.calendar})`);
+            else others.push(id);
+          }
+          const values: ViewValue[] = [];
+          if (listed.length)
+            values.push({ name: "Calendars", text: listed.join("\n"), from: "calendar" });
+          if (others.length)
+            values.push({
+              name: "Other calendars and people",
+              text: others.join("\n"),
+              from: "agent",
+            });
+          values.push({
+            name: "Range",
+            text: `${viewTime(zonedIso(range.from, ctx.zone), ctx.zone, false)} to ${viewTime(zonedIso(range.to, ctx.zone), ctx.zone)}`,
+            from: "agent",
+          });
+          return values;
+        }),
+    },
+    run: (send, account, args) => checkAvailability(send, { ...args, account: account.email }),
   }),
   {
     kind: "plain",

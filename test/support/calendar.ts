@@ -51,6 +51,21 @@ export function eventsFake(answers: Record<string, CalendarEvents>) {
   return requests;
 }
 
+/** Captures the actual POST body, including unlisted IDs, without calling Google. */
+type FreeBusyRequest = CalendarRequest & Pick<Request, "json">;
+export function freeBusyFake(
+  answer: Response | ((request: FreeBusyRequest) => Response | Promise<Response>),
+) {
+  const requests: FreeBusyRequest[] = [];
+  network.use(
+    http.post("https://www.googleapis.com/calendar/v3/freeBusy", ({ request }) => {
+      requests.push(request.clone());
+      return typeof answer === "function" ? answer(request) : answer.clone();
+    }),
+  );
+  return requests;
+}
+
 export const PRIMARY_CALENDAR = {
   id: PERSONAL,
   summary: "Personal",

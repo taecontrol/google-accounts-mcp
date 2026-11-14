@@ -202,6 +202,35 @@ const attachmentPreview: ApprovalPageProps = {
   },
 };
 const approvalPreviews: Readonly<Record<string, ApprovalPageProps>> = {
+  "approval-check-availability": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Check availability",
+        action: "check the busy times",
+        joiner: "of",
+      },
+      values: [
+        {
+          name: "Calendars",
+          text: "Personal (alex.personal@example.com)\nNorthwind team (team@example.com)",
+          from: "calendar",
+        },
+        {
+          name: "Other calendars and people",
+          text: "sam@work.example.com\nprimary",
+          from: "agent",
+        },
+        {
+          name: "Range",
+          text: "Nov 20, 2026 at 00:00 to Nov 27, 2026 at 00:00 (America/Bogota)",
+          from: "agent",
+        },
+      ],
+    },
+  },
   "approval-search-events": {
     ...approvalBase,
     request: {

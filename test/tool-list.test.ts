@@ -157,6 +157,7 @@ it("publishes the expected annotations for every tool", async () => {
     { name: "list_calendars", annotations: { readOnlyHint: true } },
     { name: "search_events", annotations: { readOnlyHint: true } },
     { name: "read_event", annotations: { readOnlyHint: true } },
+    { name: "check_availability", annotations: { readOnlyHint: true } },
     { name: "get_approval", annotations: { readOnlyHint: true } },
     {
       name: "create_upload_link",
