@@ -97,6 +97,23 @@ it("stores a partial Calendar grant and warns about its incomplete access", asyn
   );
 });
 
+it("lists both chosen services in the incomplete notice when both grants are partial", async () => {
+  const browser = await ownerBrowser();
+  const url = await chosen(browser, ["gmail", "calendar"]);
+  const response = await browser.get(
+    google.issueCode(url, { scope: ["openid", SCOPES[0]!, CALENDAR_SCOPES[0]!].join(" ") }),
+  );
+  const cookie = response.headers
+    .getSetCookie()
+    .find((value) => value.startsWith("__Host-accounts-outcome="))!;
+  expect(JSON.parse(decodeURIComponent(cookie.split(";")[0]!.split("=")[1]!)).incomplete).toEqual([
+    "gmail",
+    "calendar",
+  ]);
+  expect(JSON.parse((await accounts())[0]!.scopes)).toEqual([SCOPES[0], CALENDAR_SCOPES[0]]);
+  expect(await (await browser.get("/accounts")).text()).toContain("Gmail and Calendar");
+});
+
 it.each(["connect", "reconnect"])(
   "keeps all stored data unchanged when %s grants none of the chosen scopes",
   async (kind) => {

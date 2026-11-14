@@ -116,6 +116,28 @@ it("follows nextPageToken before sorting the whole list", async () => {
   }
 });
 
+it("orders calendar names and tied IDs without locale collation", async () => {
+  const f = await calendarFixture();
+  calendarFake(
+    Response.json({
+      items: [
+        { id: "umlaut", summary: "ä" },
+        { id: "lower", summary: "a" },
+        { id: "upper", summary: "Z" },
+        { id: "a@example.com", summary: "Same" },
+        { id: "Z@example.com", summary: "Same" },
+      ],
+    }),
+  );
+  expect((await calendarsOf(f)).calendars.map((calendar) => calendar.calendar)).toEqual([
+    "Z@example.com",
+    "a@example.com",
+    "upper",
+    "lower",
+    "umlaut",
+  ]);
+});
+
 it("cuts at one hundred sorted calendars and counts only the omitted entries", async () => {
   const f = await calendarFixture();
   calendarFake(
