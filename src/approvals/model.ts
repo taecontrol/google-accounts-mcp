@@ -85,11 +85,11 @@ export interface ViewNote {
   text: string;
   warning: boolean;
 }
-/** One value of a view. Its text is the agent's own, or was read from the account's mail. */
+/** One value of a view, attributed to the agent or to the Google source it was read from. */
 export interface ViewValue {
   name: string;
   text: string;
-  from: "agent" | "gmail" | "draft";
+  from: "agent" | "gmail" | "draft" | "calendar";
 }
 export type ApprovalState =
   | { kind: "waiting"; shown: boolean; changed: boolean; digest: string | null }
