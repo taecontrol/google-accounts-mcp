@@ -16,6 +16,7 @@ const approvalStates = [
   "approval-unconfirmed",
 ];
 const toolViews = [
+  "approval-create-event",
   "approval-waiting-thread",
   "approval-waiting-search",
   "approval-waiting-notes",

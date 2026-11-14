@@ -1,10 +1,15 @@
 import { Effect, Schema } from "effect";
 import type { Send } from "../mcp/tools";
 import { messageTooLarge, notSendable, ToolFailure } from "../mcp/failures";
-import type { Created } from "../once/store";
 import { RawMessage } from "./message";
 import { change, get, notFoundOr, upload } from "./gmail";
 
+export const Created = Schema.Struct({
+  draft: Schema.optionalKey(Schema.String),
+  message: Schema.String,
+  thread: Schema.String,
+});
+export type Created = typeof Created.Type;
 export type CreatedDraft = Created & { draft: string };
 
 const Draft = Schema.Struct({

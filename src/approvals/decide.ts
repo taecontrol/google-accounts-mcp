@@ -58,10 +58,14 @@ async function unknownNotice(
   tool: Extract<Tool, { kind: "account" }>,
   email: string,
   args: DecodedArgs,
+  checked = false,
 ) {
   return tool.create
     ? sealResult(deps.config.tokenKey, id, {
-        error: { code: "outcome_unknown", message: tool.unknown(email, Date.now() + WINDOW, args) },
+        error: {
+          code: "outcome_unknown",
+          message: tool.unknown(email, Date.now() + WINDOW, args, checked),
+        },
       })
     : null;
 }
@@ -259,6 +263,7 @@ export const decide = (
             stillApproved(deps, decision.won),
             held,
             controller.signal,
+            view.page.request.values,
           );
           if (executed.kind === "ran") {
             const out = executed.value;
@@ -277,6 +282,10 @@ export const decide = (
             else {
               outcome = "unknown";
               retainNotice = true;
+              const checked =
+                executed.repeat.kind === "unknown" && executed.repeat.checked === true;
+              notice = () =>
+                unknownNotice(deps, id, view.tool, allowed.credential.email, args, checked);
             }
           }
         } catch (error) {

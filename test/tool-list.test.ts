@@ -154,6 +154,10 @@ it("publishes the expected annotations for every tool", async () => {
       name: "send_draft",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
+    {
+      name: "create_event",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
     { name: "list_calendars", annotations: { readOnlyHint: true } },
     { name: "search_events", annotations: { readOnlyHint: true } },
     { name: "read_event", annotations: { readOnlyHint: true } },
@@ -287,6 +291,7 @@ it("advertises closed argument objects for tools that refuse extra fields", asyn
     "send_reply",
     "forward_message",
     "send_draft",
+    "create_event",
     "respond_to_event",
   ])
     expect(listed.find((tool) => tool.name === name)!.inputSchema.additionalProperties).toBe(false);

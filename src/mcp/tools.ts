@@ -55,6 +55,9 @@ import {
   CalendarId,
   calendarContext,
   readableCalendar,
+  writableCalendar,
+  readCalendarList,
+  type CalendarContext,
   listCalendars,
   MAX_CALENDARS,
   MAX_CALENDARS_CHARACTERS,
@@ -89,8 +92,7 @@ import {
   checkAvailability,
 } from "../google/availability";
 import { EventResponse, invitation, respondToEvent, WHOLE_SERIES } from "../google/respond";
-import type { Created } from "../once/store";
-import { createDraft, readDraft, uploadDraft } from "../google/draft";
+import { Created, createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
   MAX_SUBJECT,
   mailboxText,
@@ -114,16 +116,35 @@ import {
 import { sendExisting, sendStaged } from "../google/send";
 import { forwardFiles, forwardPlan, MAX_FORWARD_FILES, MAX_FORWARD_BYTES } from "../google/forward";
 import { addresses, header, readMessage, attachmentParts, otherParts } from "../google/message";
-type AccountExecution<A> =
+import {
+  Title,
+  Location,
+  Description,
+  Guests,
+  guestKey,
+  windowIssue,
+  eventPoints,
+  checkedDescription,
+  timeValues,
+  guestsValue,
+  writeEvent,
+  readWrittenEvent,
+  type WrittenEvent,
+} from "../google/event-write";
+type AccountExecution<A, S> =
   | {
       run: (
         send: Send,
         account: { email: string },
         args: A,
         takes: Takes,
+        context: { confirm: Confirm; approved: ReadonlyArray<ViewValue> | null },
       ) => Effect.Effect<unknown, ToolFailure>;
       create?: never;
       unknown?: never;
+      stored?: never;
+      answer?: never;
+      settle?: never;
     }
   | {
       create: (
@@ -132,9 +153,13 @@ type AccountExecution<A> =
         args: A,
         confirm: Confirm,
         sources: Sources,
-      ) => Effect.Effect<Created, ToolFailure>;
+        context: { approved: ReadonlyArray<ViewValue> | null; key: string },
+      ) => Effect.Effect<S, ToolFailure>;
+      stored: Schema.Codec<S, unknown>;
+      answer: (stored: S, args: A) => Record<string, unknown>;
+      settle?: (read: Send, args: A, key: string) => Effect.Effect<S | null, ToolFailure>;
       defaults: Readonly<Partial<A>>;
-      unknown: (email: string, until: number, args: A) => string;
+      unknown: (email: string, until: number, args: A, checked: boolean) => string;
       run?: never;
     };
 export class ViewUnavailable extends Data.TaggedError("ViewUnavailable") {}
@@ -211,8 +236,8 @@ export type Tool =
           sources: Sources,
         ) => Effect.Effect<ReadonlyArray<ViewValue>, ViewUnavailable | ToolFailure>;
       };
-    } & AccountExecution<DecodedArgs>);
-type AccountDefinition<A extends DecodedArgs> = {
+    } & AccountExecution<DecodedArgs, unknown>);
+type AccountDefinition<A extends DecodedArgs, S> = {
   name: string;
   label: string;
   group: Group;
@@ -238,9 +263,9 @@ type AccountDefinition<A extends DecodedArgs> = {
       sources: Sources,
     ) => Effect.Effect<ReadonlyArray<ViewValue>, ViewUnavailable | ToolFailure>;
   };
-} & AccountExecution<A>;
+} & AccountExecution<A, S>;
 // The runner passes a tool only the arguments that the tool's own input decoded.
-const accountTool = <A extends DecodedArgs>(definition: AccountDefinition<A>) =>
+const accountTool = <A extends DecodedArgs, S = never>(definition: AccountDefinition<A, S>) =>
   ({
     kind: "account",
     ...definition,
@@ -384,6 +409,48 @@ const SearchEventsInput = Schema.Struct({
     return true;
   }),
 );
+const CreateEventInput = Schema.Struct({
+  account: Schema.String,
+  calendar: Schema.optionalKey(CalendarId),
+  title: Title,
+  start: TimeText,
+  end: TimeText,
+  time_zone: Schema.optionalKey(ZoneName),
+  location: Schema.optionalKey(Location),
+  description: Schema.optionalKey(Description),
+  guests: Schema.optionalKey(Guests),
+  meet: Schema.optionalKey(Schema.Boolean),
+  duplicate: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 100 }))),
+}).check(
+  Schema.makeFilter((args) => {
+    const issue = windowIssue(args);
+    if (issue !== true) return issue;
+    if (
+      args.guests?.some(
+        (address) => guestKey(address) === guestKey(normalizeEmail(args.account) ?? args.account),
+      )
+    )
+      return { path: ["guests"], issue: "without the account's own address" };
+    return true;
+  }),
+);
+type CreateEventArgs = typeof CreateEventInput.Type;
+const CreatedEvent = Schema.Struct({
+  calendar: Schema.NonEmptyString,
+  event: Schema.NonEmptyString,
+  link: Schema.optionalKey(Schema.String),
+  meet: Schema.optionalKey(Schema.String),
+  meet_status: Schema.optionalKey(Schema.Literals(["pending", "failure", "none"])),
+  cancelled: Schema.optionalKey(Schema.Literal(true)),
+});
+const eventResult = (event: WrittenEvent, calendar: string): typeof CreatedEvent.Type => ({
+  calendar,
+  event: event.id,
+  ...(event.link === undefined ? {} : { link: event.link }),
+  ...(event.meet === undefined ? {} : { meet: event.meet }),
+  ...(event.meetStatus === undefined ? {} : { meet_status: event.meetStatus }),
+  ...(event.status === "cancelled" ? { cancelled: true as const } : {}),
+});
 const zoneExpects = "UTC or an IANA zone name with a slash, such as America/Bogota";
 const CheckAvailabilityInput = Schema.Struct({
   account: Schema.String,
@@ -575,6 +642,37 @@ const duplicateValue = (duplicate?: number): ViewValue[] =>
           from: "agent",
         },
       ];
+/** One calendar-list snapshot supplies both the approved values and the request. */
+const createEventPlan = (args: CreateEventArgs, ctx: CalendarContext) =>
+  Effect.gen(function* () {
+    const calendar = yield* Effect.fromResult(writableCalendar(ctx, args.calendar));
+    const points = yield* Effect.fromResult(eventPoints(args, ctx.zone));
+    const description = yield* checkedDescription(args.description ?? "");
+    const calendarText = `${unfold(calendar.name)} (${calendar.calendar})`;
+    const values: ViewValue[] = [
+      { name: "Calendar", text: calendarText, from: "calendar" },
+      ...(!calendar.primary
+        ? [{ name: "Guests see the organizer as", text: calendarText, from: "calendar" as const }]
+        : []),
+      { name: "Title", text: args.title, from: "agent" },
+      ...timeValues(args.start, args.end, ctx.zone),
+      // #57 adds Repeats here, immediately after Ends.
+      ...(args.guests?.length ? [guestsValue(args.guests, "the invitation", "agent")] : []),
+      ...(args.meet
+        ? [
+            {
+              name: "Google Meet",
+              text: "Asks Google to add a Google Meet link",
+              from: "agent" as const,
+            },
+          ]
+        : []),
+      ...(args.location ? [{ name: "Location", text: args.location, from: "agent" as const }] : []),
+      ...duplicateValue(args.duplicate),
+      { name: "Description", text: args.description ?? "", from: "agent" },
+    ];
+    return { calendar, points, description, values };
+  });
 const forwardBody = (quoted: string, note?: string) => (note ? `${note}\n\n${quoted}` : quoted);
 const draftNote =
   "This is the draft as it is in Gmail now. It is sent as it is at the moment you approve, also if it changed after this page loaded.";
@@ -820,6 +918,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
           );
         }),
     },
+    stored: Created,
+    answer: (stored) => ({ ...stored }),
     create: (send, account, args, confirm, sources) =>
       Effect.gen(function* () {
         const boxes = draftRecipients(args);
@@ -1019,6 +1119,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
           );
         }),
     },
+    stored: Created,
+    answer: (stored) => ({ ...stored }),
     create: (send, _account, args, confirm, sources) =>
       sendMail(send, confirm, draftMail(args, draftRecipients(args)), args.attachments, sources),
   }),
@@ -1068,6 +1170,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
           );
         }),
     },
+    stored: Created,
+    answer: (stored) => ({ ...stored }),
     create: (send, _account, args, confirm, sources) =>
       sendReplyPlan(send, args).pipe(
         Effect.flatMap((plan) =>
@@ -1153,6 +1257,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
           ];
         }),
     },
+    stored: Created,
+    answer: (stored) => ({ ...stored }),
     create: (send, _account, args, confirm) =>
       Effect.gen(function* () {
         const plan = yield* forwardPlan(send, args.message);
@@ -1243,7 +1349,151 @@ export const TOOLS: ReadonlyArray<Tool> = [
           ];
         }),
     },
+    stored: Created,
+    answer: (stored) => ({ ...stored }),
     create: (_send, _account, args, confirm) => sendExisting(confirm, args.draft),
+  }),
+  accountTool({
+    name: "create_event",
+    label: "Create event",
+    group: "Create and change events",
+    irreversible: true,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    permissionDescription:
+      "Create events in calendars where this account can add events. Google emails an invitation to every guest, and an invitation cannot be taken back.",
+    description:
+      "Creates an event in one Google account and invites its guests. Google emails an invitation to every guest, and an invitation cannot be taken back. `account` is an address from list_accounts. `calendar` is an optional calendar ID from list_calendars, 1 to 254 characters; without it, the event goes in the primary calendar. The alias `primary` and unlisted IDs get not_found. The calendar must have access owner or writer; reader and free_busy get invalid_arguments naming calendar. `title` is required, 1 to 1,000 characters without control characters. `start` and `end` are required and must both be dates (YYYY-MM-DD) or both times (YYYY-MM-DDTHH:MM, optionally with :00 seconds and Z or ±HH:MM). Years are 1900 to 2999; seconds other than 00 and fractions are refused because approvals show minutes. A local time without an offset uses the call's zone; a time with an offset names an instant. A local time that does not exist during a daylight-saving change is refused: give another time or an offset. `end` must be after start; an all-day end is exclusive, so a one-day event on 2026-11-20 ends on 2026-11-21. `time_zone` is UTC or an IANA zone with a slash, such as America/Bogota; without it the call uses the primary calendar's zone, even for another calendar. This is also the timed event's own zone. Leave time_zone out for all-day events. `location` is optional, up to 1,000 characters without control characters; empty means none. `description` is optional plain text, empty by default. It is limited to 8,000 UTF-8 bytes as sent to Google after escaping HTML; line breaks, tabs, quotes, and backslashes count 2 each. Controls other than line breaks and tabs are refused. The server escapes <, >, and & so guests see literal text, and refuses any description whose HTML conversion would change its characters, including collapsed whitespace. `guests` defaults to [], with at most 50 different bare email addresses, unique ignoring case. Each is at most 254 characters, with one @, a non-empty local part, and a domain with a dot; no whitespace, control or format characters, or display names. Leave the account's own address out. In a secondary calendar, guests see that calendar as the organizer; the invitation comes from account. Google emails each address; a group's address reaches its members. `meet: true` asks Google to add a Google Meet link; it defaults to false. `duplicate` is an optional whole number from 2 to 100 for a deliberate copy. The calendar's default reminders stay in place; no color or attachments are set. The result has account, calendar (the real ID), event, optional link to Google Calendar, and meet only when Google confirms a Meet link. A note explains when the Meet link is pending or absent, or when a recovered event is no longer in the calendar. read_event gives a pending Meet link once Google adds it.\n\nRepeating: a call with the same arguments as a call of the last 7 days is the same call. It never creates a second event. It returns the first call's result with repeat_of, or its pending approval. When you get no answer or an error that says to try again, call again with exactly the same arguments. Copy them; do not reword the text, because changed text is a new event. When the outcome is unknown, call again with exactly the same arguments in a minute: the server checks Google Calendar by its chosen event ID and never creates it twice. If that read still finds nothing, ask the owner to look in Google Calendar and use duplicate only if the owner says it is missing. To create one more on purpose, for example after the owner deleted it, add duplicate: 2 (then 3).\n\nWith ask, a call that cannot be built appears on the owner's page without Approve. The tool returns a pending approval with a link instead of creating the event; get_approval returns the result after the owner approves.",
+    input: CreateEventInput,
+    expects: {
+      account: "a string",
+      calendar:
+        "a calendar ID from list_calendars, 1 to 254 characters, with access owner or writer",
+      title: "a string of 1 to 1,000 characters without control characters",
+      start: `${timeExpects}, with seconds omitted or 00 and no fractions`,
+      end: `${timeExpects}, in the same date or time form as start, after start, with seconds omitted or 00 and no fractions`,
+      time_zone: `${zoneExpects}, left out for all-day dates`,
+      location: "a string of at most 1,000 characters without control characters",
+      description:
+        "plain text of at most 8,000 UTF-8 bytes after HTML encoding, counting each line break, tab, quote, and backslash as 2, without other control characters",
+      guests:
+        "a list of at most 50 different bare email addresses, unique ignoring case, each at most 254 characters with one @ and a domain with a dot, without whitespace, control or format characters, display names, or the account's own address",
+      meet: "a boolean",
+      duplicate: "a whole number from 2 to 100",
+    },
+    defaults: { location: "", description: "", guests: [], meet: false },
+    stored: CreatedEvent,
+    answer: (stored, args) => {
+      const notes: string[] = [];
+      if (stored.meet_status === "pending")
+        notes.push(
+          "Google has not given the Meet link yet. read_event gives it once Google adds it.",
+        );
+      if (stored.meet_status === "failure" || stored.meet_status === "none")
+        notes.push("The event exists without a Meet link.");
+      if (stored.cancelled) {
+        const next = (args.duplicate ?? 1) + 1;
+        notes.push(
+          `This call created the event and it is no longer in the calendar.${next <= 100 ? ` To create another, call again with duplicate: ${next}.` : ""}`,
+        );
+      }
+      return {
+        calendar: stored.calendar,
+        event: stored.event,
+        ...(stored.link === undefined ? {} : { link: stored.link }),
+        ...(stored.meet === undefined ? {} : { meet: stored.meet }),
+        ...(notes.length ? { note: notes.join(" ") } : {}),
+      };
+    },
+    unknown: (email, until, args, checked) => {
+      if (!checked)
+        return `The server does not know yet whether the event was created in ${email}. Call again with exactly the same arguments in a minute: the server checks Google Calendar and never creates it twice.`;
+      const next = (args.duplicate ?? 1) + 1;
+      return `Google Calendar does not show the event. Ask the owner to look in Google Calendar. Until ${isoSeconds(until)}, repeating this call does not create it.${next <= 100 ? ` If the owner says that it is missing, call again with duplicate: ${next}.` : ""}`;
+    },
+    view: {
+      action: "create an event",
+      joiner: "in",
+      notes: (args) =>
+        args.guests?.length
+          ? [{ text: "A group's address reaches each of its members.", warning: false }]
+          : [],
+      values: (args, send) =>
+        calendarContext(send, args.time_zone).pipe(
+          Effect.flatMap((ctx) => createEventPlan(args, ctx)),
+          Effect.map((plan) => plan.values),
+        ),
+    },
+    create: (send, _account, args, confirm, _sources, { approved, key }) =>
+      Effect.gen(function* () {
+        const ctx = yield* calendarContext(send, args.time_zone);
+        const plan = yield* createEventPlan(args, ctx);
+        if (approved !== null && JSON.stringify(plan.values) !== JSON.stringify(approved))
+          return yield* Effect.fail(
+            new ToolFailure({
+              code: "invalid_arguments",
+              said: "The calendar or time zone changed after approval. Nothing was created. Call again to approve the current values.",
+            }),
+          );
+        const sending = yield* confirm.check;
+        const event = yield* creating(
+          writeEvent(sending, {
+            method: "POST",
+            calendar: plan.calendar.calendar,
+            query: args.meet ? { conferenceDataVersion: "1" } : {},
+            body: {
+              id: key,
+              summary: args.title,
+              ...plan.points,
+              ...(args.location ? { location: args.location } : {}),
+              ...(plan.description ? { description: plan.description } : {}),
+              ...(args.guests?.length
+                ? { attendees: args.guests.map((email) => ({ email })) }
+                : {}),
+              ...(args.meet
+                ? {
+                    conferenceData: {
+                      createRequest: {
+                        requestId: key,
+                        conferenceSolutionKey: { type: "hangoutsMeet" },
+                      },
+                    },
+                  }
+                : {}),
+            },
+            refused: (status) =>
+              status === 400
+                ? new ToolFailure({ code: "invalid_arguments" })
+                : status === 404
+                  ? new ToolFailure({
+                      code: "not_found",
+                      missing: { kind: "calendar", id: plan.calendar.calendar },
+                    })
+                  : new ToolFailure({ code: "google_unavailable" }),
+          }),
+        );
+        if (event === null)
+          return yield* Effect.fail(new ToolFailure({ code: "outcome_unknown", unknown: true }));
+        return eventResult(event, plan.calendar.calendar);
+      }),
+    settle: (read, args, key) =>
+      Effect.gen(function* () {
+        const calendar =
+          args.calendar ??
+          (yield* readCalendarList(read)).calendars.find((entry) => entry.primary)?.calendar;
+        if (calendar === undefined || calendar === "primary")
+          return yield* Effect.fail(new ToolFailure({ code: "not_found" }));
+        const response = yield* read(
+          (token, signal) =>
+            new Request(
+              `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(key)}`,
+              { headers: { Authorization: `Bearer ${token}` }, redirect: "manual", signal },
+            ),
+        );
+        if (response.status === 404 || response.status === 410) return null;
+        if (response.status !== 200)
+          return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
+        return eventResult(yield* readWrittenEvent(response, args.meet ?? false), calendar);
+      }),
   }),
   accountTool({
     name: "list_calendars",
@@ -1347,7 +1597,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     annotations: { readOnlyHint: true },
     permissionDescription: "Read one event in full: its description, guests, and their answers.",
     description:
-      "Reads one event of one Google account, with its description and guests. `account` is an address from list_accounts. `calendar` is an optional calendar ID from list_calendars, 1 to 254 characters; without it the tool reads the primary calendar. Google's alias `primary` is not an ID from list_calendars. Unlisted calendars get not_found; a calendar where the account sees only busy times gets invalid_arguments, and check_availability gives those times. `event` is an event ID from search_events, 1 to 1,024 letters, digits, hyphens, or underscores; it works only in the calendar and account that returned it. An occurrence ID reads that occurrence, with `series` naming its series. A series ID reads the series and adds `recurrence`, Google's rule lines as given. A missing or cancelled event gets not_found. `time_zone` is UTC or an IANA name with a slash, such as America/Bogota; without it the call uses the primary calendar's zone. All times use that zone, have seconds, and have the format YYYY-MM-DDTHH:MM:SS±HH:MM. All-day start and end are dates, and end is the day after the last day. The result has account, calendar, time_zone, event, title, start, end, all_day, optional location and organizer, description, guests, status (confirmed or tentative), and link to Google Calendar. Description is plain text, with HTML converted when present. Each guest has email, optional name, response (accepted, declined, tentative, or needs_action), and optional as a boolean; rooms are left out. `my_response` is the account's own guest answer when an entry exists: Google's self entry in the primary calendar, or an address match elsewhere. `guests_hidden` means the organizer hid the list or Google omitted guests; guests then holds only what Google gave. `meet` is the Google Meet link when present. Non-regular events have `type`: out_of_office, focus_time, birthday, from_gmail, or working_location. Title and location are cut with … to 1,000 JSON characters each. Organizer is cut with … to 320 JSON characters. Meet is left out and link is empty when the corresponding value exceeds 2,000 JSON characters. Description is at most 10,000 JSON characters and a cut ends with [The rest of the description was left out.]. Guests are at most 8,000 JSON characters, with guests_left_out counting the rest; recurrence is at most 4,000 JSON characters, keeping whole lines, with recurrence_left_out counting the rest. The result stays within 32,000 JSON characters. When the owner sets this tool to ask, it returns a pending approval with a link instead of the event; get_approval returns the result after the owner approves.",
+      "Reads one event of one Google account, with its description and guests. `account` is an address from list_accounts. `calendar` is an optional calendar ID from list_calendars, 1 to 254 characters; without it the tool reads the primary calendar. Google's alias `primary` is not an ID from list_calendars. Unlisted calendars get not_found; a calendar where the account sees only busy times gets invalid_arguments, and check_availability gives those times. `event` is an event ID from search_events or create_event, 1 to 1,024 letters, digits, hyphens, or underscores; it works only in the calendar and account that returned it. An occurrence ID reads that occurrence, with `series` naming its series. A series ID reads the series and adds `recurrence`, Google's rule lines as given. A missing or cancelled event gets not_found. `time_zone` is UTC or an IANA name with a slash, such as America/Bogota; without it the call uses the primary calendar's zone. All times use that zone, have seconds, and have the format YYYY-MM-DDTHH:MM:SS±HH:MM. All-day start and end are dates, and end is the day after the last day. The result has account, calendar, time_zone, event, title, start, end, all_day, optional location and organizer, description, guests, status (confirmed or tentative), and link to Google Calendar. Description is plain text, with HTML converted when present. Each guest has email, optional name, response (accepted, declined, tentative, or needs_action), and optional as a boolean; rooms are left out. `my_response` is the account's own guest answer when an entry exists: Google's self entry in the primary calendar, or an address match elsewhere. `guests_hidden` means the organizer hid the list or Google omitted guests; guests then holds only what Google gave. `meet` is the Google Meet link when present. Non-regular events have `type`: out_of_office, focus_time, birthday, from_gmail, or working_location. Title and location are cut with … to 1,000 JSON characters each. Organizer is cut with … to 320 JSON characters. Meet is left out and link is empty when the corresponding value exceeds 2,000 JSON characters. Description is at most 10,000 JSON characters and a cut ends with [The rest of the description was left out.]. Guests are at most 8,000 JSON characters, with guests_left_out counting the rest; recurrence is at most 4,000 JSON characters, keeping whole lines, with recurrence_left_out counting the rest. The result stays within 32,000 JSON characters. When the owner sets this tool to ask, it returns a pending approval with a link instead of the event; get_approval returns the result after the owner approves.",
     input: Schema.Struct({
       account: Schema.String,
       calendar: Schema.optionalKey(CalendarId),
