@@ -1,6 +1,6 @@
 import { Result, Schema } from "effect";
 import { ToolFailure } from "../mcp/failures";
-import { instantOf, parseTime, TimeText, zonedIso } from "./calendar-time";
+import { canonicalZone, instantOf, parseTime, TimeText, zonedIso } from "./calendar-time";
 
 const days = [
   "monday",
@@ -41,22 +41,42 @@ const startDate = (start: string, zone: string): string => {
   return point.kind === "instant" ? zonedIso(point.ms, zone).slice(0, 10) : start.slice(0, 10);
 };
 const weekdayOf = (date: string): number => (new Date(date).getUTCDay() + 6) % 7;
-/** Decode every argument-only check now; defer only an instant without an explicit zone. */
-export const repeatIssue = (
-  a: Input,
-  zone = a.time_zone,
-): true | { path: [string]; issue: string } => {
-  if (a.repeat === undefined || (parseTime(a.start).kind === "instant" && zone === undefined))
-    return true;
-  const date = startDate(a.start, zone ?? "UTC");
-  if (a.repeat.until !== undefined && a.repeat.until < date)
-    return { path: ["repeat"], issue: "until on or after the date of start in the event's zone" };
-  if (a.repeat.weekdays !== undefined && !a.repeat.weekdays.includes(days[weekdayOf(date)]!))
+const dayName = (day: number): string => days[day]![0]!.toUpperCase() + days[day]!.slice(1);
+/** Every local date an instant can have: zone offsets run from UTC−12 to UTC+14. */
+const possibleDates = (ms: number): string[] => {
+  const first = new Date(ms - 12 * 3_600_000).toISOString().slice(0, 10);
+  const last = new Date(ms + 14 * 3_600_000).toISOString().slice(0, 10);
+  const dates = [first];
+  while (dates.at(-1)! < last)
+    dates.push(new Date(Date.parse(dates.at(-1)!) + dayMs).toISOString().slice(0, 10));
+  return dates;
+};
+type Issue = { path: [string]; issue: string };
+const dateIssue = (repeat: Repeat, date: string, where: string): Issue | null => {
+  if (repeat.until !== undefined && repeat.until < date)
     return {
       path: ["repeat"],
-      issue: "weekdays including the weekday of start in the event's zone",
+      issue: `a rule whose until is on or after ${date}, the date of start ${where}`,
     };
-  return true;
+  if (repeat.weekdays !== undefined && !repeat.weekdays.includes(days[weekdayOf(date)]!))
+    return {
+      path: ["repeat"],
+      issue: `a rule whose weekdays include ${dayName(weekdayOf(date))}, the weekday of start (${date}) ${where}`,
+    };
+  return null;
+};
+/**
+ * Decode every check whose answer does not depend on the primary calendar's zone. An instant
+ * without an explicit zone is refused now only when it fails on every local date it can have.
+ */
+export const repeatIssue = (a: Input, zone = a.time_zone): true | Issue => {
+  if (a.repeat === undefined) return true;
+  const point = parseTime(a.start);
+  if (point.kind === "instant" && zone === undefined) {
+    const issues = possibleDates(point.ms).map((date) => dateIssue(a.repeat!, date, "in any zone"));
+    return issues.every((issue) => issue !== null) ? issues[0]! : true;
+  }
+  return dateIssue(a.repeat, startDate(a.start, zone ?? "UTC"), `in ${zone ?? "UTC"}`) ?? true;
 };
 
 type Rule = {
@@ -123,10 +143,7 @@ const firstDates = (rule: Rule & { every: "week" }): number[] => {
 const wordsOf = (rule: Rule): string => {
   let text = `Every ${rule.interval === 1 ? rule.every : `${rule.interval} ${rule.every}s`}`;
   if (rule.every === "week") {
-    const names = rule.weekdays.map((day) => {
-      const name = days[day]!;
-      return name[0]!.toUpperCase() + name.slice(1);
-    });
+    const names = rule.weekdays.map(dayName);
     text += ` on ${new Intl.ListFormat("en-US", { type: "conjunction" }).format(names)}`;
   }
   if (rule.every === "month") text += ` on day ${rule.day}`;
@@ -176,7 +193,11 @@ export const repeatRule = (
     startDate: date,
     allDay,
     zone,
-    showZone: !allDay && zone !== primaryZone,
+    // An alias such as US/Eastern names the primary zone America/New_York too.
+    showZone:
+      !allDay &&
+      (canonicalZone(zone) ?? zone) !==
+        (primaryZone === undefined ? undefined : (canonicalZone(primaryZone) ?? primaryZone)),
     end:
       repeat.count !== undefined
         ? { kind: "count", count: repeat.count }

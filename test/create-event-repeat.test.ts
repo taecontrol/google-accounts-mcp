@@ -93,6 +93,16 @@ it.each([
     line: "RRULE:FREQ=WEEKLY;WKST=MO;BYDAY=MO;UNTIL=20261207",
   },
   {
+    args: {
+      start: "2027-09-01T23:30",
+      end: "2027-09-01T23:45",
+      time_zone: "America/Santiago",
+      repeat: { every: "day", until: "2027-09-04" },
+    },
+    // Midnight after Sep 4 does not exist in Santiago; the day still ends at 23:59:59 −04:00.
+    line: "RRULE:FREQ=DAILY;UNTIL=20270905T035959Z",
+  },
+  {
     args: { repeat: { every: "day", interval: 99, count: 730 } },
     line: "RRULE:FREQ=DAILY;INTERVAL=99;COUNT=730",
   },
@@ -194,4 +204,46 @@ it("creates and approves one all-day series, then returns it on an identical cal
     repeat_of: expect.any(String),
   });
   expect(google.inserts).toHaveLength(1);
+});
+
+it("names the weekday and zone when the primary zone moves start off the listed day", async () => {
+  const f = await eventsFixture("create_event");
+  primaryList();
+  const google = eventWriter();
+  await expectError(
+    await createEventCall(f, {
+      start: "2026-11-17T01:00:00Z",
+      end: "2026-11-17T02:00:00Z",
+      repeat: { every: "week", weekdays: ["tuesday"] },
+    }),
+    "invalid_arguments",
+    /Monday, the weekday of start \(2026-11-16\) in America\/Bogota/,
+  );
+  expect(google.inserts).toHaveLength(0);
+});
+
+it("sends the approved rule of a timed series", async () => {
+  const f = await eventsFixture("create_event", "ask");
+  primaryList();
+  const google = eventWriter();
+  const id = (
+    await answer(
+      await createEventCall(f, {
+        start: "2026-11-21T20:00",
+        end: "2026-11-21T21:00",
+        repeat: { every: "day", until: "2026-11-23" },
+      }),
+    )
+  ).approval as string;
+  expect((await page(f, id)).request.values).toContainEqual({
+    name: "Repeats",
+    text: "Every day, until Nov 23, 2026 (that day included).",
+    from: "agent",
+  });
+  await approve(f, id);
+  expect(google.inserts).toHaveLength(1);
+  expect(google.inserts[0]!.body).toMatchObject({
+    start: { dateTime: "2026-11-21T20:00:00-05:00", timeZone: "America/Bogota" },
+    recurrence: ["RRULE:FREQ=DAILY;UNTIL=20261124T045959Z"],
+  });
 });

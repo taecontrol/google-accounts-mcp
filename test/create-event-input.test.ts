@@ -126,6 +126,17 @@ it.each([
     time_zone: "Asia/Tokyo",
     repeat: { every: "day", until: "2026-11-17" },
   },
+  // An instant without time_zone that fails on every local date it can have.
+  {
+    start: "2026-11-17T12:00Z",
+    end: "2026-11-17T13:00Z",
+    repeat: { every: "day", until: "2020-01-01" },
+  },
+  {
+    start: "2026-11-17T12:00Z",
+    end: "2026-11-17T13:00Z",
+    repeat: { every: "week", weekdays: ["friday"] },
+  },
 ])("refuses invalid repeat before any approval or Google request: %j", async (args) => {
   const f = await eventsFixture("create_event", "ask");
   const lists = primaryList();

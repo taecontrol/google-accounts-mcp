@@ -458,18 +458,19 @@ it.each([{ every: "day" }, { every: "day", count: 1 }, { every: "day", until: "2
   },
 );
 
+// Each start can fall on another local date in some zone, so only the primary zone decides.
 it.each([
-  { every: "week", weekdays: ["tuesday"] },
-  { every: "day", until: "2026-11-15" },
-])("offers no Approve when repeat fails in the primary zone: %j", async (repeat) => {
+  { start: "2026-11-17T01:00:00Z", repeat: { every: "week", weekdays: ["tuesday"] } },
+  { start: "2026-11-17T06:00:00Z", repeat: { every: "day", until: "2026-11-16" } },
+])("offers no Approve when repeat fails in the primary zone: %j", async ({ start, repeat }) => {
   const f = await eventsFixture("create_event", "ask");
   primaryList();
   const google = eventWriter();
   const id = (
     await answer(
       await createEventCall(f, {
-        start: "2026-11-17T01:00:00Z",
-        end: "2026-11-17T02:00:00Z",
+        start,
+        end: start.replace(/T0(\d)/, (_, h: string) => `T0${Number(h) + 1}`),
         repeat,
       }),
     )
@@ -514,4 +515,41 @@ it("rechecks repeat in the primary zone after approval and before the insert", a
     message: expect.stringMatching(/The repeat field/),
   });
   expect(google.inserts).toHaveLength(0);
+});
+
+it("lists the dates of a start whose date differs in the event's zone", async () => {
+  const f = await eventsFixture("create_event", "ask");
+  primaryList();
+  eventWriter();
+  const id = (
+    await answer(
+      await createEventCall(f, {
+        start: "2026-11-29T23:30-05:00",
+        end: "2026-11-30T00:30-05:00",
+        time_zone: "Asia/Tokyo",
+        repeat: { every: "week", interval: 2, weekdays: ["sunday", "monday"], count: 6 },
+      }),
+    )
+  ).approval as string;
+  expect((await page(f, id)).request.values).toContainEqual({
+    name: "Repeats",
+    text: "Every 2 weeks on Monday and Sunday, 6 times. Weeks run Monday to Sunday and count from the week of the start: Mon, Nov 30, 2026; Sun, Dec 6, 2026; Mon, Dec 14, 2026; Sun, Dec 20, 2026; … Days are in Asia/Tokyo.",
+    from: "agent",
+  });
+});
+
+it("leaves out the zone note when time_zone is an alias of the primary zone", async () => {
+  const f = await eventsFixture("create_event", "ask");
+  repeatCalendars({ ...PRIMARY_CALENDAR, timeZone: "America/New_York" });
+  eventWriter();
+  const id = (
+    await answer(
+      await createEventCall(f, { time_zone: "US/Eastern", repeat: { every: "day", count: 2 } }),
+    )
+  ).approval as string;
+  expect((await page(f, id)).request.values).toContainEqual({
+    name: "Repeats",
+    text: "Every day, 2 times.",
+    from: "agent",
+  });
 });

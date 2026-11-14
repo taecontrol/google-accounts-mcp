@@ -232,6 +232,37 @@ const approvalPreviews: Readonly<Record<string, ApprovalPageProps>> = {
       ],
     },
   },
+  "approval-create-event-repeat-no-end": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Create event",
+        action: "create an event",
+        joiner: "in",
+      },
+      notes: [
+        { text: "A group's address reaches each of its members.", warning: false },
+        {
+          text: "The rule has no end date. It ends only when someone deletes the series or gives it an end date in Google Calendar.",
+          warning: true,
+        },
+      ],
+      values: [
+        { name: "Calendar", text: "Personal (alex.personal@example.com)", from: "calendar" },
+        { name: "Title", text: "Weekly check-in", from: "agent" },
+        { name: "Starts", text: "Nov 23, 2026 at 09:00 (America/Bogota)", from: "agent" },
+        { name: "Ends", text: "Nov 23, 2026 at 09:30 (America/Bogota)", from: "agent" },
+        { name: "Repeats", text: "Every week on Monday, with no end date.", from: "agent" },
+        {
+          name: "Google emails one invitation for the whole series to this address",
+          text: "sam@example.com",
+          from: "agent",
+        },
+      ],
+    },
+  },
   "approval-create-event": {
     ...approvalBase,
     request: {
