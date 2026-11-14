@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import type { Send } from "../mcp/tools";
+import type { Confirm, Send } from "../mcp/tools";
 import { notFound, ToolFailure } from "../mcp/failures";
 import { readCalendarList } from "./calendar";
 import { Attendee, findEvent } from "./events";
@@ -64,6 +64,7 @@ export const invitation = (send: Send, input: { account: string; event: string }
 const PatchAnswer = Schema.Struct({ attendees: Schema.optionalKey(Schema.Array(Attendee)) });
 export const respondToEvent = (
   send: Send,
+  confirm: Confirm,
   input: { account: string; event: string; response: typeof EventResponse.Type; note?: string },
 ) =>
   Effect.gen(function* () {
@@ -72,7 +73,9 @@ export const respondToEvent = (
     const etag = event.etag;
     if (etag === undefined)
       return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
-    const response = yield* send(
+    // Only Confirm may send a Calendar write: it checks the setting again just before it.
+    const sending = yield* confirm.check;
+    const response = yield* sending(
       (token, signal) =>
         new Request(
           `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.calendar)}/events/${encodeURIComponent(input.event)}?sendUpdates=all`,

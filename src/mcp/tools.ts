@@ -1819,7 +1819,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
           return values;
         }),
     },
-    run: (send, account, args) => respondToEvent(send, { ...args, account: account.email }),
+    run: (send, account, args, _takes, { confirm }) =>
+      respondToEvent(send, confirm, { ...args, account: account.email }),
   }),
   {
     kind: "plain",
