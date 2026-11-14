@@ -9,6 +9,8 @@ import { setTool } from "./support/uploads";
 
 it.each([
   { title: "Planning\n" },
+  { calendar: "team@example.com\nPersonal" },
+  { calendar: "team@example.com\u2028" },
   { location: "Room\n" },
   { guests: ["guest@example.com\n"] },
   { start: "2026-11-20T09:00\n" },
