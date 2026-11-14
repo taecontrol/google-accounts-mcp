@@ -29,6 +29,7 @@ const toolViews = [
   "approval-waiting-forward",
   "approval-waiting-send-draft",
   "approval-waiting-delete",
+  "approval-respond-to-event",
   "connection-some-allowed",
 ];
 const cases = [

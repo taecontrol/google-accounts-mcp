@@ -158,6 +158,10 @@ it("publishes the expected annotations for every tool", async () => {
     { name: "search_events", annotations: { readOnlyHint: true } },
     { name: "read_event", annotations: { readOnlyHint: true } },
     { name: "check_availability", annotations: { readOnlyHint: true } },
+    {
+      name: "respond_to_event",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    },
     { name: "get_approval", annotations: { readOnlyHint: true } },
     {
       name: "create_upload_link",
@@ -271,7 +275,8 @@ it("returns the same list in revision 2026-07-28, which clients that listen spea
 it("advertises closed argument objects for tools that refuse extra fields", async () => {
   const f = await fixture();
   for (const tool of TOOLS)
-    if (tool.kind === "account" && tool.create) await permission(f, f.personal, true, tool.name);
+    if (tool.kind === "account" && tool.onExcessProperty === "error")
+      await permission(f, f.personal, true, tool.name);
   const listed = (await rpcResult(await f.mcp.call())).tools as Array<{
     name: string;
     inputSchema: { additionalProperties?: boolean };
@@ -282,6 +287,7 @@ it("advertises closed argument objects for tools that refuse extra fields", asyn
     "send_reply",
     "forward_message",
     "send_draft",
+    "respond_to_event",
   ])
     expect(listed.find((tool) => tool.name === name)!.inputSchema.additionalProperties).toBe(false);
 });

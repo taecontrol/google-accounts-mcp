@@ -30,11 +30,10 @@ export function createMcpServer(ctx: CallContext): Server {
           tool.kind === "plain"
             ? (tool.inputSchema ?? { type: "object", properties: {} })
             : ({
-                ...Schema.toJsonSchemaDocument(
-                  tool.input,
-                  tool.create ? { onExcessProperty: "error" } : undefined,
-                ).schema,
-                ...(tool.create ? { additionalProperties: false } : {}),
+                ...Schema.toJsonSchemaDocument(tool.input, {
+                  onExcessProperty: tool.onExcessProperty,
+                }).schema,
+                ...(tool.onExcessProperty === "error" ? { additionalProperties: false } : {}),
               } as McpTool["inputSchema"]),
       })),
     };

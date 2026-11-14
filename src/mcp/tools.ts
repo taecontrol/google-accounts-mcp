@@ -62,6 +62,7 @@ import {
 import {
   TimeText,
   ZoneName,
+  eventTime,
   parseTime,
   rangeOf,
   viewTime,
@@ -77,6 +78,7 @@ import {
   eventView,
   readEvent,
   searchEvents,
+  shortJson,
 } from "../google/events";
 import {
   MAX_AVAILABILITY_CALENDARS,
@@ -86,6 +88,7 @@ import {
   availabilityRange,
   checkAvailability,
 } from "../google/availability";
+import { EventResponse, invitation, respondToEvent, WHOLE_SERIES } from "../google/respond";
 import type { Created } from "../once/store";
 import { createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
@@ -189,6 +192,7 @@ export type Tool =
       description: string;
       annotations: ToolAnnotations;
       input: Schema.Codec<DecodedArgs, unknown>;
+      onExcessProperty: "error" | "ignore";
       /** What each field must be, for the message of invalid_arguments. */
       expects: Readonly<Record<string, string>>;
       also?: (args: DecodedArgs) => ReadonlyArray<{ account: string; tool: string }>;
@@ -217,6 +221,7 @@ type AccountDefinition<A extends DecodedArgs> = {
   description: string;
   annotations: ToolAnnotations;
   input: Schema.Codec<A, unknown>;
+  onExcessProperty?: "error";
   expects: Readonly<Record<keyof A & string, string>>;
   also?: (args: A) => ReadonlyArray<{ account: string; tool: string }>;
   uploads?: (args: A) => ReadonlyArray<string>;
@@ -239,6 +244,7 @@ const accountTool = <A extends DecodedArgs>(definition: AccountDefinition<A>) =>
   ({
     kind: "account",
     ...definition,
+    onExcessProperty: definition.onExcessProperty ?? (definition.create ? "error" : "ignore"),
     // The page shows this when a call has no values beyond its sentence; every tool says the same.
     view: {
       ...definition.view,
@@ -251,7 +257,7 @@ export const decodeArgs = (
   args: unknown,
 ): { ok: true; value: DecodedArgs } | { ok: false; field: string | null; expects?: string } => {
   const result = Schema.decodeUnknownResult(tool.input, {
-    onExcessProperty: tool.create ? "error" : "ignore",
+    onExcessProperty: tool.onExcessProperty,
   })(args);
   if (Result.isSuccess(result)) return { ok: true, value: result.success };
   let issue: unknown = result.failure.issue;
@@ -1437,6 +1443,114 @@ export const TOOLS: ReadonlyArray<Tool> = [
         }),
     },
     run: (send, account, args) => checkAvailability(send, { ...args, account: account.email }),
+  }),
+  accountTool({
+    name: "respond_to_event",
+    label: "Respond to invitation",
+    group: "Respond to invitations",
+    irreversible: true,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    permissionDescription:
+      "Accept, decline, or answer maybe to invitations in this account's primary calendar, with a note the agent writes. Google emails the answer and the note to the organizer, and may also show them or send them to other guests who can see the guest list.",
+    description: `Answers a calendar invitation only for this account, in its primary calendar. \`account\` is an address from list_accounts. \`event\` is an event ID from the account's primary calendar, as search_events or read_event return it without \`calendar\`: 1 to 1,024 letters, digits, hyphens, or underscores. The tool takes no calendar. An occurrence ID answers that occurrence; a series ID answers every occurrence and replaces answers given before to single occurrences. \`response\` is accepted, declined, or tentative (maybe); needs_action is refused with invalid_arguments naming response. \`note\` is optional, 1 to 1,000 Unicode code points, may include line breaks, and must not be only whitespace. Google emails the answer and the note to the organizer, and may also show them or send them to other guests who can see the guest list; people the organizer's calendar is shared with can also see the note. An answer without \`note\` removes the note of an earlier answer. The tool refuses with invalid_arguments naming event when this account is the organizer, is not a guest (including an invitation received only through a Google Group), or the event is not a regular event. A missing or cancelled event gets not_found. After a lost response, a retry changes nothing more, but Google may email the organizer again. The result has account, event, and my_response, the account's answer confirmed by Google. When the owner sets this tool to ask, it returns a pending approval with a link instead; get_approval returns the result after the owner approves.`,
+    input: Schema.Struct({
+      account: Schema.String,
+      event: EventId,
+      response: EventResponse,
+      note: Schema.optionalKey(
+        Schema.String.check(
+          Schema.makeFilter((note) => {
+            // The contract counts code points, not grapheme clusters or UTF-16 code units.
+            // oxlint-disable-next-line typescript/no-misused-spread
+            const length = [...note].length;
+            return length >= 1 && length <= 1_000 && note.trim().length > 0;
+          }),
+        ),
+      ),
+    }),
+    onExcessProperty: "error",
+    expects: {
+      account: "a string",
+      event:
+        "an event ID from this account's primary calendar of 1 to 1,024 letters, digits, hyphens, or underscores",
+      response: "accepted, declined, or tentative",
+      note: "a string of 1 to 1,000 Unicode code points, with more than whitespace; line breaks are allowed",
+    },
+    view: {
+      action: "answer a calendar invitation",
+      joiner: "from",
+      notes: (args) => [
+        {
+          text: "Google emails the answer to the organizer, and may also show it or send it to other guests who can see the guest list.",
+          warning: false,
+        },
+        ...(args.note === undefined
+          ? []
+          : [
+              {
+                text: "The note goes with the answer. The organizer gets it by email. Other guests who can see the guest list, and people the organizer's calendar is shared with, may also see it or get it by email.",
+                warning: true,
+              },
+            ]),
+      ],
+      values: (args, send) =>
+        Effect.gen(function* () {
+          const { event, mine, organizer } = yield* invitation(send, {
+            ...args,
+            account: normalizeEmail(args.account)!,
+          });
+          const ctx = yield* calendarContext(send);
+          const series = event.recurrence !== undefined && event.recurringEventId === undefined;
+          const start = eventTime(event.start, event.end, ctx.zone).start;
+          const values: ViewValue[] = [
+            {
+              name: "Event",
+              text: unfold(shortJson(event.summary ?? "", 1_000)),
+              from: "calendar",
+            },
+            {
+              name: series ? "First occurrence" : "Starts",
+              text: `${viewTime(start, ctx.zone)}${event.start.timeZone && event.start.timeZone !== ctx.zone ? `; event's own zone: ${event.start.timeZone}` : ""}`,
+              from: "calendar",
+            },
+            {
+              name: "Kind",
+              text:
+                event.recurringEventId !== undefined
+                  ? "One occurrence of a repeating event"
+                  : series
+                    ? WHOLE_SERIES
+                    : "A single event",
+              from: "calendar",
+            },
+            { name: "Organizer", text: unfold(organizer), from: "calendar" },
+          ];
+          if (mine.responseStatus !== undefined && mine.responseStatus !== "needsAction")
+            values.push({
+              name: "Current answer",
+              text: { accepted: "Accepted", declined: "Declined", tentative: "Maybe" }[
+                mine.responseStatus
+              ],
+              from: "calendar",
+            });
+          values.push({
+            name: "Answer",
+            text: { accepted: "Accept", declined: "Decline", tentative: "Maybe" }[args.response],
+            from: "agent",
+          });
+          if (args.note !== undefined)
+            values.push({ name: "Note", text: args.note, from: "agent" });
+          // Google erases an earlier note on every answer, so the owner always sees the one that goes.
+          if (mine.comment)
+            values.push({
+              name: args.note === undefined ? "Note removed" : "Earlier note, replaced",
+              text: mine.comment,
+              from: "calendar",
+            });
+          return values;
+        }),
+    },
+    run: (send, account, args) => respondToEvent(send, { ...args, account: account.email }),
   }),
   {
     kind: "plain",

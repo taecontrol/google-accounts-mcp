@@ -3,6 +3,7 @@ import { TOOLS } from "../mcp/tools";
 import { accountStatus, type AccountView } from "../accounts/model";
 import { SERVICES, serviceInfo } from "../google/services";
 import { MAX_ITEMS } from "../google/gmail";
+import { WHOLE_SERIES } from "../google/respond";
 import type { ConnectionView } from "../connections/model";
 import type { Page } from "./page";
 
@@ -286,6 +287,41 @@ const approvalPreviews: Readonly<Record<string, ApprovalPageProps>> = {
           text: "Nov 20, 2026 at 09:00 (America/Bogota); event's own zone: Europe/Madrid",
           from: "calendar",
         },
+      ],
+    },
+  },
+  "approval-respond-to-event": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Respond to invitation",
+        action: "answer a calendar invitation",
+        joiner: "from",
+      },
+      notes: [
+        {
+          text: "Google emails the answer to the organizer, and may also show it or send it to other guests who can see the guest list.",
+          warning: false,
+        },
+        {
+          text: "The note goes with the answer. The organizer gets it by email. Other guests who can see the guest list, and people the organizer's calendar is shared with, may also see it or get it by email.",
+          warning: true,
+        },
+      ],
+      values: [
+        { name: "Event", text: "Project planning with the Northwind team", from: "calendar" },
+        {
+          name: "First occurrence",
+          text: "Nov 20, 2026 at 09:00 (America/Bogota); event's own zone: Europe/Madrid",
+          from: "calendar",
+        },
+        { name: "Kind", text: WHOLE_SERIES, from: "calendar" },
+        { name: "Organizer", text: "kim@northwind.example", from: "calendar" },
+        { name: "Current answer", text: "Maybe", from: "calendar" },
+        { name: "Answer", text: "Accept", from: "agent" },
+        { name: "Note", text: "I'll join at 09:00.\nThanks for the invitation.", from: "agent" },
       ],
     },
   },

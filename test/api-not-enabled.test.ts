@@ -39,23 +39,29 @@ it.each(["ErrorInfo", "legacy"] as const)(
   async (marker) => {
     const f = await fixture({ scopes: JSON.stringify(CALENDAR_SCOPES) });
     await setTool(f, "list_calendars", "allow");
+    await setTool(f, "respond_to_event", "allow");
     await setTool(f, "list_labels", "allow", f.northwind);
-    calendarFake(disabled(marker));
+    calendarFake(disabled(marker), disabled(marker));
     // Deliberately names Calendar in the body of a Gmail refusal: the use owns the API name.
     google.labelAnswers.push(() => disabled(marker));
     for (const [tool, account, api] of [
       ["list_labels", f.northwind.email, "Gmail API"],
       ["list_calendars", PERSONAL, "Google Calendar API"],
+      ["respond_to_event", PERSONAL, "Google Calendar API"],
     ]) {
       await expectError(
-        await toolCall(f.mcp, tool!, { account }),
+        await toolCall(f.mcp, tool!, {
+          account,
+          ...(tool === "respond_to_event" ? { event: "e1", response: "accepted" } : {}),
+        }),
         "api_not_enabled",
         `The ${api} is not enabled in the owner's Google Cloud project, so Google refused the request for ${account}. Ask the owner to enable it in Google Cloud and try again.`,
       );
     }
     expect(
-      (await callRows()).slice(-2).map((c) => ({ outcome: c.outcome, reason: c.reason })),
+      (await callRows()).slice(-3).map((c) => ({ outcome: c.outcome, reason: c.reason })),
     ).toEqual([
+      { outcome: "failed", reason: "api_not_enabled" },
       { outcome: "failed", reason: "api_not_enabled" },
       { outcome: "failed", reason: "api_not_enabled" },
     ]);

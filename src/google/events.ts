@@ -26,7 +26,7 @@ const Person = Schema.Struct({
   email: Schema.optionalKey(Schema.String),
   self: Schema.optionalKey(Schema.Boolean),
 });
-const Attendee = Schema.Struct({
+export const Attendee = Schema.Struct({
   email: Schema.optionalKey(Schema.String),
   displayName: Schema.optionalKey(Schema.String),
   responseStatus: Schema.optionalKey(
@@ -35,9 +35,12 @@ const Attendee = Schema.Struct({
   optional: Schema.optionalKey(Schema.Boolean),
   resource: Schema.optionalKey(Schema.Boolean),
   self: Schema.optionalKey(Schema.Boolean),
+  organizer: Schema.optionalKey(Schema.Boolean),
+  comment: Schema.optionalKey(Schema.String),
 });
 const LiveEvent = Schema.Struct({
   id: EventId,
+  etag: Schema.optionalKey(Schema.String),
   status: Schema.Literals(["confirmed", "tentative"]),
   start: EventPoint,
   end: EventPoint,
@@ -71,7 +74,7 @@ const EventList = Schema.Struct({
 });
 
 /** JSON characters, including quotes and escaping, with no split surrogate pair at the cut. */
-const shortJson = (text: string, limit: number, marker = "…"): string => {
+export const shortJson = (text: string, limit: number, marker = "…"): string => {
   if (JSON.stringify(text).length <= limit) return text;
   let low = 0;
   let high = Math.min(text.length, limit);
