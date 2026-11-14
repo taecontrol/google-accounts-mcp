@@ -209,7 +209,7 @@ it("deletes the previous owner's rows only under its own state and generation", 
       "INSERT INTO approvals (id,generation,connection_id,call_id,tool,uses,created_at,expires_at,state,arguments) VALUES ('reset-approval',2,'reset-connection',1,'read_thread','[]',?1,?2,'waiting','sealed-arguments')",
     ).bind(NOW, NOW + 1000),
     env.DB.prepare(
-      "INSERT INTO once (identity,state,claim,taken_at,expires_at) VALUES ('test-identity','unknown','test-claim',?1,?2)",
+      "INSERT INTO once (identity,state,claim,request_key,taken_at,expires_at) VALUES ('test-identity','unknown','test-claim','0123456789abcdef0123456789abcdef',?1,?2)",
     ).bind(NOW, NOW + 1000),
     env.DB.prepare(
       "INSERT INTO uploads (id,link,generation,connection_id,expires_at,file) VALUES ('reset-upload','reset-link',2,'reset-connection',?1,'sealed-reference')",

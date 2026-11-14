@@ -3,7 +3,7 @@ import { expect, it } from "vite-plus/test";
 import { HttpResponse } from "msw";
 import { Effect } from "effect";
 import { respondToEvent } from "../src/google/respond";
-import type { Send } from "../src/mcp/tools";
+import type { Send, Sending } from "../src/mcp/tools";
 import { answer, page } from "./support/approvals";
 import {
   calendarFake,
@@ -18,6 +18,11 @@ import {
 import { callRows, expectError, PERSONAL, unconfirmedMessage } from "./support/permissions";
 import { requests } from "./support/network";
 import { rpcResult } from "./support/oauth";
+import { env } from "cloudflare:workers";
+import { observeStatements } from "./support/db";
+import { setTool } from "./support/uploads";
+import { toolCall } from "./support/permissions";
+import { testEnv } from "./support/worker";
 
 const list = (...items: object[]) => Response.json({ items });
 const calendarPaths = () =>
@@ -431,6 +436,32 @@ it.each([
   },
 );
 
+it("sends no answer when the setting turns deny after the call's checks", async () => {
+  const f = await eventsFixture("respond_to_event");
+  await setTool(f, "list_calendars", "allow");
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({ [PERSONAL]: { events: { e1: Response.json(invitationFixture()) } } });
+  const patches = patchEventsFake(() => Response.json({ attendees: [] }));
+  let checks = 0;
+  const db = observeStatements(env.DB, async (sql) => {
+    // The second permission read is Confirm's check just before the write.
+    if (/AS ask\s+FROM accounts a/.test(sql) && ++checks === 2)
+      await setTool(f, "respond_to_event", "deny");
+  });
+  await expectError(
+    await toolCall(
+      f.mcp,
+      "respond_to_event",
+      { account: PERSONAL, event: "e1", response: "accepted" },
+      testEnv({ DB: db }),
+    ),
+    "tool_not_allowed",
+    /has not allowed/,
+  );
+  expect(checks).toBe(2);
+  expect(patches).toHaveLength(0);
+});
+
 it("keeps an unreadable patch body unknown and passes the abort signal to each request", async () => {
   const controller = new AbortController();
   const sent: Request[] = [];
@@ -450,7 +481,13 @@ it("keeps an unreadable patch body unknown and passes the abort signal to each r
     return Effect.succeed(answers.shift()!);
   };
   const result = await Effect.runPromise(
-    Effect.result(respondToEvent(send, { account: PERSONAL, event: "e1", response: "accepted" })),
+    Effect.result(
+      respondToEvent(
+        send,
+        { late: send, check: Effect.succeed(send as Sending) },
+        { account: PERSONAL, event: "e1", response: "accepted" },
+      ),
+    ),
   );
   expect(result).toMatchObject({
     _tag: "Failure",

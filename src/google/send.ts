@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import { creating, messageTooLarge, notFound, notSendable, ToolFailure } from "../mcp/failures";
 import type { Confirm } from "../mcp/tools";
-import type { Created } from "../once/store";
+import type { Created } from "./draft";
 import type { CreatedDraft } from "./draft";
 import { change, get, notFoundOr } from "./gmail";
 

@@ -88,6 +88,27 @@ export const readableCalendar = (
   return Result.succeed(calendar);
 };
 
+/** The calendar list is authoritative: a 403 can also mean quota or rate limits. */
+export const writableCalendar = (
+  ctx: CalendarContext,
+  id: string | undefined,
+): Result.Result<Calendar, ToolFailure> => {
+  const calendar = readableCalendar(ctx, id, "calendar");
+  if (Result.isFailure(calendar) && calendar.failure.code === "not_found") return calendar;
+  if (Result.isSuccess(calendar) && ["owner", "writer"].includes(calendar.success.access))
+    return calendar;
+  return Result.fail(
+    new ToolFailure({
+      code: "invalid_arguments",
+      field: {
+        name: "calendar",
+        expects:
+          "a calendar where this account can add events (access owner or writer in list_calendars)",
+      },
+    }),
+  );
+};
+
 const CalendarList = Schema.Struct({
   items: Schema.optionalKey(
     Schema.Array(

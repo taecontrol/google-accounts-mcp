@@ -35,7 +35,7 @@ import {
 } from "./store";
 import { openResult, sealResult } from "./text";
 import { serviceOf, type Send, type Tool, type DecodedArgs } from "../mcp/tools";
-import { WINDOW } from "../once/store";
+import { WINDOW, type Check } from "../once/store";
 import { approvalView } from "./view";
 
 type Dependencies = ApprovalContext & { config: Config; origin: string; files: KVNamespace };
@@ -58,10 +58,14 @@ async function unknownNotice(
   tool: Extract<Tool, { kind: "account" }>,
   email: string,
   args: DecodedArgs,
+  checked: Check | null = null,
 ) {
   return tool.create
     ? sealResult(deps.config.tokenKey, id, {
-        error: { code: "outcome_unknown", message: tool.unknown(email, Date.now() + WINDOW, args) },
+        error: {
+          code: "outcome_unknown",
+          message: tool.unknown(email, Date.now() + WINDOW, args, checked),
+        },
       })
     : null;
 }
@@ -259,6 +263,7 @@ export const decide = (
             stillApproved(deps, decision.won),
             held,
             controller.signal,
+            view.page.request.values,
           );
           if (executed.kind === "ran") {
             const out = executed.value;
@@ -277,6 +282,10 @@ export const decide = (
             else {
               outcome = "unknown";
               retainNotice = true;
+              const checked =
+                executed.repeat.kind === "unknown" ? (executed.repeat.checked ?? null) : null;
+              notice = () =>
+                unknownNotice(deps, id, view.tool, allowed.credential.email, args, checked);
             }
           }
         } catch (error) {

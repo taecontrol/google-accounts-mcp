@@ -9,7 +9,13 @@ import {
 import { getFile, type FileData } from "../files/store";
 import { checkAttachedSize } from "./attachments";
 import { createApproval, waitingApproval } from "../approvals/store";
-import { APPROVAL_LIFETIME, CALL_DEADLINE, isoSeconds, type ApprovalId } from "../approvals/model";
+import {
+  APPROVAL_LIFETIME,
+  CALL_DEADLINE,
+  isoSeconds,
+  type ApprovalId,
+  type ViewValue,
+} from "../approvals/model";
 import { pendingAnswer } from "../approvals/result";
 import { sealArguments } from "../approvals/text";
 import {
@@ -20,7 +26,7 @@ import {
   uploadNotReady,
   type FailureCode,
 } from "./failures";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
   ProtocolError,
   ProtocolErrorCode,
@@ -57,11 +63,21 @@ import {
   type Uploaded,
 } from "./tools";
 import { contentOf, takes, type Reader } from "./file";
-import { identityOf } from "../once/identity";
-import { take, settle, release, WINDOW, type Repeat } from "../once/store";
+import { NOT_CREATED } from "../google/event-write";
+import { identityOf, type Identity } from "../once/identity";
+import { take, settle, release, confirm as confirmOnce, WINDOW, type Repeat } from "../once/store";
 export const MAX_ARGUMENTS_BYTES = 256 * 1024;
 export const SEND_RESERVE = 5_000;
-const isSend = (request: Request) => new URL(request.url).pathname.endsWith("/send");
+const isCalendarWrite = (request: Request) => {
+  const url = new URL(request.url);
+  return (
+    request.method !== "GET" &&
+    url.origin === "https://www.googleapis.com" &&
+    /^\/calendar\/v3\/calendars\/[^/]+\/events(?:\/|$)/.test(url.pathname)
+  );
+};
+const isSend = (request: Request) =>
+  new URL(request.url).pathname.endsWith("/send") || isCalendarWrite(request);
 export { CALL_DEADLINE } from "../approvals/model";
 
 export interface CallContext {
@@ -76,6 +92,17 @@ export interface CallContext {
   waitUntil: (work: Promise<unknown>) => void;
 }
 export type Executed = { kind: "ran"; value: unknown } | { kind: "repeat"; repeat: Repeat };
+/** The stored schema belongs to the tool; once never interprets its result. */
+const createdAnswer = (
+  stored: unknown,
+  tool: Extract<Tool, { kind: "account" }>,
+  args: DecodedArgs,
+): Record<string, unknown> => {
+  if (!tool.create) throw new ToolFailure({ code: "server_unavailable" });
+  const decoded = Schema.decodeUnknownResult(tool.stored)(stored);
+  if (Result.isFailure(decoded)) throw new ToolFailure({ code: "server_unavailable" });
+  return tool.answer(decoded.success, args);
+};
 export const repeatAnswer = (
   repeat: Repeat,
   account: string,
@@ -86,11 +113,15 @@ export const repeatAnswer = (
     case "done": {
       const at = isoSeconds(repeat.at);
       const next = (args.duplicate ?? 1) + 1;
+      const result = createdAnswer(repeat.result, tool, args);
+      const note = tool.repeated
+        ? tool.repeated(at, next <= 100 ? next : null, args)
+        : `This call already ran at ${at}. Nothing was created or sent again. This is its result.${"duplicate" in tool.expects && next <= 100 ? ` To make one more on purpose, call again with duplicate: ${next}${tool.uploads?.(args).length ? " and a new upload of each file" : ""}.` : ""}`;
       return {
         account,
-        ...repeat.result,
+        ...result,
         repeat_of: at,
-        note: `This call already ran at ${at}. Nothing was created or sent again. This is its result.${"duplicate" in tool.expects && next <= 100 ? ` To make one more on purpose, call again with duplicate: ${next}${tool.uploads?.(args).length ? " and a new upload of each file" : ""}.` : ""}`,
+        note: `${note}${typeof result.note === "string" ? ` ${result.note}` : ""}`,
       };
     }
     case "running":
@@ -102,7 +133,7 @@ export const repeatAnswer = (
       // executeAccount and createApproval return repeats only for creating tools.
       throw new ToolFailure({
         code: "outcome_unknown",
-        said: tool.unknown!(account, repeat.until, args),
+        said: tool.unknown!(account, repeat.until, args, repeat.checked ?? null),
       });
   }
 };
@@ -161,6 +192,46 @@ const callIdentity = (
     args: { ...args },
     defaults: tool.defaults,
   });
+async function settleRepeat(
+  ctx: CallContext,
+  tool: Extract<Tool, { kind: "account" }>,
+  allowed: Allowed,
+  args: DecodedArgs,
+  identity: Identity,
+  repeat: Repeat,
+  deadline: number,
+  signal?: AbortSignal,
+  still?: Effect.Effect<void, ToolFailure>,
+): Promise<Repeat> {
+  if (repeat.kind !== "unknown" || !tool.settle) return repeat;
+  // The setting may have changed since the call's checks; a denied call reads nothing.
+  if (still) {
+    const allowedNow = await Effect.runPromise(Effect.result(still));
+    if (Result.isFailure(allowedNow)) throw allowedNow.failure;
+  }
+  let requests: ReturnType<typeof accountRequests> | undefined;
+  try {
+    requests = accountRequests(ctx, allowed, deadline, signal);
+    const result = await Effect.runPromise(
+      Effect.result(tool.settle(sourceRead(requests.send), args, repeat.key)),
+    );
+    if (Result.isSuccess(result) && result.success === null)
+      return { ...repeat, checked: "missing" };
+    if (Result.isSuccess(result)) {
+      const stored = Schema.encodeSync(tool.stored)(result.success);
+      // Google showed the event; if this write is lost, the next repeat reads it again.
+      await Effect.runPromise(
+        Effect.result(confirmOnce(ctx, identity, repeat.key, stored, ctx.now())),
+      );
+      return { kind: "done", result: stored, at: repeat.at };
+    }
+  } catch {
+    // A failed recovery read never permits another insert.
+  } finally {
+    requests?.close();
+  }
+  return { ...repeat, checked: "failed" };
+}
 export type Accounts = { own: Allowed; others: ReadonlyMap<string, Allowed> };
 /** Sources never let a tool write as another account. */
 export const sourceRead =
@@ -247,15 +318,31 @@ export async function executeAccount(
   still: Effect.Effect<void, ToolFailure>,
   held: ReadonlyMap<string, FileData> | null = null,
   signal?: AbortSignal,
+  approved: ReadonlyArray<ViewValue> | null = null,
 ): Promise<Executed> {
   const allowed = accounts.own;
   const requests = accountRequests(ctx, allowed, deadline, signal);
   const otherRequests = new Map<string, ReturnType<typeof accountRequests>>();
   try {
     if (!tool.create) {
+      const guarded: Send = (build) =>
+        requests.send((token, signal) => preparing(build(token, signal)));
+      const confirm: Confirm = {
+        late: guarded,
+        check: still.pipe(
+          Effect.flatMap(() =>
+            ctx.now() > deadline - SEND_RESERVE
+              ? Effect.fail(new ToolFailure({ code: "google_unavailable" }))
+              : Effect.succeed(requests.send as Sending),
+          ),
+        ),
+      };
       const result = await Effect.runPromise(
         Effect.result(
-          tool.run(requests.send, { email: allowed.credential.email }, args, takes(ctx.reader)),
+          tool.run(guarded, { email: allowed.credential.email }, args, takes(ctx.reader), {
+            confirm,
+            approved,
+          }),
         ),
       );
       if (Result.isFailure(result)) throw result.failure;
@@ -264,13 +351,31 @@ export async function executeAccount(
     const identity = await callIdentity(ctx, tool, allowed, args);
     const entered = await Effect.runPromise(Effect.result(take(ctx, identity, ctx.now())));
     if (Result.isFailure(entered)) throw new ToolFailure({ code: "server_unavailable" });
-    if (entered.success.kind !== "run") return { kind: "repeat", repeat: entered.success };
+    if (entered.success.kind !== "run")
+      return {
+        kind: "repeat",
+        repeat: await settleRepeat(
+          ctx,
+          tool,
+          allowed,
+          args,
+          identity,
+          entered.success,
+          deadline,
+          signal,
+          still,
+        ),
+      };
     const claim = entered.success.claim;
     const reserve = deadline - SEND_RESERVE;
     const preparingRequests = preparation(ctx.now, reserve);
     const unavailable = () => new ToolFailure({ code: "google_unavailable" });
     const send = preparingRequests.wrap(requests.send);
-    const seen: { started: boolean; status: number | null } = { started: false, status: null };
+    const seen: { started: boolean; calendar: boolean; status: number | null } = {
+      started: false,
+      calendar: false,
+      status: null,
+    };
     const sending = ((build) => {
       let sends = false;
       return requests
@@ -284,6 +389,7 @@ export async function executeAccount(
           if (isSend(request)) {
             sends = true;
             seen.started = true;
+            seen.calendar = isCalendarWrite(request);
           }
           return request;
         })
@@ -359,21 +465,30 @@ export async function executeAccount(
       };
       const result = await Effect.runPromise(
         Effect.result(
-          tool.create(send, { email: allowed.credential.email }, args, confirm, sources),
+          tool.create(send, { email: allowed.credential.email }, args, confirm, sources, {
+            approved,
+            key: claim.key,
+          }),
         ),
       );
       if (Result.isFailure(result)) throw result.failure;
+      const stored = Schema.encodeSync(tool.stored)(result.success);
+      const answer = createdAnswer(stored, tool, args);
       await Effect.runPromise(
-        Effect.result(settle(ctx, claim, ctx.now(), { kind: "done", result: result.success })),
+        Effect.result(settle(ctx, claim, ctx.now(), { kind: "done", result: stored })),
       );
       if (held === null && ids.length)
         await Effect.runPromise(Effect.result(dropUploads(ctx, ids, identity)));
-      return { kind: "ran", value: { account: allowed.credential.email, ...result.success } };
+      return { kind: "ran", value: { account: allowed.credential.email, ...answer } };
     } catch (error) {
       if (
         error instanceof ToolFailure &&
         error.code !== "outcome_unknown" &&
-        (!seen.started || (seen.status !== null && seen.status >= 400 && seen.status < 500))
+        (!seen.started ||
+          (seen.status !== null &&
+            (seen.calendar
+              ? NOT_CREATED.includes(seen.status)
+              : seen.status >= 400 && seen.status < 500)))
       ) {
         await Effect.runPromise(Effect.result(release(ctx, claim)));
         if (held === null && ids.length && !error.leftover)
@@ -389,7 +504,7 @@ export async function executeAccount(
       throw new ToolFailure({
         code: "outcome_unknown",
         unknown: true,
-        said: tool.unknown(allowed.credential.email, now + WINDOW, args),
+        said: tool.unknown(allowed.credential.email, now + WINDOW, args, null),
       });
     } finally {
       preparingRequests.close();
@@ -615,7 +730,20 @@ export async function runCall(
             outcome = "repeat";
             value =
               "repeat" in created.success
-                ? repeatAnswer(created.success.repeat, email, tool, decoded.value)
+                ? repeatAnswer(
+                    await settleRepeat(
+                      ctx,
+                      tool,
+                      allowed,
+                      decoded.value,
+                      identity!,
+                      created.success.repeat,
+                      at + CALL_DEADLINE,
+                    ),
+                    email,
+                    tool,
+                    decoded.value,
+                  )
                 : pendingAnswer(
                     ctx.origin,
                     created.success.waiting.id,

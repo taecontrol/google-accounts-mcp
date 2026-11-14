@@ -203,6 +203,47 @@ const attachmentPreview: ApprovalPageProps = {
   },
 };
 const approvalPreviews: Readonly<Record<string, ApprovalPageProps>> = {
+  "approval-create-event": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Create event",
+        action: "create an event",
+        joiner: "in",
+      },
+      notes: [{ text: "A group's address reaches each of its members.", warning: false }],
+      values: [
+        {
+          name: "Calendar",
+          text: "Project milestones (project@group.calendar.google.com)",
+          from: "calendar",
+        },
+        {
+          name: "Guests see the organizer as",
+          text: "Project milestones (project@group.calendar.google.com)",
+          from: "calendar",
+        },
+        { name: "Title", text: "Planning the next project milestone", from: "agent" },
+        { name: "Starts", text: "Nov 20, 2026 at 09:00 (America/Bogota)", from: "agent" },
+        { name: "Ends", text: "Nov 20, 2026 at 10:00 (America/Bogota)", from: "agent" },
+        {
+          name: "Google emails the invitation to these 2 addresses",
+          text: "sam@example.com\nteam@northwind.example",
+          from: "agent",
+        },
+        { name: "Google Meet", text: "Asks Google to add a Google Meet link", from: "agent" },
+        { name: "Location", text: "Northwind meeting room", from: "agent" },
+        { name: "Duplicate", text: "2 (a deliberate copy of an earlier call)", from: "agent" },
+        {
+          name: "Description",
+          text: "Review the budget <draft> & decide the next steps.\nBring your project notes.",
+          from: "agent",
+        },
+      ],
+    },
+  },
   "approval-check-availability": {
     ...approvalBase,
     request: {
