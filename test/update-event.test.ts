@@ -37,6 +37,9 @@ it.each([
   { field: "title", value: "x".repeat(1001) },
   { field: "title", value: "" },
   { field: "title", value: "bad\ntext" },
+  { field: "title", value: "bad\u0085text" },
+  { field: "location", value: "bad\u0085place" },
+  { field: "description", value: "bad\u0085text" },
   { field: "location", value: "x".repeat(1001) },
   { field: "location", value: "bad\tplace" },
   { field: "description", value: "x".repeat(8001) },
@@ -384,7 +387,7 @@ it("leaves attendees out of a field-only patch when requested guest changes do n
   expect(sent[1]!.body).toEqual({ summary: "Changed" });
 });
 
-it.each([500, "aborted", "unreadable"])(
+it.each([500, "aborted", "unreadable"] as const)(
   "reports a possibly applied change after a lost %s answer and keeps the audit unknown",
   async (status) => {
     const { f, sent } = await setup(
@@ -418,3 +421,91 @@ it("treats a stale If-Match as a known failure with safe retry advice", async ()
     reason: "google_unavailable",
   });
 });
+
+it("accepts the exact text and guest limits, counting description encoding before Google", async () => {
+  const { f, sent } = await setup();
+  // 13 bytes wrap the plain text; quotes, tabs and backslashes cost two bytes each in JSON.
+  const description = '"\t\\' + "x".repeat(7981);
+  const title = "t".repeat(1000);
+  const location = "l".repeat(1000);
+  const guests = Array.from({ length: 50 }, (_, i) => `g${i}@example.com`);
+  await answer(await call(f, { title, location, description, add_guests: guests }));
+  expect(sent[1]!.body).toEqual({
+    summary: title,
+    location,
+    description: `<span>${description}</span>`,
+    attendees: guests.map((email) => ({ email })),
+  });
+});
+
+it("a retry after a lost answer sends no second patch or guest email", async () => {
+  const f = await eventsFixture("update_event");
+  calendarFake(list(PRIMARY_CALENDAR), list(PRIMARY_CALENDAR));
+  let changed = false;
+  const sent = eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: () =>
+          Response.json(
+            eventFixture(
+              changed
+                ? {
+                    summary: "Changed",
+                    description: "<span>A &amp; B<br>Agenda</span>",
+                    attendees: [{ email: "new@example.com" }],
+                    etag: '"version-2"',
+                  }
+                : {},
+            ),
+          ),
+      },
+      patch: {
+        e1: () => {
+          changed = true;
+          return HttpResponse.error();
+        },
+      },
+    },
+  });
+  const args = { title: "Changed", description: "A & B\nAgenda", add_guests: ["new@example.com"] };
+  await expectError(
+    await call(f, args),
+    "google_unavailable",
+    /change may have been made.*Calling again is safe/,
+  );
+  expect(await answer(await call(f, args))).toEqual({
+    account: PERSONAL,
+    calendar: PERSONAL,
+    event: "e1",
+    link: eventFixture().htmlLink,
+  });
+  expect(sent.map((r) => r.method)).toEqual(["GET", "PATCH", "GET"]);
+});
+
+it.each([
+  {
+    args: { start: "2026-11-20T11:00" },
+    start: "2026-11-20T11:00:00-05:00",
+    end: "2026-11-20T11:00:31.250-05:00",
+    zone: "America/Bogota",
+  },
+  {
+    args: { time_zone: "Europe/Madrid" },
+    start: "2026-11-20T15:00:30.500+01:00",
+    end: "2026-11-20T15:01:01.750+01:00",
+    zone: "Europe/Madrid",
+  },
+])(
+  "preserves the instants and duration of fractional times read from Google %#",
+  async ({ args, start, end, zone }) => {
+    const { f, sent } = await setup({
+      start: { dateTime: "2026-11-20T14:00:30.500Z" },
+      end: { dateTime: "2026-11-20T14:01:01.750Z" },
+    });
+    await answer(await call(f, args));
+    expect(sent[1]!.body).toEqual({
+      start: { dateTime: start, timeZone: zone, date: null },
+      end: { dateTime: end, timeZone: zone, date: null },
+    });
+  },
+);

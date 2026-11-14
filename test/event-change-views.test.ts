@@ -392,3 +392,18 @@ it.each(["update_event", "delete_event"] as const)(
     expect((await get(f, id)).result).toMatchObject({ event: "e1", calendar: PERSONAL });
   },
 );
+
+it("shows no guest email notices when every requested change already matches", async () => {
+  const f = await eventsFixture("update_event", "ask");
+  repeatList(PRIMARY_CALENDAR);
+  eventsFake({
+    [PERSONAL]: { events: { e1: Response.json(eventFixture({ attendees: [guest] })) } },
+  });
+  const id = (await answer(await eventChangeCall(f, "update_event", { add_guests: [guest.email] })))
+    .approval as string;
+  expect((await page(f, id)).request.values).toEqual([
+    ...base,
+    single,
+    { name: "Already a guest", text: guest.email, from: "agent" },
+  ]);
+});

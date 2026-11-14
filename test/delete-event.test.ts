@@ -244,7 +244,7 @@ it.each(["past start", "moved before now", "future"])(
   },
 );
 
-it.each([500, "aborted"])(
+it.each([500, "aborted"] as const)(
   "reports an uncertain delete after %s with later-not_found advice",
   async (status) => {
     const f = await eventsFixture("delete_event");
@@ -285,4 +285,28 @@ it("a delete with a stale etag fails as a known failure", async () => {
     outcome: "failed",
     reason: "google_unavailable",
   });
+});
+
+it("rejects a series starting exactly now without requesting instances or deleting it", async () => {
+  const f = await eventsFixture("delete_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  const sent = eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          eventFixture({
+            recurrence: ["RRULE:FREQ=WEEKLY"],
+            start: { dateTime: new Date(NOW).toISOString() },
+            end: { dateTime: new Date(NOW + 3600000).toISOString() },
+          }),
+        ),
+      },
+    },
+  });
+  await expectError(
+    await eventChangeCall(f, "delete_event"),
+    "invalid_arguments",
+    /event field.*series has occurrences in the past/,
+  );
+  expect(sent.map((r) => r.method)).toEqual(["GET"]);
 });
