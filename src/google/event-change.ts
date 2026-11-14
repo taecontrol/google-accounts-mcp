@@ -17,7 +17,7 @@ import {
 } from "./calendar-time";
 import {
   Description,
-  descriptionForGoogle,
+  checkedDescription,
   eventPoints,
   Guests,
   guestKey,
@@ -26,6 +26,7 @@ import {
   timeValues,
   Title,
   writeEvent,
+  windowIssue,
   type GooglePoint,
 } from "./event-write";
 import { EventId } from "./events";
@@ -64,7 +65,13 @@ export const UpdateEventInput = Schema.Struct({
     const added = new Set((args.add_guests ?? []).map(guestKey));
     if ((args.remove_guests ?? []).some((address) => added.has(guestKey(address))))
       return { path: ["remove_guests"], issue: "an address cannot be in both lists" };
-    return true;
+    return args.start !== undefined && args.end !== undefined
+      ? windowIssue({
+          start: args.start,
+          end: args.end,
+          ...(args.time_zone === undefined ? {} : { time_zone: args.time_zone }),
+        })
+      : true;
   }),
 );
 type ChangeInput = typeof DeleteEventInput.Type & { readonly time_zone?: string };
@@ -160,12 +167,21 @@ const unknownGuests = (): ViewValue => ({
   from: "calendar",
 });
 
-/** Local inputs use the call's zone; the event's own zone is a separate written field. */
+/** Local inputs use the call's zone; each point retains its own zone unless one is requested. */
+interface PointZones {
+  start: string | undefined;
+  end: string | undefined;
+}
+const sameZones = (a: PointZones, b: PointZones) => a.start === b.start && a.end === b.end;
+const zoneText = (zones: PointZones) =>
+  zones.start === zones.end
+    ? (zones.start ?? "(none)")
+    : `start: ${zones.start ?? "(none)"}, end: ${zones.end ?? "(none)"}`;
 interface ChangedTimes {
   before: EventTime;
   after: EventTime;
-  beforeZone: string | undefined;
-  afterZone: string | undefined;
+  beforeZones: PointZones;
+  afterZones: PointZones;
   body: Record<string, unknown> | undefined;
 }
 const timeChange = (
@@ -173,9 +189,18 @@ const timeChange = (
   input: UpdateInput,
   zone: string,
 ): Result.Result<ChangedTimes, ToolFailure> => {
+  zone = canonicalZone(zone);
   const before = eventTime(event.start, event.end, zone);
-  const beforeZone = event.start.timeZone;
-  const unchanged = { before, after: before, beforeZone, afterZone: beforeZone, body: undefined };
+  const ownZone = (point: EventPoint) =>
+    point.timeZone === undefined ? undefined : canonicalZone(point.timeZone);
+  const beforeZones = { start: ownZone(event.start), end: ownZone(event.end) };
+  const unchanged = {
+    before,
+    after: before,
+    beforeZones,
+    afterZones: beforeZones,
+    body: undefined,
+  };
   if (input.start === undefined && input.end === undefined && input.time_zone === undefined)
     return Result.succeed(unchanged);
   if ((input.start === undefined) !== (input.end === undefined)) {
@@ -185,6 +210,11 @@ const timeChange = (
         invalid("end", "given together with start to change between all-day dates and times"),
       );
   }
+  if (
+    input.time_zone !== undefined &&
+    (input.start === undefined ? before.all_day : parseTime(input.start).kind === "date")
+  )
+    return Result.fail(invalid("time_zone", "left out for all-day dates"));
   const start = input.start ?? ("date" in event.start ? event.start.date : event.start.dateTime);
   let end = input.end ?? ("date" in event.end ? event.end.date : event.end.dateTime);
   if (input.start !== undefined && input.end === undefined) {
@@ -198,33 +228,61 @@ const timeChange = (
             eventInstant(event.start, zone),
         ).toISOString();
   }
+  const requestedZone = input.time_zone === undefined ? undefined : canonicalZone(input.time_zone);
   const points = eventPoints(
-    { start, end, ...(input.time_zone === undefined ? {} : { time_zone: input.time_zone }) },
+    { start, end, ...(requestedZone === undefined ? {} : { time_zone: requestedZone }) },
     zone,
   );
   if (Result.isFailure(points)) return Result.fail(points.failure);
-  const after = eventTime(points.success.start, points.success.end, zone);
-  const afterZone = after.all_day ? undefined : (input.time_zone ?? beforeZone ?? zone);
+  // The shared writer accepts minute inputs; Google's unchanged or computed side can carry ms.
+  const precise = (point: GooglePoint, text: string): GooglePoint => {
+    if ("date" in point || parseTime(text).kind !== "instant") return point;
+    const fraction = new Date(text).getUTCMilliseconds();
+    return fraction
+      ? {
+          ...point,
+          dateTime: point.dateTime.replace(
+            /([+-]\d{2}:\d{2})$/,
+            `.${String(fraction).padStart(3, "0")}$1`,
+          ),
+        }
+      : point;
+  };
+  const next = {
+    start: precise(points.success.start, start),
+    end: precise(points.success.end, end),
+  };
+  const after = eventTime(next.start, next.end, zone);
+  const afterZones = after.all_day
+    ? { start: undefined, end: undefined }
+    : {
+        start: requestedZone ?? beforeZones.start ?? zone,
+        end: requestedZone ?? beforeZones.end ?? zone,
+      };
   const sameTime =
     before.all_day === after.all_day &&
     (before.all_day
       ? before.start === after.start && before.end === after.end
-      : eventInstant(event.start, zone) === eventInstant(points.success.start, zone) &&
-        eventInstant(event.end, zone) === eventInstant(points.success.end, zone));
-  if (sameTime && (input.time_zone === undefined || input.time_zone === beforeZone))
+      : eventInstant(event.start, zone) === eventInstant(next.start, zone) &&
+        eventInstant(event.end, zone) === eventInstant(next.end, zone));
+  if (sameTime && (requestedZone === undefined || sameZones(beforeZones, afterZones)))
     return Result.succeed(unchanged);
-  const complete = (point: GooglePoint) =>
+  const complete = (point: GooglePoint, own: string | undefined) =>
     "date" in point
       ? { date: point.date, dateTime: null, timeZone: null }
-      : { dateTime: point.dateTime, timeZone: afterZone!, date: null };
+      : { dateTime: point.dateTime, timeZone: own!, date: null };
   return Result.succeed({
     before,
     after,
-    beforeZone,
-    afterZone,
-    body: { start: complete(points.success.start), end: complete(points.success.end) },
+    beforeZones,
+    afterZones,
+    body: {
+      start: complete(next.start, afterZones.start),
+      end: complete(next.end, afterZones.end),
+    },
   });
 };
+
 const guestChange = (event: ChangeEvent, input: UpdateInput) => {
   if (
     event.attendeesOmitted &&
@@ -313,11 +371,11 @@ const writeChange = (
     event: input.event,
     headers: { "If-Match": read.event.etag },
     ...(body === undefined ? {} : { body }),
-    refusals: [412],
+    refusals: [410, 412],
     refused: (status) =>
       status === 412
         ? changedWhileRunning()
-        : status === 404
+        : status === 404 || status === 410
           ? notFound("event", input.event)
           : unavailable(),
   }).pipe(
@@ -350,8 +408,14 @@ export const updatePlan = (
       );
     const times = yield* Effect.fromResult(timeChange(event, input, ctx.zone));
     const guests = yield* Effect.fromResult(guestChange(event, input));
+    const description =
+      input.description === undefined ? undefined : yield* checkedDescription(input.description);
     const oldDescription =
-      input.description === undefined ? "" : yield* plainDescription(event.description ?? "");
+      description === undefined
+        ? ""
+        : (event.description ?? "") === description
+          ? input.description!
+          : yield* plainDescription(event.description ?? "");
     const body: Record<string, unknown> = {};
     const values = baseValues(read);
     values.push({
@@ -387,22 +451,24 @@ export const updatePlan = (
           { ...after[index]!, name: `New ${name}`, from: "agent" },
         );
     }
-    if (
-      (times.beforeZone !== undefined && times.beforeZone !== ctx.zone) ||
-      times.beforeZone !== times.afterZone
-    )
+    if (!sameZones(times.beforeZones, times.afterZones)) {
       values.push(
-        { name: "Event's own zone now", text: times.beforeZone ?? "(none)", from: "calendar" },
-        { name: "New event's own zone", text: times.afterZone ?? "(none)", from: "agent" },
+        { name: "Event's own zone now", text: zoneText(times.beforeZones), from: "calendar" },
+        { name: "New event's own zone", text: zoneText(times.afterZones), from: "agent" },
       );
+    } else if (
+      [times.beforeZones.start, times.beforeZones.end].some(
+        (own) => own !== undefined && own !== canonicalZone(ctx.zone),
+      )
+    ) {
+      values.push({
+        name: "Event's own zone",
+        text: zoneText(times.beforeZones),
+        from: "calendar",
+      });
+    }
     field("location", "Location", event.location ?? "", input.location);
-    field(
-      "description",
-      "Description",
-      oldDescription,
-      input.description,
-      input.description === undefined ? undefined : descriptionForGoogle(input.description),
-    );
+    field("description", "Description", oldDescription, input.description, description);
     if (guests.attendees !== undefined) body.attendees = guests.attendees;
     values.push(...guests.values);
     if (Object.keys(body).length) values.push(...guests.emails);
@@ -464,6 +530,12 @@ export const deletePlan = (
     const guests = guestEntries(event, input.account).map((entry) => entry.email);
     if (event.attendeesOmitted) values.push(unknownGuests());
     else if (guests.length) values.push(guestsValue(guests, "the cancellation", "calendar"));
+    if (wholeSeries(event))
+      values.push({
+        name: "Also emailed",
+        text: "Guests invited only to single occurrences of this series, if any, also get a cancellation.",
+        from: "agent",
+      });
     return {
       values,
       write: (sending) =>

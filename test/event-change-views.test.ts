@@ -61,7 +61,11 @@ it("shows before and after field values, removals and Calendar attribution in th
     { name: "New location", text: "(removed)", from: "agent" },
     { name: "Description now", text: "Old & plain\nnotes", from: "calendar" },
     { name: "New description", text: "(removed)", from: "agent" },
-    { name: "Google emails the change to this guest", text: "stay@example.com", from: "calendar" },
+    {
+      name: "Google emails the change to this address",
+      text: "stay@example.com",
+      from: "calendar",
+    },
   ]);
   expect(view.state).toMatchObject({ kind: "waiting", shown: true });
 });
@@ -139,10 +143,18 @@ it("shows no-op guest requests and invitation, change and cancellation groups on
     },
     { name: "Already a guest", text: "stay@example.com", from: "agent" },
     { name: "Not a guest", text: "absent@example.com", from: "agent" },
-    { name: "Google emails the invitation to this guest", text: "new@example.com", from: "agent" },
-    { name: "Google emails the change to this guest", text: "stay@example.com", from: "calendar" },
     {
-      name: "Google emails the cancellation to this guest",
+      name: "Google emails the invitation to this address",
+      text: "new@example.com",
+      from: "agent",
+    },
+    {
+      name: "Google emails the change to this address",
+      text: "stay@example.com",
+      from: "calendar",
+    },
+    {
+      name: "Google emails the cancellation to this address",
       text: "remove@example.com",
       from: "calendar",
     },
@@ -225,10 +237,19 @@ it.each(["single", "occurrence", "series"])(
         from: "agent",
       },
       {
-        name: "Google emails the cancellation to these 2 guests",
+        name: "Google emails the cancellation to these 2 addresses",
         text: "stay@example.com\nother@example.com",
         from: "calendar",
       },
+      ...(kind === "series"
+        ? [
+            {
+              name: "Also emailed",
+              text: "Guests invited only to single occurrences of this series, if any, also get a cancellation.",
+              from: "agent",
+            },
+          ]
+        : []),
     ]);
   },
 );
@@ -285,7 +306,7 @@ it.each(
   const id = (
     await answer(
       await eventChangeCall(f, tool, {
-        title: "Changed",
+        ...(tool === "update_event" ? { title: "Changed" } : {}),
         ...(["unlisted", "reader", "busy"].includes(kind) ? { calendar: kind } : {}),
         ...(kind === "after-read input" && tool === "update_event"
           ? { end: "2026-11-20T08:00" }
@@ -300,7 +321,7 @@ it.each(
   if (["unlisted", "reader", "busy"].includes(kind)) expect(sent).toEqual([]);
 });
 
-it.each(["removed guest", "changed duration", "new guest"])(
+it.each(["removed guest", "changed duration", "changed end zone", "new guest"])(
   "writes nothing when the run differs from the approved plan: %s",
   async (kind) => {
     const tool = kind === "new guest" ? "delete_event" : "update_event";
@@ -314,9 +335,23 @@ it.each(["removed guest", "changed duration", "new guest"])(
             Response.json(
               eventFixture({
                 attendees:
-                  kind === "removed guest" ? (changed ? [] : [guest]) : changed ? [guest] : [],
+                  kind === "removed guest"
+                    ? changed
+                      ? []
+                      : [guest]
+                    : kind === "new guest" && changed
+                      ? [guest]
+                      : [],
                 ...(kind === "changed duration" && changed
                   ? { end: { dateTime: "2026-11-20T16:00:00Z" } }
+                  : {}),
+                ...(kind === "changed end zone"
+                  ? {
+                      end: {
+                        dateTime: "2026-11-20T15:00:00Z",
+                        timeZone: changed ? "Europe/Madrid" : "America/Bogota",
+                      },
+                    }
                   : {}),
                 etag: changed ? '"version-2"' : '"version-1"',
               }),
@@ -333,7 +368,7 @@ it.each(["removed guest", "changed duration", "new guest"])(
           tool,
           kind === "removed guest"
             ? { title: "Changed", add_guests: [guest.email] }
-            : kind === "changed duration"
+            : kind === "changed duration" || kind === "changed end zone"
               ? { start: "2026-11-20T11:00" }
               : {},
         ),
@@ -372,8 +407,11 @@ it.each(["update_event", "delete_event"] as const)(
         delete: { e1: new Response(null, { status: 204 }) },
       },
     });
-    const id = (await answer(await eventChangeCall(f, tool, { title: "Changed" })))
-      .approval as string;
+    const id = (
+      await answer(
+        await eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {}),
+      )
+    ).approval as string;
     const shown = await digest(f, id);
     const db = observeStatements(env.DB, (sql) => {
       if (sql.startsWith("UPDATE approvals SET state = 'approved'")) running = true;
@@ -405,5 +443,70 @@ it("shows no guest email notices when every requested change already matches", a
     ...base,
     single,
     { name: "Already a guest", text: guest.email, from: "agent" },
+  ]);
+});
+
+it.each([
+  {
+    startZone: "Europe/Madrid",
+    endZone: "Europe/Madrid",
+    args: { title: "Changed" },
+    own: "Europe/Madrid",
+  },
+  {
+    startZone: "America/Bogota",
+    endZone: "Europe/Madrid",
+    args: { start: "2026-11-20T11:00" },
+    own: "start: America/Bogota, end: Europe/Madrid",
+  },
+])(
+  "shows unchanged event zones once, including a flight's end zone %#",
+  async ({ startZone, endZone, args, own }) => {
+    const f = await eventsFixture("update_event", "ask");
+    repeatList(PRIMARY_CALENDAR);
+    eventsFake({
+      [PERSONAL]: {
+        events: {
+          e1: Response.json(
+            eventFixture({
+              start: { dateTime: "2026-11-20T14:00:00Z", timeZone: startZone },
+              end: { dateTime: "2026-11-20T15:00:00Z", timeZone: endZone },
+            }),
+          ),
+        },
+      },
+    });
+    const id = (await answer(await eventChangeCall(f, "update_event", args))).approval as string;
+    const values = (await page(f, id)).request.values;
+    expect(values.filter((value) => value.name.toLowerCase().includes("own zone"))).toEqual([
+      { name: "Event's own zone", text: own, from: "calendar" },
+    ]);
+  },
+);
+
+it("shows a flight's two old zones before time_zone changes both to one zone", async () => {
+  const f = await eventsFixture("update_event", "ask");
+  repeatList(PRIMARY_CALENDAR);
+  eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          eventFixture({
+            start: { dateTime: "2026-11-20T14:00:00Z", timeZone: "UTC" },
+            end: { dateTime: "2026-11-20T15:00:00Z", timeZone: "Europe/Madrid" },
+          }),
+        ),
+      },
+    },
+  });
+  const id = (await answer(await eventChangeCall(f, "update_event", { time_zone: "UTC" })))
+    .approval as string;
+  expect(
+    (await page(f, id)).request.values.filter((value) =>
+      value.name.toLowerCase().includes("own zone"),
+    ),
+  ).toEqual([
+    { name: "Event's own zone now", text: "start: UTC, end: Europe/Madrid", from: "calendar" },
+    { name: "New event's own zone", text: "UTC", from: "agent" },
   ]);
 });

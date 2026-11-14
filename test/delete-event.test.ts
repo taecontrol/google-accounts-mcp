@@ -8,6 +8,7 @@ import {
   eventsFixture,
   eventFixture,
   eventChangeCall,
+  readEventCall,
   PRIMARY_CALENDAR,
   SECONDARY_CALENDAR,
 } from "./support/calendar";
@@ -47,7 +48,10 @@ it.each(
     ),
   );
   await expectError(
-    await eventChangeCall(f, tool, { calendar, title: "Changed" }),
+    await eventChangeCall(f, tool, {
+      calendar,
+      ...(tool === "update_event" ? { title: "Changed" } : {}),
+    }),
     ["reader", "busy"].includes(calendar) ? "invalid_arguments" : "not_found",
     ["reader", "busy"].includes(calendar) ? /calendar field/ : /No such calendar/,
   );
@@ -70,7 +74,7 @@ it.each(tools.flatMap((tool) => [404, 410, "cancelled"].map((status) => ({ tool,
       },
     });
     await expectError(
-      await eventChangeCall(f, tool, { title: "Changed" }),
+      await eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {}),
       "not_found",
       /No event "e1"/,
     );
@@ -105,7 +109,7 @@ it.each(
     calendarFake(list(PRIMARY_CALENDAR));
     const sent = eventsFake({ [PERSONAL]: { events: { e1: Response.json(eventFixture(event)) } } });
     await expectError(
-      await eventChangeCall(f, tool, { title: "Changed" }),
+      await eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {}),
       "invalid_arguments",
       message,
     );
@@ -127,7 +131,7 @@ it.each(
   calendarFake(list(PRIMARY_CALENDAR));
   const sent = eventsFake({ [PERSONAL]: { events: { e1: response } } });
   await expectError(
-    await eventChangeCall(f, tool, { title: "Changed" }),
+    await eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {}),
     "google_unavailable",
     /Google could not complete/,
   );
@@ -244,7 +248,7 @@ it.each(["past start", "moved before now", "future"])(
   },
 );
 
-it.each([500, "aborted"] as const)(
+it.each([500, "aborted", "unreadable"] as const)(
   "reports an uncertain delete after %s with later-not_found advice",
   async (status) => {
     const f = await eventsFixture("delete_event");
@@ -253,7 +257,12 @@ it.each([500, "aborted"] as const)(
       [PERSONAL]: {
         events: { e1: Response.json(eventFixture()) },
         delete: {
-          e1: status === "aborted" ? HttpResponse.error() : new Response(null, { status }),
+          e1:
+            status === "aborted"
+              ? HttpResponse.error()
+              : status === "unreadable"
+                ? new Response("not JSON")
+                : new Response(null, { status }),
         },
       },
     });
@@ -335,4 +344,47 @@ it("does not delete a series when an empty instance page still has a next page",
     /event field.*series has occurrences in the past/,
   );
   expect(sent.map((r) => r.method)).toEqual(["GET", "GET"]);
+});
+
+it.each(tools.flatMap((tool) => ["timeZone", "send_updates"].map((field) => ({ tool, field }))))(
+  "$tool refuses unknown $field before creating an approval",
+  async ({ tool, field }) => {
+    const f = await eventsFixture(tool, "ask");
+    await expectError(
+      await eventChangeCall(f, tool, {
+        ...(tool === "update_event" ? { title: "Changed" } : {}),
+        [field]: "ignored-before",
+      }),
+      "invalid_arguments",
+      `The ${field} field must be left out: this tool has no such field.`,
+    );
+    expect(requests.filter((url) => url.includes("/calendar/v3/"))).toEqual([]);
+  },
+);
+
+it.each(tools)("$tool reports a 410 on the write as a known not_found", async (tool) => {
+  const f = await eventsFixture(tool);
+  calendarFake(list(PRIMARY_CALENDAR));
+  const sent = eventsFake({
+    [PERSONAL]: {
+      events: { e1: Response.json(eventFixture()) },
+      patch: { e1: new Response(null, { status: 410 }) },
+      delete: { e1: new Response(null, { status: 410 }) },
+    },
+  });
+  await expectError(
+    await eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {}),
+    "not_found",
+    /No event "e1"/,
+  );
+  expect(sent.map((r) => r.method)).toEqual(["GET", tool === "update_event" ? "PATCH" : "DELETE"]);
+  expect((await callRows()).at(-1)).toMatchObject({ outcome: "refused", reason: "not_found" });
+});
+
+it("keeps unknown fields ignored on read_event, where the strict input policy is not enabled", async () => {
+  const f = await eventsFixture("read_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  const sent = eventsFake({ [PERSONAL]: { events: { e1: Response.json(eventFixture()) } } });
+  expect((await answer(await readEventCall(f, { send_updates: "ignored" }))).event).toBe("e1");
+  expect(sent.map((r) => r.method)).toEqual(["GET"]);
 });

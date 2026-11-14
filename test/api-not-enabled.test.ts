@@ -134,7 +134,7 @@ it.each(
   const f = await eventsFixture(tool);
   calendarFake(disabled(marker));
   await expectError(
-    await eventChangeCall(f, tool, { title: "Changed" }),
+    await eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {}),
     "api_not_enabled",
     /Google Calendar API is not enabled/,
   );

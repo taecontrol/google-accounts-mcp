@@ -1365,7 +1365,7 @@ it.each(["search_events", "read_event", "respond_to_event", "update_event", "del
           ? readEventCall(f)
           : tool === "respond_to_event"
             ? respondCall(f)
-            : eventChangeCall(f, tool, { title: "Changed" });
+            : eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {});
     await expectError(await call(), "account_not_available", /No account/);
     await setTool(f, "list_calendars", "allow");
     await expectError(await call(), "tool_not_allowed", new RegExp(`has not allowed ${tool}`));
@@ -1386,7 +1386,7 @@ it.each(
         ? await readEventCall(f)
         : tool === "respond_to_event"
           ? await respondCall(f)
-          : await eventChangeCall(f, tool, { title: "Changed" }),
+          : await eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {}),
     `account_${status}`,
     status === "missing_access"
       ? /no Calendar access/

@@ -44,7 +44,7 @@ it.each([
   { field: "location", value: "bad\tplace" },
   { field: "description", value: "x".repeat(8001) },
   { field: "description", value: "bad\u0000text" },
-  { field: "description", value: "é".repeat(4000) },
+  { field: "description", value: "é".repeat(4001) },
   { field: "description", value: "<".repeat(2000) },
   { field: "start", value: "2026-02-30" },
   { field: "end", value: "3000-01-01" },
@@ -99,8 +99,8 @@ it.each([
   {
     field: "description",
     before: { description: "<span>Old<br>notes</span>" },
-    value: 'New & <notes>\n"quoted"\t\\',
-    body: { description: '<span>New &amp; &lt;notes&gt;<br>"quoted"\t\\</span>' },
+    value: 'New & <notes>\n"quoted"\\',
+    body: { description: '<span>New &amp; &lt;notes&gt;<br>"quoted"\\</span>' },
   },
   { field: "location", before: { location: "Room 1" }, value: "", body: { location: "" } },
   {
@@ -222,6 +222,7 @@ it.each([
 it("does not patch a time_zone equal to the event's own zone", async () => {
   const { f, sent } = await setup({
     start: { dateTime: "2026-11-20T14:00:00Z", timeZone: "America/Bogota" },
+    end: { dateTime: "2026-11-20T15:00:00Z", timeZone: "America/Bogota" },
   });
   await answer(await call(f, { time_zone: "America/Bogota" }));
   expect(sent.map((r) => r.method)).toEqual(["GET"]);
@@ -424,8 +425,8 @@ it("treats a stale If-Match as a known failure with safe retry advice", async ()
 
 it("accepts the exact text and guest limits, counting description encoding before Google", async () => {
   const { f, sent } = await setup();
-  // 13 bytes wrap the plain text; quotes, tabs and backslashes cost two bytes each in JSON.
-  const description = '"\t\\' + "x".repeat(7981);
+  // Plain text stays unwrapped; quotes, tabs and backslashes cost two bytes each in JSON.
+  const description = '"\t\\' + "x".repeat(7994);
   const title = "t".repeat(1000);
   const location = "l".repeat(1000);
   const guests = Array.from({ length: 50 }, (_, i) => `g${i}@example.com`);
@@ -433,54 +434,60 @@ it("accepts the exact text and guest limits, counting description encoding befor
   expect(sent[1]!.body).toEqual({
     summary: title,
     location,
-    description: `<span>${description}</span>`,
+    description,
     attendees: guests.map((email) => ({ email })),
   });
 });
 
-it("a retry after a lost answer sends no second patch or guest email", async () => {
-  const f = await eventsFixture("update_event");
-  calendarFake(list(PRIMARY_CALENDAR), list(PRIMARY_CALENDAR));
-  let changed = false;
-  const sent = eventsFake({
-    [PERSONAL]: {
-      events: {
-        e1: () =>
-          Response.json(
-            eventFixture(
-              changed
-                ? {
-                    summary: "Changed",
-                    description: "<span>A &amp; B<br>Agenda</span>",
-                    attendees: [{ email: "new@example.com" }],
-                    etag: '"version-2"',
-                  }
-                : {},
+it.each([
+  { description: "A & B\nAgenda", storedDescription: "<span>A &amp; B<br>Agenda</span>" },
+  { description: "<b>", storedDescription: "<span>&lt;b&gt;</span>" },
+])(
+  "a retry after a changed description sends no second patch or guest email: $description",
+  async ({ description, storedDescription }) => {
+    const f = await eventsFixture("update_event");
+    calendarFake(list(PRIMARY_CALENDAR), list(PRIMARY_CALENDAR));
+    let changed = false;
+    const sent = eventsFake({
+      [PERSONAL]: {
+        events: {
+          e1: () =>
+            Response.json(
+              eventFixture(
+                changed
+                  ? {
+                      summary: "Changed",
+                      description: storedDescription,
+                      attendees: [{ email: "new@example.com" }],
+                      etag: '"version-2"',
+                    }
+                  : {},
+              ),
             ),
-          ),
-      },
-      patch: {
-        e1: () => {
-          changed = true;
-          return HttpResponse.error();
+        },
+        patch: {
+          e1: () => {
+            changed = true;
+            return HttpResponse.error();
+          },
         },
       },
-    },
-  });
-  const args = { title: "Changed", description: "A & B\nAgenda", add_guests: ["new@example.com"] };
-  await expectError(
-    await call(f, args),
-    "google_unavailable",
-    /change may have been made.*Calling again is safe/,
-  );
-  expect(await answer(await call(f, args))).toEqual({
-    account: PERSONAL,
-    calendar: PERSONAL,
-    event: "e1",
-    link: eventFixture().htmlLink,
-  });
-  expect(sent.map((r) => r.method)).toEqual(["GET", "PATCH", "GET"]);
-});
+    });
+    const args = { title: "Changed", description, add_guests: ["new@example.com"] };
+    await expectError(
+      await call(f, args),
+      "google_unavailable",
+      /change may have been made.*Calling again is safe/,
+    );
+    expect(await answer(await call(f, args))).toEqual({
+      account: PERSONAL,
+      calendar: PERSONAL,
+      event: "e1",
+      link: eventFixture().htmlLink,
+    });
+    expect(sent.map((r) => r.method)).toEqual(["GET", "PATCH", "GET"]);
+  },
+);
 
 it.each([
   {
@@ -507,5 +514,86 @@ it.each([
       start: { dateTime: start, timeZone: zone, date: null },
       end: { dateTime: end, timeZone: zone, date: null },
     });
+  },
+);
+
+it.each([
+  {
+    startZone: "europe/madrid",
+    endZone: "America/New_York",
+    expectedStart: "Europe/Madrid",
+    expectedEnd: "America/New_York",
+  },
+  {
+    startZone: "Europe/Madrid",
+    endZone: undefined,
+    expectedStart: "Europe/Madrid",
+    expectedEnd: "America/Bogota",
+  },
+  {
+    startZone: undefined,
+    endZone: "Europe/Madrid",
+    expectedStart: "America/Bogota",
+    expectedEnd: "Europe/Madrid",
+  },
+])(
+  "retains each point's canonical own zone, falling back separately to the call zone %#",
+  async ({ startZone, endZone, expectedStart, expectedEnd }) => {
+    const { f, sent } = await setup({
+      start: { dateTime: "2026-11-20T14:00:00Z", timeZone: startZone },
+      end: { dateTime: "2026-11-20T15:00:00Z", timeZone: endZone },
+    });
+    await answer(await call(f, { start: "2026-11-20T11:00" }));
+    expect(sent[1]!.body).toEqual({
+      start: { dateTime: "2026-11-20T11:00:00-05:00", timeZone: expectedStart, date: null },
+      end: { dateTime: "2026-11-20T12:00:00-05:00", timeZone: expectedEnd, date: null },
+    });
+  },
+);
+
+it.each(["Europe/Madrid", undefined])(
+  "changes both point zones even when time_zone already equals only the start's zone: %s",
+  async (endZone) => {
+    const { f, sent } = await setup({
+      start: { dateTime: "2026-11-20T14:00:00Z", timeZone: "UTC" },
+      end: { dateTime: "2026-11-20T15:00:00Z", timeZone: endZone },
+    });
+    await answer(await call(f, { time_zone: "UTC" }));
+    expect(sent.map((r) => r.method)).toEqual(["GET", "PATCH"]);
+    expect(sent[1]!.body).toEqual({
+      start: { dateTime: "2026-11-20T14:00:00+00:00", timeZone: "UTC", date: null },
+      end: { dateTime: "2026-11-20T15:00:00+00:00", timeZone: "UTC", date: null },
+    });
+  },
+);
+
+it("writes an explicitly requested time_zone with its canonical spelling", async () => {
+  const { f, sent } = await setup();
+  await answer(await call(f, { start: "2026-11-20T16:00", time_zone: "europe/madrid" }));
+  expect(sent[1]!.body).toEqual({
+    start: { dateTime: "2026-11-20T16:00:00+01:00", timeZone: "Europe/Madrid", date: null },
+    end: { dateTime: "2026-11-20T17:00:00+01:00", timeZone: "Europe/Madrid", date: null },
+  });
+});
+
+it("sends no patch when only the spelling of time_zone differs from the event zones", async () => {
+  const { f, sent } = await setup({
+    start: { dateTime: "2026-11-20T14:00:00Z", timeZone: "Europe/Madrid" },
+    end: { dateTime: "2026-11-20T15:00:00Z", timeZone: "Europe/Madrid" },
+  });
+  await answer(await call(f, { time_zone: "europe/madrid" }));
+  expect(sent.map((r) => r.method)).toEqual(["GET"]);
+});
+
+it.each(["A\t<b>", "A  <b>", "A<b>\n"])(
+  "refuses a description that would lose characters through HTML: %j",
+  async (description) => {
+    const { f, sent } = await setup();
+    await expectError(
+      await call(f, { description }),
+      "invalid_arguments",
+      /description field.*Google Calendar can keep exactly/,
+    );
+    expect(sent.map((r) => r.method)).toEqual(["GET"]);
   },
 );

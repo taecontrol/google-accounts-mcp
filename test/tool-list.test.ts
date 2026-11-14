@@ -301,6 +301,8 @@ it("advertises closed argument objects for tools that refuse extra fields", asyn
     "send_draft",
     "create_event",
     "respond_to_event",
+    "update_event",
+    "delete_event",
   ])
     expect(listed.find((tool) => tool.name === name)!.inputSchema.additionalProperties).toBe(false);
 });
