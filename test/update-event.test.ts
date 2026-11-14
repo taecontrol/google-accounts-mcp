@@ -597,3 +597,31 @@ it.each(["A\t<b>", "A  <b>", "A<b>\n"])(
     expect(sent.map((r) => r.method)).toEqual(["GET"]);
   },
 );
+
+it.each([
+  {
+    args: { end: "2026-11-20T12:00" },
+    start: "2026-11-20T09:00:00-05:00",
+    end: "2026-11-20T12:00:00-05:00",
+    zone: "Europe/Madrid",
+  },
+  {
+    args: { time_zone: "UTC" },
+    start: "2026-11-20T14:00:00+00:00",
+    end: "2026-11-20T15:00:00+00:00",
+    zone: "UTC",
+  },
+])(
+  "keeps floating event times at their original instants when retaining a read point %#",
+  async ({ args, start, end, zone }) => {
+    const { f, sent } = await setup({
+      start: { dateTime: "2026-11-20T15:00", timeZone: "Europe/Madrid" },
+      end: { dateTime: "2026-11-20T16:00", timeZone: "Europe/Madrid" },
+    });
+    await answer(await call(f, args));
+    expect(sent[1]!.body).toEqual({
+      start: { dateTime: start, timeZone: zone, date: null },
+      end: { dateTime: end, timeZone: zone, date: null },
+    });
+  },
+);

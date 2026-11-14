@@ -119,7 +119,7 @@ const readForChange = (send: Send, input: ChangeInput) =>
     const calendar = yield* Effect.fromResult(writableCalendar(ctx, input.calendar));
     const event = yield* get(
       send,
-      `calendars/${encodeURIComponent(calendar.calendar)}/events/${encodeURIComponent(input.event)}?${new URLSearchParams({ timeZone: canonicalZone(ctx.zone) })}`,
+      `calendars/${encodeURIComponent(calendar.calendar)}/events/${encodeURIComponent(input.event)}?${new URLSearchParams({ timeZone: canonicalZone(ctx.zone) ?? ctx.zone })}`,
       GoogleEvent,
       (status) =>
         status === 404 || status === 410 ? notFound("event", input.event) : unavailable(),
@@ -189,10 +189,10 @@ const timeChange = (
   input: UpdateInput,
   zone: string,
 ): Result.Result<ChangedTimes, ToolFailure> => {
-  zone = canonicalZone(zone);
+  zone = canonicalZone(zone) ?? zone;
   const before = eventTime(event.start, event.end, zone);
   const ownZone = (point: EventPoint) =>
-    point.timeZone === undefined ? undefined : canonicalZone(point.timeZone);
+    point.timeZone === undefined ? undefined : (canonicalZone(point.timeZone) ?? point.timeZone);
   const beforeZones = { start: ownZone(event.start), end: ownZone(event.end) };
   const unchanged = {
     before,
@@ -215,8 +215,10 @@ const timeChange = (
     (input.start === undefined ? before.all_day : parseTime(input.start).kind === "date")
   )
     return Result.fail(invalid("time_zone", "left out for all-day dates"));
-  const start = input.start ?? ("date" in event.start ? event.start.date : event.start.dateTime);
-  let end = input.end ?? ("date" in event.end ? event.end.date : event.end.dateTime);
+  const readTime = (point: EventPoint) =>
+    "date" in point ? point.date : new Date(eventInstant(point, zone)).toISOString();
+  const start = input.start ?? readTime(event.start);
+  let end = input.end ?? readTime(event.end);
   if (input.start !== undefined && input.end === undefined) {
     end = before.all_day
       ? new Date(Date.parse(start) + Date.parse(before.end) - Date.parse(before.start))
@@ -228,7 +230,8 @@ const timeChange = (
             eventInstant(event.start, zone),
         ).toISOString();
   }
-  const requestedZone = input.time_zone === undefined ? undefined : canonicalZone(input.time_zone);
+  const requestedZone =
+    input.time_zone === undefined ? undefined : (canonicalZone(input.time_zone) ?? input.time_zone);
   const points = eventPoints(
     { start, end, ...(requestedZone === undefined ? {} : { time_zone: requestedZone }) },
     zone,
