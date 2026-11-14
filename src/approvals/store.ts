@@ -238,7 +238,20 @@ export const createApproval = (
           )
           .bind(ctx.connection.connectionId, at, ctx.owner.generation, ctx.owner.email),
         ...(input.identity
-          ? [rowStatement(ctx.db, input.identity), waitingStatement(ctx, input.identity, at)]
+          ? [
+              rowStatement(ctx.db, input.identity),
+              waitingStatement(ctx, input.identity, at),
+              // A repeat is answered only while the call is still permitted (#28 rule 7).
+              ctx.db
+                .prepare(`SELECT 1 AS ok WHERE ${usable("?1", "?2", "?3", "?4", "?5")}`)
+                .bind(
+                  ctx.connection.connectionId,
+                  ctx.owner.generation,
+                  JSON.stringify(input.uses),
+                  at,
+                  ctx.owner.email,
+                ),
+            ]
           : []),
         ...(input.uploads?.ids.length
           ? [
@@ -249,13 +262,14 @@ export const createApproval = (
       ]);
       if (results[0]!.results.length) return "created";
       if (input.identity) {
+        if (!results[5]!.results.length) return "unavailable" as const;
         const repeat = decodeRow(results[3]!, at);
         if (repeat) return { repeat };
         const waiting = decodeWaiting(results[4]!.results[0]);
         if (waiting) return { waiting };
       }
       if (input.uploads?.ids.length) {
-        const missing = results[input.identity ? 5 : 3]!.results[0] as { id: UploadId } | undefined;
+        const missing = results[input.identity ? 6 : 3]!.results[0] as { id: UploadId } | undefined;
         if (missing) return { upload: missing.id };
       }
       return Number((results[2]!.results[0] as { count: number }).count) >= WAITING_LIMIT

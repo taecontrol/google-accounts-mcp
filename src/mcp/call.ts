@@ -204,8 +204,14 @@ async function settleRepeat(
   repeat: Repeat,
   deadline: number,
   signal?: AbortSignal,
+  still?: Effect.Effect<void, ToolFailure>,
 ): Promise<Repeat> {
   if (repeat.kind !== "unknown" || !tool.settle) return repeat;
+  // The setting may have changed since the call's checks; a denied call reads nothing.
+  if (still) {
+    const allowedNow = await Effect.runPromise(Effect.result(still));
+    if (Result.isFailure(allowedNow)) throw allowedNow.failure;
+  }
   let requests: ReturnType<typeof accountRequests> | undefined;
   try {
     requests = accountRequests(ctx, allowed, deadline, signal);
@@ -357,6 +363,7 @@ export async function executeAccount(
           entered.success,
           deadline,
           signal,
+          still,
         ),
       };
     const claim = entered.success.claim;

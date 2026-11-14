@@ -11,6 +11,8 @@ import { callRows, expectError, PERSONAL } from "./support/permissions";
 import { setTool } from "./support/uploads";
 import { onceRows } from "./support/draft";
 import { STALE } from "../src/once/store";
+import { observeStatements } from "./support/db";
+import { testEnv } from "./support/worker";
 
 it.each(["allow", "ask", "ask then allow"] as const)(
   "%s returns the first event after a lost server answer, without another insert",
@@ -303,6 +305,36 @@ it("checks deny before any recovery read or stored answer", async () => {
   expect(google.inserts).toHaveLength(1);
   expect(google.reads).toHaveLength(0);
 });
+
+it.each(["unknown", "done"] as const)(
+  "answers no %s repeat when the setting turns deny just before the approval batch",
+  async (state) => {
+    const f = await eventsFixture("create_event");
+    await setTool(f, "list_calendars", "allow");
+    primaryList();
+    const google = eventWriter();
+    if (state === "unknown") {
+      google.fake.insert = () => new Response(null, { status: 500 });
+      await expectError(await createEventCall(f), "outcome_unknown", /Call again/);
+    } else await answer(await createEventCall(f));
+    await setTool(f, "create_event", "ask");
+    let denied = false;
+    const db = observeStatements(env.DB, async (sql) => {
+      if (!denied && /^INSERT INTO approvals\b/.test(sql)) {
+        denied = true;
+        await setTool(f, "create_event", "deny");
+      }
+    });
+    await expectError(
+      await createEventCall(f, {}, testEnv({ DB: db })),
+      "account_not_available",
+      /./,
+    );
+    expect(denied).toBe(true);
+    expect(google.inserts).toHaveLength(1);
+    expect(google.reads).toHaveLength(0);
+  },
+);
 
 it("fails closed on a stored event result that does not match the tool's schema", async () => {
   const f = await eventsFixture("create_event");

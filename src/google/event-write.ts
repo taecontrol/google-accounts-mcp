@@ -2,7 +2,7 @@ import { Effect, Result, Schema } from "effect";
 import type { ViewValue } from "../approvals/model";
 import { ToolFailure } from "../mcp/failures";
 import type { Send } from "../mcp/tools";
-import { instantOf, parseTime, viewTime, zonedIso } from "./calendar-time";
+import { canonicalZone, instantOf, parseTime, viewTime, zonedIso } from "./calendar-time";
 import { htmlToText } from "./html";
 
 export const MAX_TITLE = 1_000;
@@ -116,12 +116,14 @@ export const eventPoints = (
         field: { name: "end", expects: "after start in the call's time zone" },
       }),
     );
+  // Google accepts the canonical spelling; the view keeps the caller's.
+  const timeZone = canonicalZone(zone) ?? zone;
   return Result.succeed(
     allDay
       ? { start: { date: a.start }, end: { date: a.end } }
       : {
-          start: { dateTime: zonedIso(instants.start, zone), timeZone: zone },
-          end: { dateTime: zonedIso(instants.end, zone), timeZone: zone },
+          start: { dateTime: zonedIso(instants.start, zone), timeZone },
+          end: { dateTime: zonedIso(instants.end, zone), timeZone },
         },
   );
 };

@@ -117,6 +117,11 @@ it.each([
     end: { dateTime: "2026-11-21T00:00:00+09:00", timeZone: "Asia/Tokyo" },
   },
   {
+    args: { time_zone: "US/Eastern", start: "2026-11-20T09:00", end: "2026-11-20T10:00" },
+    start: { dateTime: "2026-11-20T09:00:00-05:00", timeZone: "America/New_York" },
+    end: { dateTime: "2026-11-20T10:00:00-05:00", timeZone: "America/New_York" },
+  },
+  {
     args: { start: "2026-11-20", end: "2026-11-21" },
     start: { date: "2026-11-20" },
     end: { date: "2026-11-21" },
