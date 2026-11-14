@@ -274,6 +274,65 @@ it.each(["allow", "ask"] as const)(
   },
 );
 
+const partial = [
+  { tool: "list_labels", name: "Gmail", scopes: [...SCOPES.slice(0, 4), ...CALENDAR_SCOPES] },
+  { tool: "list_calendars", name: "Calendar", scopes: [...SCOPES, ...CALENDAR_SCOPES.slice(0, 2)] },
+] as const;
+it.each(partial.flatMap((c) => (["allow", "ask"] as const).map((setting) => ({ ...c, setting }))))(
+  "refuses $tool when $name is granted only in part, at $setting, before Google or an approval",
+  async ({ tool, name, scopes, setting }) => {
+    const f = await fixture({ scopes: JSON.stringify(scopes) });
+    await setTool(f, tool, setting);
+    const before = googleTraffic().length;
+    await expectError(
+      await toolCall(f.mcp, tool, { account: PERSONAL }),
+      "account_missing_access",
+      missing(name),
+    );
+    expect(googleTraffic()).toHaveLength(before);
+    expect(await rows()).toEqual([]);
+  },
+);
+
+it.each(partial)(
+  "fails the approved run of $tool when $name is granted only in part by then",
+  async ({ tool, name, scopes }) => {
+    const f = await fixture({ scopes: JSON.stringify([...SCOPES, ...CALENDAR_SCOPES]) });
+    await setTool(f, tool, "ask");
+    const id = (await answer(await toolCall(f.mcp, tool, { account: PERSONAL })))
+      .approval as string;
+    await env.DB.prepare("UPDATE accounts SET scopes = ? WHERE id = ?")
+      .bind(JSON.stringify(scopes), f.personal.id)
+      .run();
+    const before = googleTraffic().length;
+    await approve(f, id);
+    expect((await get(f, id)).error).toEqual({
+      code: "account_missing_access",
+      message: missing(name),
+    });
+    expect(googleTraffic()).toHaveLength(before);
+  },
+);
+
+it.each(["allow", "ask"] as const)(
+  "refuses a copied-attachment source with Gmail granted only in part at %s",
+  async (setting) => {
+    const f = await attaching("send_message", setting);
+    await setTool(f, "get_attachment", "allow", f.northwind);
+    await env.DB.prepare("UPDATE accounts SET scopes = ? WHERE id = ?")
+      .bind(JSON.stringify(SCOPES.slice(0, 4)), f.northwind.id)
+      .run();
+    const before = googleTraffic().length;
+    await expectError(
+      await attachCall(f, [copy]),
+      "account_missing_access",
+      new RegExp(`no Gmail access to ${f.northwind.email}`),
+    );
+    expect(googleTraffic()).toHaveLength(before);
+    expect(await rows()).toEqual([]);
+  },
+);
+
 it("lists only the services each connection uses and hides deny and obsolete-only accounts", async () => {
   const f = await fixture();
   await setTool(f, "list_labels", "allow");

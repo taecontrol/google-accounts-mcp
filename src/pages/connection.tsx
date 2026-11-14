@@ -686,8 +686,9 @@ function ServiceHeading({
       <h4 className="text-sm font-medium">{serviceInfo[service].name}</h4>
       {!accountWideStatus(account) && access.status.kind === "missing_access" && (
         <p className="max-w-2xl text-sm text-muted-foreground">
-          {access.granted ? "Missing access." : "Not connected on this account."} If a tool is set
-          to Ask first or Allowed, {connection} sees this problem too.{" "}
+          {access.granted
+            ? `Missing access. If a tool is set to Ask first or Allowed, ${connection} sees this problem too.`
+            : `Not connected on this account. Its tools can't run until you reconnect the account with ${serviceInfo[service].name} chosen.`}{" "}
           <a href="/accounts" className="text-foreground underline underline-offset-4">
             {access.granted ? "Reconnect on Accounts" : "Go to Accounts"}
           </a>

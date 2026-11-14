@@ -110,8 +110,9 @@ it.each([390, 1280])(
       ]);
       const missing = personal.getByText(/Not connected on this account/);
       expect(await missing.innerText()).toContain(
-        "If a tool is set to Ask first or Allowed, Claude sees this problem too.",
+        "Its tools can't run until you reconnect the account with Calendar chosen.",
       );
+      expect(await missing.innerText()).not.toContain("problem");
       expect(await missing.getAttribute("class")).toContain("text-muted-foreground");
       expect(await missing.locator('a[href="/accounts"]').count()).toBe(1);
       const northwind = panel(page, "Northwind");
