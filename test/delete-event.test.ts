@@ -1,4 +1,5 @@
 import "./support/account-checks";
+import { env } from "cloudflare:workers";
 import { expect, it } from "vite-plus/test";
 import { HttpResponse } from "msw";
 import { answer } from "./support/approvals";
@@ -15,9 +16,48 @@ import {
 import { callRows, expectError, PERSONAL } from "./support/permissions";
 import { requests } from "./support/network";
 import { NOW } from "./support/accounts";
+import { observeStatements } from "./support/db";
+import { setTool } from "./support/uploads";
+import { testEnv } from "./support/worker";
 
 const list = (...items: object[]) => Response.json({ items });
 const tools = ["update_event", "delete_event"] as const;
+
+it.each(tools)(
+  "%s sends no write when the setting turns deny after the plan's reads",
+  async (tool) => {
+    const f = await eventsFixture(tool, "allow");
+    await setTool(f, "list_calendars", "allow");
+    calendarFake(list(PRIMARY_CALENDAR));
+    const sent = eventsFake({
+      [PERSONAL]: {
+        events: { e1: Response.json(eventFixture()) },
+        patch: { e1: Response.json({ id: "e1" }) },
+        delete: { e1: new Response(null, { status: 204 }) },
+      },
+    });
+    let checks = 0;
+    const db = observeStatements(env.DB, async (sql) => {
+      // The second permission read is Confirm's check after the plan, just before the write.
+      if (/AS ask\s+FROM accounts a/.test(sql) && ++checks === 2) {
+        expect(sent.map((request) => request.method)).toEqual(["GET"]);
+        await setTool(f, tool, "deny");
+      }
+    });
+    await expectError(
+      await eventChangeCall(
+        f,
+        tool,
+        tool === "update_event" ? { title: "Changed" } : {},
+        testEnv({ DB: db }),
+      ),
+      "tool_not_allowed",
+      /has not allowed/,
+    );
+    expect(checks).toBe(2);
+    expect(sent.map((request) => request.method)).toEqual(["GET"]);
+  },
+);
 
 it.each([
   { field: "account", value: false },

@@ -1354,7 +1354,13 @@ it("refuses page with several calendars before approval, and a page Google refus
   expect(new URL(sent[0]!.url).searchParams.get("pageToken")).toBe("refused");
 });
 
-it.each(["search_events", "read_event", "respond_to_event", "update_event", "delete_event"] as const)(
+it.each([
+  "search_events",
+  "read_event",
+  "respond_to_event",
+  "update_event",
+  "delete_event",
+] as const)(
   "defaults %s to deny and distinguishes an unavailable account from a denied tool",
   async (tool) => {
     const f = await fixture({ scopes: JSON.stringify(CALENDAR_SCOPES) });
@@ -1374,9 +1380,9 @@ it.each(["search_events", "read_event", "respond_to_event", "update_event", "del
 );
 
 it.each(
-  (["search_events", "read_event", "respond_to_event", "update_event", "delete_event"] as const).flatMap((tool) =>
-    problemCases.map((problem) => ({ tool, ...problem })),
-  ),
+  (
+    ["search_events", "read_event", "respond_to_event", "update_event", "delete_event"] as const
+  ).flatMap((tool) => problemCases.map((problem) => ({ tool, ...problem }))),
 )("refuses $tool at Calendar status $status before Google", async ({ tool, row, status }) => {
   const f = await eventsFixture(tool, "allow", row);
   await expectError(
