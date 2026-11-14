@@ -171,6 +171,10 @@ it("accepts the field limits and sends the guests exactly as given", async () =>
 
 it.each([
   { text: "Plain text", sent: "Plain text" },
+  {
+    text: "  Agenda:\n\n1.\tBudget  review\n2. Plan ",
+    sent: "  Agenda:\n\n1.\tBudget  review\n2. Plan ",
+  },
   { text: "a <b> c & d\nNext", sent: "<span>a &lt;b&gt; c &amp; d<br>Next</span>" },
   { text: "a > b", sent: "<span>a &gt; b</span>" },
   { text: "literal &amp; and &#38;", sent: "<span>literal &amp;amp; and &amp;#38;</span>" },
@@ -184,7 +188,7 @@ it.each([
   expect((await answer(await readEventCall(f, { event: result.event }))).description).toBe(text);
 });
 
-it.each(["a <b>  c", "a & b\tc", " a <b>", "a <b>\n", "a  b"])(
+it.each(["a <b>  c", "a & b\tc", " a <b>", "a <b>\n"])(
   "refuses a description whose HTML round trip changes characters: %j",
   async (description) => {
     const f = await eventsFixture("create_event");

@@ -26,27 +26,32 @@ export const Description = Schema.String.check(
   Schema.makeFilter((text) => !/\p{Cc}/u.test(text.replaceAll("\n", "").replaceAll("\t", ""))),
   Schema.makeFilter((text) => descriptionSize(text) <= MAX_DESCRIPTION),
 );
-/** Refuse any conversion that would make the invitation differ from the approved text. */
+/**
+ * Refuse any conversion that would make the invitation differ from the approved text. Text sent
+ * unchanged needs no check: it holds no "<", so read_event returns it as it is.
+ */
 export const checkedDescription = (text: string): Effect.Effect<string, ToolFailure> =>
-  Effect.tryPromise({
-    try: () => htmlToText(descriptionForGoogle(text)),
-    catch: () => new ToolFailure({ code: "google_unavailable" }),
-  }).pipe(
-    Effect.flatMap((roundTrip) =>
-      roundTrip === text
-        ? Effect.succeed(descriptionForGoogle(text))
-        : Effect.fail(
-            new ToolFailure({
-              code: "invalid_arguments",
-              field: {
-                name: "description",
-                expects:
-                  "text that Google Calendar can keep exactly: remove tabs, repeated spaces, leading or trailing whitespace, and line breaks that collapse in HTML",
-              },
-            }),
-          ),
-    ),
-  );
+  descriptionForGoogle(text) === text
+    ? Effect.succeed(text)
+    : Effect.tryPromise({
+        try: () => htmlToText(descriptionForGoogle(text)),
+        catch: () => new ToolFailure({ code: "google_unavailable" }),
+      }).pipe(
+        Effect.flatMap((roundTrip) =>
+          roundTrip === text
+            ? Effect.succeed(descriptionForGoogle(text))
+            : Effect.fail(
+                new ToolFailure({
+                  code: "invalid_arguments",
+                  field: {
+                    name: "description",
+                    expects:
+                      "text that Google Calendar can keep exactly: remove tabs, repeated spaces, leading or trailing whitespace, and line breaks that collapse in HTML",
+                  },
+                }),
+              ),
+        ),
+      );
 export const GuestAddress = Schema.String.check(
   Schema.isMaxLength(254),
   Schema.isPattern(
