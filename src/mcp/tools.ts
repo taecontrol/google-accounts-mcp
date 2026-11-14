@@ -1451,8 +1451,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
     irreversible: true,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     permissionDescription:
-      "Accept, decline, or answer maybe to invitations in this account's primary calendar, with a note the agent writes. Google emails the answer and the note to the organizer, and may also show them or send them to other guests who can see the guest list.",
-    description: `Answers a calendar invitation only for this account, in its primary calendar. \`account\` is an address from list_accounts. \`event\` is an event ID from the account's primary calendar, as search_events or read_event return it without \`calendar\`: 1 to 1,024 letters, digits, hyphens, or underscores. The tool takes no calendar. An occurrence ID answers that occurrence; a series ID answers every occurrence and replaces answers given before to single occurrences. \`response\` is accepted, declined, or tentative (maybe); needs_action is refused with invalid_arguments naming response. \`note\` is optional, 1 to 1,000 Unicode code points, may include line breaks, and must not be only whitespace. Google emails the answer and the note to the organizer, and may also show them or send them to other guests who can see the guest list; people the organizer's calendar is shared with can also see the note. An answer without \`note\` removes the note of an earlier answer. The tool refuses with invalid_arguments naming event when this account is the organizer, is not a guest (including an invitation received only through a Google Group), or the event is not a regular event. A missing or cancelled event gets not_found. After a lost response, a retry changes nothing more, but Google may email the organizer again. The result has account, event, and my_response, the account's answer confirmed by Google. When the owner sets this tool to ask, it returns a pending approval with a link instead; get_approval returns the result after the owner approves.`,
+      "Accept, decline, or answer maybe to invitations in this account's primary calendar, with a note the agent writes. Google emails the answer and the note to the organizer. Other guests who can see the guest list can read them, and Google may email them too.",
+    description: `Answers a calendar invitation only for this account, in its primary calendar. \`account\` is an address from list_accounts. \`event\` is an event ID from the account's primary calendar, as search_events or read_event return it without \`calendar\`: 1 to 1,024 letters, digits, hyphens, or underscores. The tool takes no calendar. An occurrence ID answers that occurrence; a series ID answers every occurrence and replaces answers given before to single occurrences. \`response\` is accepted, declined, or tentative (maybe); needs_action is refused with invalid_arguments naming response. \`note\` is optional, 1 to 1,000 Unicode code points, may include line breaks, and must hold at least one visible character. Google emails the answer and the note to the organizer. Other guests who can see the guest list, and people the organizer's calendar is shared with, can read them, and Google may email them to those guests too. An answer without \`note\` removes the note of an earlier answer. The tool refuses with invalid_arguments naming event when this account is the organizer, is not a guest (including an invitation received only through a Google Group), or the event is not a regular event. A missing or cancelled event gets not_found. After a lost response, a retry changes nothing more, but Google may email the organizer again. The result has account, event, and my_response, the account's answer confirmed by Google. When the owner sets this tool to ask, it returns a pending approval with a link instead; get_approval returns the result after the owner approves.`,
     input: Schema.Struct({
       account: Schema.String,
       event: EventId,
@@ -1463,7 +1463,12 @@ export const TOOLS: ReadonlyArray<Tool> = [
             // The contract counts code points, not grapheme clusters or UTF-16 code units.
             // oxlint-disable-next-line typescript/no-misused-spread
             const length = [...note].length;
-            return length >= 1 && length <= 1_000 && note.trim().length > 0;
+            // Invisible characters alone would reach the organizer as an empty-looking note.
+            return (
+              length >= 1 &&
+              length <= 1_000 &&
+              /[^\s\p{Cf}\u115F\u1160\u2800\u3164\uFFA0]/u.test(note)
+            );
           }),
         ),
       ),
@@ -1474,32 +1479,36 @@ export const TOOLS: ReadonlyArray<Tool> = [
       event:
         "an event ID from this account's primary calendar of 1 to 1,024 letters, digits, hyphens, or underscores",
       response: "accepted, declined, or tentative",
-      note: "a string of 1 to 1,000 Unicode code points, with more than whitespace; line breaks are allowed",
+      note: "a string of 1 to 1,000 Unicode code points with at least one visible character; line breaks are allowed",
     },
     view: {
       action: "answer a calendar invitation",
       joiner: "from",
       notes: (args) => [
         {
-          text: "Google emails the answer to the organizer, and may also show it or send it to other guests who can see the guest list.",
+          text: "Google emails the answer to the organizer. Other guests who can see the guest list can read it, and Google may email them too.",
           warning: false,
         },
         ...(args.note === undefined
           ? []
           : [
               {
-                text: "The note goes with the answer. The organizer gets it by email. Other guests who can see the guest list, and people the organizer's calendar is shared with, may also see it or get it by email.",
+                text: "The note goes with the answer. The organizer gets it by email. Other guests who can see the guest list, and people the organizer's calendar is shared with, can read it, and Google may email it to those guests too.",
                 warning: true,
               },
             ]),
       ],
       values: (args, send) =>
         Effect.gen(function* () {
-          const { event, mine, organizer } = yield* invitation(send, {
+          const { calendar, event, mine, organizer } = yield* invitation(send, {
             ...args,
             account: normalizeEmail(args.account)!,
           });
-          const ctx = yield* calendarContext(send);
+          // The view needs the primary calendar's zone; the answer itself does not.
+          const zone = calendar.time_zone;
+          if (zone === undefined || !Schema.is(ZoneName)(zone))
+            return yield* Effect.fail(new ViewUnavailable());
+          const ctx = { zone };
           const series = event.recurrence !== undefined && event.recurringEventId === undefined;
           const start = eventTime(event.start, event.end, ctx.zone).start;
           const values: ViewValue[] = [
@@ -1544,7 +1553,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
           if (mine.comment)
             values.push({
               name: args.note === undefined ? "Note removed" : "Earlier note, replaced",
-              text: mine.comment,
+              text: shortJson(mine.comment, 4_000),
               from: "calendar",
             });
           return values;

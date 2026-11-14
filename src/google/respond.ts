@@ -68,6 +68,10 @@ export const respondToEvent = (
 ) =>
   Effect.gen(function* () {
     const { calendar, event, mine } = yield* invitation(send, input);
+    // Google always gives an etag. Without one the write could not be tied to this read.
+    const etag = event.etag;
+    if (etag === undefined)
+      return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
     const response = yield* send(
       (token, signal) =>
         new Request(
@@ -77,7 +81,7 @@ export const respondToEvent = (
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
-              ...(event.etag === undefined ? {} : { "If-Match": event.etag }),
+              "If-Match": etag,
             },
             redirect: "manual",
             signal,

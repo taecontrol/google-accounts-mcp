@@ -302,11 +302,11 @@ const approvalPreviews: Readonly<Record<string, ApprovalPageProps>> = {
       },
       notes: [
         {
-          text: "Google emails the answer to the organizer, and may also show it or send it to other guests who can see the guest list.",
+          text: "Google emails the answer to the organizer. Other guests who can see the guest list can read it, and Google may email them too.",
           warning: false,
         },
         {
-          text: "The note goes with the answer. The organizer gets it by email. Other guests who can see the guest list, and people the organizer's calendar is shared with, may also see it or get it by email.",
+          text: "The note goes with the answer. The organizer gets it by email. Other guests who can see the guest list, and people the organizer's calendar is shared with, can read it, and Google may email it to those guests too.",
           warning: true,
         },
       ],

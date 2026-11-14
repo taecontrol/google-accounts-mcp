@@ -127,6 +127,7 @@ it.each([
   { field: "response", value: undefined },
   { field: "note", value: "" },
   { field: "note", value: " \n\t\r\u2003" },
+  { field: "note", value: "\u200B\u2800\u3164 \u200D" },
   { field: "note", value: "😀".repeat(1001) },
   { field: "note", value: "a".repeat(1001) },
   { field: "note", value: "e\u0301".repeat(500) + "!" },
@@ -137,7 +138,7 @@ it.each([
     account: /The account field must be a string/,
     event: /The event field must be .*primary calendar.*1 to 1,024.*letters.*digits/,
     response: /The response field must be accepted, declined, or tentative/,
-    note: /The note field must be .*1 to 1,000 Unicode code points.*whitespace.*line breaks/,
+    note: /The note field must be .*1 to 1,000 Unicode code points.*visible character.*line breaks/,
   };
   await expectError(
     await respondCall(f, { [field]: value }),
@@ -172,7 +173,7 @@ it.each(["😀".repeat(1000), "\n😀", "a"])(
   },
 );
 
-it("clears an earlier note, omits If-Match without an etag and executes a repeated call again", async () => {
+it("clears an earlier note and executes a repeated call again", async () => {
   const f = await eventsFixture("respond_to_event");
   calendarFake(list(PRIMARY_CALENDAR), list(PRIMARY_CALENDAR));
   eventsFake({
@@ -180,7 +181,6 @@ it("clears an earlier note, omits If-Match without an etag and executes a repeat
       events: {
         e1: Response.json(
           invitationFixture({
-            etag: undefined,
             eventType: undefined,
             attendees: [
               { email: PERSONAL, self: true, responseStatus: "accepted", comment: "See you there" },
@@ -199,7 +199,7 @@ it("clears an earlier note, omits If-Match without an etag and executes a repeat
     });
   expect(patches).toHaveLength(2);
   for (const sent of patches) {
-    expect(sent.headers.has("If-Match")).toBe(false);
+    expect(sent.headers.get("If-Match")).toBe('"invitation-v1"');
     expect(JSON.parse(sent.body)).toEqual({
       attendeesOmitted: true,
       attendees: [{ email: PERSONAL, responseStatus: "accepted", comment: "" }],
@@ -350,6 +350,17 @@ it.each(
   },
 );
 
+it("does not answer when Google gives no etag to tie the write to its read", async () => {
+  const f = await eventsFixture("respond_to_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({
+    [PERSONAL]: { events: { e1: Response.json(invitationFixture({ etag: undefined })) } },
+  });
+  const patches = patchEventsFake(confirmed());
+  await expectError(await respondCall(f), "google_unavailable", /Google could not complete/);
+  expect(patches).toEqual([]);
+});
+
 it.each([412, 404, 410, 400, 403, 429, 500, 503, 302])(
   "maps a patch refusal %s without retrying and keeps 412 a known outcome",
   async (status) => {
@@ -497,8 +508,8 @@ it("publishes the primary-calendar, note readers and note clearing contract with
   const tool = listed.find((entry) => entry.name === "respond_to_event")!;
   for (const text of [
     "primary calendar",
-    "Google emails the answer and the note to the organizer, and may also show them or send them to other guests who can see the guest list",
-    "people the organizer's calendar is shared with can also see the note",
+    "Google emails the answer and the note to the organizer.",
+    "people the organizer's calendar is shared with, can read them",
     "An answer without `note` removes the note of an earlier answer.",
     "replaces answers given before to single occurrences",
     "Google may email the organizer again",

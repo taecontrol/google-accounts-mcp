@@ -20,11 +20,11 @@ const list = (...items: object[]) => Response.json({ items });
 const repeatList = (...items: object[]) =>
   calendarFake(...Array.from({ length: 12 }, () => () => list(...items)));
 const emailNote = {
-  text: "Google emails the answer to the organizer, and may also show it or send it to other guests who can see the guest list.",
+  text: "Google emails the answer to the organizer. Other guests who can see the guest list can read it, and Google may email them too.",
   warning: false,
 };
 const visibilityNote = {
-  text: "The note goes with the answer. The organizer gets it by email. Other guests who can see the guest list, and people the organizer's calendar is shared with, may also see it or get it by email.",
+  text: "The note goes with the answer. The organizer gets it by email. Other guests who can see the guest list, and people the organizer's calendar is shared with, can read it, and Google may email it to those guests too.",
   warning: true,
 };
 
@@ -246,6 +246,29 @@ it.each(["Earlier note\nwith its second line", "", undefined])(
     expect(view.request.notes).toEqual([emailNote]);
   },
 );
+
+it("bounds a long earlier note on the page", async () => {
+  const f = await eventsFixture("respond_to_event", "ask");
+  repeatList(PRIMARY_CALENDAR);
+  const comment = "x".repeat(10_000);
+  eventsFake({
+    [PERSONAL]: {
+      events: {
+        e1: Response.json(
+          invitationFixture({
+            attendees: [{ email: PERSONAL, self: true, responseStatus: "accepted", comment }],
+          }),
+        ),
+      },
+    },
+  });
+  const id = (await answer(await respondCall(f))).approval as string;
+  const removed = (await page(f, id)).request.values.find(
+    (value) => value.name === "Note removed",
+  )!;
+  expect(JSON.stringify(removed.text).length).toBeLessThanOrEqual(4_000);
+  expect(removed.text.endsWith("…")).toBe(true);
+});
 
 it("shows the earlier note that a new note replaces", async () => {
   const f = await eventsFixture("respond_to_event", "ask");
