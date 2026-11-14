@@ -6,7 +6,12 @@ import { ZoneName } from "./calendar-time";
 
 const API = "https://www.googleapis.com/calendar/v3";
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
-export const CalendarId = Schema.String.check(Schema.isBetweenLength(1, 254));
+/** An ID that an agent gives. Approval views list IDs one per line, so none may break a line. */
+export const CalendarId = Schema.String.check(
+  Schema.isBetweenLength(1, 254),
+  // oxlint-disable-next-line no-control-regex -- IDs must not hold characters that break view lines.
+  Schema.makeFilter((id) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(id)),
+);
 export const get = <A>(
   send: Send,
   path: string,
