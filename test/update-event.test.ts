@@ -32,6 +32,8 @@ const setup = async (
 it.each([
   { field: "account", value: false },
   { field: "calendar", value: "c".repeat(255) },
+  { field: "calendar", value: "team@example.com\nPersonal" },
+  { field: "calendar", value: "team@example.com\u2028" },
   { field: "event", value: "e".repeat(1025) },
   { field: "event", value: "a/b" },
   { field: "title", value: "x".repeat(1001) },
