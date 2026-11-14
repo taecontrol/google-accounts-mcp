@@ -63,6 +63,7 @@ import {
   type Uploaded,
 } from "./tools";
 import { contentOf, takes, type Reader } from "./file";
+import { NOT_CREATED } from "../google/event-write";
 import { identityOf, type Identity } from "../once/identity";
 import { take, settle, release, confirm as confirmOnce, WINDOW, type Repeat } from "../once/store";
 export const MAX_ARGUMENTS_BYTES = 256 * 1024;
@@ -113,18 +114,14 @@ export const repeatAnswer = (
       const at = isoSeconds(repeat.at);
       const next = (args.duplicate ?? 1) + 1;
       const result = createdAnswer(repeat.result, tool, args);
-      const event = serviceOf(tool.name) === "calendar";
-      const deliberate =
-        "duplicate" in tool.expects && next <= 100
-          ? event
-            ? ` To create one more on purpose, for example after the owner deleted it, call again with duplicate: ${next}.`
-            : ` To make one more on purpose, call again with duplicate: ${next}${tool.uploads?.(args).length ? " and a new upload of each file" : ""}.`
-          : "";
+      const note = tool.repeated
+        ? tool.repeated(at, next <= 100 ? next : null, args)
+        : `This call already ran at ${at}. Nothing was created or sent again. This is its result.${"duplicate" in tool.expects && next <= 100 ? ` To make one more on purpose, call again with duplicate: ${next}${tool.uploads?.(args).length ? " and a new upload of each file" : ""}.` : ""}`;
       return {
         account,
         ...result,
         repeat_of: at,
-        note: `This call already ran at ${at}. Nothing was ${event ? "created" : "created or sent"} again. This is its result.${deliberate}${typeof result.note === "string" ? ` ${result.note}` : ""}`,
+        note: `${note}${typeof result.note === "string" ? ` ${result.note}` : ""}`,
       };
     }
     case "running":
@@ -136,7 +133,7 @@ export const repeatAnswer = (
       // executeAccount and createApproval return repeats only for creating tools.
       throw new ToolFailure({
         code: "outcome_unknown",
-        said: tool.unknown!(account, repeat.until, args, repeat.checked ?? false),
+        said: tool.unknown!(account, repeat.until, args, repeat.checked ?? null),
       });
   }
 };
@@ -218,19 +215,22 @@ async function settleRepeat(
     const result = await Effect.runPromise(
       Effect.result(tool.settle(sourceRead(requests.send), args, repeat.key)),
     );
-    if (Result.isSuccess(result) && result.success !== null) {
+    if (Result.isSuccess(result) && result.success === null)
+      return { ...repeat, checked: "missing" };
+    if (Result.isSuccess(result)) {
       const stored = Schema.encodeSync(tool.stored)(result.success);
-      const confirmed = await Effect.runPromise(
+      // Google showed the event; if this write is lost, the next repeat reads it again.
+      await Effect.runPromise(
         Effect.result(confirmOnce(ctx, identity, repeat.key, stored, ctx.now())),
       );
-      if (Result.isSuccess(confirmed)) return { kind: "done", result: stored, at: repeat.at };
+      return { kind: "done", result: stored, at: repeat.at };
     }
   } catch {
     // A failed recovery read never permits another insert.
   } finally {
     requests?.close();
   }
-  return { ...repeat, checked: true };
+  return { ...repeat, checked: "failed" };
 }
 export type Accounts = { own: Allowed; others: ReadonlyMap<string, Allowed> };
 /** Sources never let a tool write as another account. */
@@ -487,7 +487,7 @@ export async function executeAccount(
         (!seen.started ||
           (seen.status !== null &&
             (seen.calendar
-              ? [400, 403, 404, 429].includes(seen.status)
+              ? NOT_CREATED.includes(seen.status)
               : seen.status >= 400 && seen.status < 500)))
       ) {
         await Effect.runPromise(Effect.result(release(ctx, claim)));
@@ -504,7 +504,7 @@ export async function executeAccount(
       throw new ToolFailure({
         code: "outcome_unknown",
         unknown: true,
-        said: tool.unknown(allowed.credential.email, now + WINDOW, args, false),
+        said: tool.unknown(allowed.credential.email, now + WINDOW, args, null),
       });
     } finally {
       preparingRequests.close();

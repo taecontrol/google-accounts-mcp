@@ -123,17 +123,48 @@ it.each(["cancelled", "404", "410", "500", "unreadable", "abort"])(
       expect(repeat.note).toMatch(/created the event.*no longer in the calendar.*duplicate: 2/);
       expect(repeat).not.toHaveProperty("cancelled");
       expect((await onceRows())[0]!.state).toBe("done");
-    } else {
+    } else if (status === "404" || status === "410") {
       await expectError(
         await createEventCall(f),
         "outcome_unknown",
-        /Ask the owner to look in Google Calendar.*If the owner says.*missing.*duplicate: 2/,
+        /Google Calendar does not show the event\. Ask the owner to look in Google Calendar.*If the owner says.*missing.*duplicate: 2/,
       );
+      expect((await onceRows())[0]!.state).toBe("unknown");
+    } else {
+      // A failed read proves nothing, so the agent tries again before it bothers the owner.
+      const error = await createEventCall(f);
+      await expectError(
+        error,
+        "outcome_unknown",
+        /could not check Google Calendar.*Call again with exactly the same arguments in a minute.*If this keeps happening, ask the owner/,
+      );
+      expect(JSON.stringify(error)).not.toMatch(/does not show|duplicate/);
       expect((await onceRows())[0]!.state).toBe("unknown");
     }
     expect(google.inserts).toHaveLength(1);
   },
 );
+
+it("answers with the event Google showed even when recording it fails, and reads again next time", async () => {
+  const f = await eventsFixture("create_event");
+  primaryList();
+  const google = eventWriter();
+  google.fake.insert = () => new Response(null, { status: 503 });
+  await expectError(await createEventCall(f), "outcome_unknown", /Call again/);
+  const db = observeStatements(env.DB, (sql) => {
+    if (/request_key = \?2/.test(sql)) throw new Error("D1 write lost");
+  });
+  const event = google.inserts[0]!.body.id;
+  expect(await answer(await createEventCall(f, {}, testEnv({ DB: db })))).toMatchObject({
+    event,
+    repeat_of: expect.any(String),
+  });
+  expect((await onceRows())[0]!.state).toBe("unknown");
+  expect(await answer(await createEventCall(f))).toMatchObject({ event });
+  expect((await onceRows())[0]!.state).toBe("done");
+  expect(google.reads).toHaveLength(2);
+  expect(google.inserts).toHaveLength(1);
+});
 
 it.each([false, true])("settles an unknown repeat under ask, stale running: %s", async (stale) => {
   const f = await eventsFixture("create_event", "ask");
@@ -368,7 +399,7 @@ it("recovery sends can only read the call's own account", async () => {
         ),
     ).pipe(Effect.as(null)),
   );
-  await expectError(await createEventCall(f), "outcome_unknown", /Ask the owner to look/);
+  await expectError(await createEventCall(f), "outcome_unknown", /could not check Google Calendar/);
   expect(google.inserts).toHaveLength(1);
   expect(google.reads).toHaveLength(0);
 });

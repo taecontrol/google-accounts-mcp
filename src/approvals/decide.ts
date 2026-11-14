@@ -35,7 +35,7 @@ import {
 } from "./store";
 import { openResult, sealResult } from "./text";
 import { serviceOf, type Send, type Tool, type DecodedArgs } from "../mcp/tools";
-import { WINDOW } from "../once/store";
+import { WINDOW, type Check } from "../once/store";
 import { approvalView } from "./view";
 
 type Dependencies = ApprovalContext & { config: Config; origin: string; files: KVNamespace };
@@ -58,7 +58,7 @@ async function unknownNotice(
   tool: Extract<Tool, { kind: "account" }>,
   email: string,
   args: DecodedArgs,
-  checked = false,
+  checked: Check | null = null,
 ) {
   return tool.create
     ? sealResult(deps.config.tokenKey, id, {
@@ -283,7 +283,7 @@ export const decide = (
               outcome = "unknown";
               retainNotice = true;
               const checked =
-                executed.repeat.kind === "unknown" && executed.repeat.checked === true;
+                executed.repeat.kind === "unknown" ? (executed.repeat.checked ?? null) : null;
               notice = () =>
                 unknownNotice(deps, id, view.tool, allowed.credential.email, args, checked);
             }

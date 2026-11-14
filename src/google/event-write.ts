@@ -9,6 +9,8 @@ export const MAX_TITLE = 1_000;
 export const MAX_LOCATION = 1_000;
 export const MAX_DESCRIPTION = 8_000;
 export const MAX_GUESTS = 50;
+/** The only statuses after which Google created nothing; every other answer is uncertain. */
+export const NOT_CREATED: readonly number[] = [400, 403, 404, 429];
 const noControls = Schema.isPattern(/^[^\p{Cc}]*$/u);
 export const Title = Schema.String.check(Schema.isBetweenLength(1, MAX_TITLE), noControls);
 export const Location = Schema.String.check(Schema.isMaxLength(MAX_LOCATION), noControls);
@@ -219,7 +221,7 @@ export const writeEvent = (
         }),
     );
     if (!response.ok) {
-      if (![400, 403, 404, 429, ...(r.refusals ?? [])].includes(response.status))
+      if (![...NOT_CREATED, ...(r.refusals ?? [])].includes(response.status))
         return yield* Effect.fail(uncertain());
       let failure = r.refused(response.status);
       if (response.status === 400 && failure.code === "invalid_arguments") {
@@ -244,10 +246,21 @@ export const writeEvent = (
     const meet = typeof r.body === "object" && r.body !== null && "conferenceData" in r.body;
     return yield* readWrittenEvent(response, meet);
   });
-export const timeValues = (start: string, end: string, zone: string): ViewValue[] => [
-  { name: "Starts", text: viewTime(start, zone), from: "agent" },
-  { name: "Ends", text: viewTime(end, zone), from: "agent" },
-];
+/** An all-day end is exclusive, so the page names the last day the event covers. */
+export const timeValues = (start: string, end: string, zone: string): ViewValue[] =>
+  parseTime(start).kind === "date"
+    ? [
+        { name: "Starts", text: viewTime(start, zone), from: "agent" },
+        {
+          name: "Last day",
+          text: viewTime(new Date(Date.parse(end) - 86_400_000).toISOString().slice(0, 10), zone),
+          from: "agent",
+        },
+      ]
+    : [
+        { name: "Starts", text: viewTime(start, zone), from: "agent" },
+        { name: "Ends", text: viewTime(end, zone), from: "agent" },
+      ];
 export const guestsValue = (
   addresses: readonly string[],
   what: "the invitation" | "the change" | "the cancellation",

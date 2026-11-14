@@ -20,6 +20,21 @@ import { setTool } from "./support/uploads";
 import { network } from "./support/network";
 import { rpcResult } from "./support/oauth";
 
+it("names the last day of an all-day event, not its exclusive end", async () => {
+  const f = await eventsFixture("create_event", "ask");
+  repeatCalendars(PRIMARY_CALENDAR);
+  eventWriter();
+  const id = (await answer(await createEventCall(f, { start: "2026-11-20", end: "2026-11-21" })))
+    .approval as string;
+  const view = await page(f, id);
+  expect(
+    view.request.values.filter((value) => ["Starts", "Ends", "Last day"].includes(value.name)),
+  ).toEqual([
+    { name: "Starts", text: "Nov 20, 2026 (all day)", from: "agent" },
+    { name: "Last day", text: "Nov 20, 2026 (all day)", from: "agent" },
+  ]);
+});
+
 it.each([false, true])(
   "shows the full approval in order before writing, secondary: %s",
   async (secondary) => {

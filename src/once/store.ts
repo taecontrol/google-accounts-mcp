@@ -14,7 +14,9 @@ export type Claim = {
 export type Repeat =
   | { kind: "done"; result: unknown; at: number }
   | { kind: "running" }
-  | { kind: "unknown"; key: string; at: number; until: number; checked?: true };
+  | { kind: "unknown"; key: string; at: number; until: number; checked?: Check };
+/** What a recovery read learned: nothing yet, the event is missing, or the read failed. */
+export type Check = "missing" | "failed";
 export type Entered = { kind: "run"; claim: Claim } | Repeat;
 type OnceContext = { db: D1Database };
 const Row = Schema.Struct({

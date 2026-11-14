@@ -41,6 +41,7 @@ import {
 import { deleteMessages, messageValues, restoreMessages, trashMessages } from "../google/trash";
 import { readListedTools } from "../permissions/store";
 import type { CallContext } from "./call";
+import type { Check } from "../once/store";
 import {
   creating,
   notSendable,
@@ -145,6 +146,7 @@ type AccountExecution<A, S> =
       stored?: never;
       answer?: never;
       settle?: never;
+      repeated?: never;
     }
   | {
       create: (
@@ -159,7 +161,10 @@ type AccountExecution<A, S> =
       answer: (stored: S, args: A) => Record<string, unknown>;
       settle?: (read: Send, args: A, key: string) => Effect.Effect<S | null, ToolFailure>;
       defaults: Readonly<Partial<A>>;
-      unknown: (email: string, until: number, args: A, checked: boolean) => string;
+      /** checked: null before any recovery read, else what the read learned. */
+      unknown: (email: string, until: number, args: A, checked: Check | null) => string;
+      /** The repeat sentence; without it, the mail wording. next is null past duplicate's limit. */
+      repeated?: (at: string, next: number | null, args: A) => string;
       run?: never;
     };
 export class ViewUnavailable extends Data.TaggedError("ViewUnavailable") {}
@@ -656,7 +661,6 @@ const createEventPlan = (args: CreateEventArgs, ctx: CalendarContext) =>
         : []),
       { name: "Title", text: args.title, from: "agent" },
       ...timeValues(args.start, args.end, ctx.zone),
-      // #57 adds Repeats here, immediately after Ends.
       ...(args.guests?.length ? [guestsValue(args.guests, "the invitation", "agent")] : []),
       ...(args.meet
         ? [
@@ -1406,9 +1410,13 @@ export const TOOLS: ReadonlyArray<Tool> = [
         ...(notes.length ? { note: notes.join(" ") } : {}),
       };
     },
+    repeated: (at, next) =>
+      `This call already ran at ${at}. Nothing was created again. This is its result.${next === null ? "" : ` To create one more on purpose, for example after the owner deleted it, call again with duplicate: ${next}.`}`,
     unknown: (email, until, args, checked) => {
-      if (!checked)
+      if (checked === null)
         return `The server does not know yet whether the event was created in ${email}. Call again with exactly the same arguments in a minute: the server checks Google Calendar and never creates it twice.`;
+      if (checked === "failed")
+        return `The server could not check Google Calendar for the event in ${email} just now. Call again with exactly the same arguments in a minute: the server checks again and never creates it twice. If this keeps happening, ask the owner to look in Google Calendar. Until ${isoSeconds(until)}, repeating this call does not create it.`;
       const next = (args.duplicate ?? 1) + 1;
       return `Google Calendar does not show the event. Ask the owner to look in Google Calendar. Until ${isoSeconds(until)}, repeating this call does not create it.${next <= 100 ? ` If the owner says that it is missing, call again with duplicate: ${next}.` : ""}`;
     },
