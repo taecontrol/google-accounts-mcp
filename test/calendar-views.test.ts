@@ -266,19 +266,19 @@ it("gives a next-page search its own approval and shows Page from the sealed arg
   const f = await eventsFixture("search_events", "ask");
   repeatList(PRIMARY_CALENDAR);
   const sent = eventsFake({ [PERSONAL]: { list: Response.json({}) } });
-  const id = (await answer(await searchCall(f, { page: "50.next+/=", limit: 1, time_zone: "UTC" })))
+  const id = (await answer(await searchCall(f, { page: "next+/=", limit: 1, time_zone: "UTC" })))
     .approval as string;
   expect(sent).toEqual([]);
   expect((await page(f, id)).request.values).toEqual([
     { name: "Calendars", text: `Personal (${PERSONAL})`, from: "calendar" },
     { name: "Range", text: "Nov 20, 2026 at 00:00 to Nov 21, 2026 at 00:00 (UTC)", from: "agent" },
-    { name: "Limit", text: "50", from: "agent" },
-    { name: "Page", text: "50.next+/=", from: "agent" },
+    { name: "Limit", text: "1", from: "agent" },
+    { name: "Page", text: "next+/=", from: "agent" },
   ]);
   await approve(f, id);
   expect((await get(f, id)).result).toMatchObject({ time_zone: "UTC" });
   expect(new URL(sent[0]!.url).searchParams.get("pageToken")).toBe("next+/=");
-  expect(new URL(sent[0]!.url).searchParams.get("maxResults")).toBe("50");
+  expect(new URL(sent[0]!.url).searchParams.get("maxResults")).toBe("1");
 });
 
 it("creates read_event approval without a read, shows a floating event in the call zone, and runs after approval", async () => {

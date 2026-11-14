@@ -17,21 +17,6 @@ const LIMIT = 32_000;
 const SIZE_NOTE =
   "The result reached its size limit; call again for each calendar with next_page or not_read.";
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
-const pageOf = (text: string) => {
-  const prefix = /^([1-9]|[1-4][0-9]|50)\./u.exec(text);
-  if (!prefix) return null;
-  const token = text.slice(prefix[0].length);
-  return token.length && !/[^\x20-\x21\x23-\x5b\x5d-\x7e]/u.test(token)
-    ? { limit: Number(prefix[1]), token }
-    : null;
-};
-/** Keep sealed arguments as strings; the prefix belongs to the page, not the caller's limit. */
-export const EventPage = Schema.String.check(
-  Schema.isBetweenLength(1, MAX_EVENT_PAGE),
-  Schema.makeFilter((text) => pageOf(text) !== null),
-);
-export const eventLimit = (input: { readonly page?: string; readonly limit?: number }): number =>
-  input.page === undefined ? (input.limit ?? DEFAULT_EVENT_LIMIT) : pageOf(input.page)!.limit;
 export const EventId = Schema.String.check(
   Schema.isBetweenLength(1, 1024),
   Schema.isPattern(/^[A-Za-z0-9_-]+$/u),
@@ -195,7 +180,7 @@ const listPage = (
   for (const kind of ["default", "outOfOffice", "focusTime", "birthday", "fromGmail"])
     params.append("eventTypes", kind);
   if (input.query !== undefined) params.set("q", input.query);
-  if (input.page !== undefined) params.set("pageToken", pageOf(input.page)!.token);
+  if (input.page !== undefined) params.set("pageToken", input.page);
   return get(
     send,
     `calendars/${encodeURIComponent(calendar)}/events?${params}`,
@@ -209,15 +194,6 @@ const listPage = (
               field: { name: "page", expects: "the next_page value of an earlier result" },
             })
           : unavailable(),
-  ).pipe(
-    Effect.flatMap((page) => {
-      const next =
-        page.nextPageToken === undefined ? undefined : String(limit) + "." + page.nextPageToken;
-      // The input bound includes the size prefix, so every emitted page can be used again.
-      return next !== undefined && next.length > MAX_EVENT_PAGE
-        ? Effect.fail(unavailable())
-        : Effect.succeed({ items: page.items, next_page: next });
-    }),
   );
 };
 const inRange = (event: LiveEvent, zone: string, range: { from: number; to: number }) =>
@@ -244,7 +220,6 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
   Effect.gen(function* () {
     const ctx = yield* calendarContext(send, input.time_zone);
     const range = yield* Effect.fromResult(rangeOf(input.from, input.to, ctx.zone));
-    const limit = eventLimit(input);
     const calendars = input.calendars ?? [ctx.primary?.calendar ?? ""];
     const attempts = yield* Effect.forEach(
       calendars,
@@ -255,7 +230,14 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
               const calendar = yield* Effect.fromResult(
                 readableCalendar(ctx, input.calendars === undefined ? undefined : id, "calendars"),
               );
-              return yield* listPage(send, calendar.calendar, input, range, ctx.zone, limit);
+              return yield* listPage(
+                send,
+                calendar.calendar,
+                input,
+                range,
+                ctx.zone,
+                input.limit ?? DEFAULT_EVENT_LIMIT,
+              );
             }),
           );
           if (Result.isFailure(attempt) && calendarError(attempt.failure, input.account) === null)
@@ -283,9 +265,9 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
           : {
               calendar: calendars[index]!,
               events: [],
-              ...(attempt.success.next_page === undefined
+              ...(attempt.success.nextPageToken === undefined
                 ? {}
-                : { next_page: attempt.success.next_page }),
+                : { next_page: attempt.success.nextPageToken }),
             },
       ),
     };
@@ -324,7 +306,7 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
           continue;
         }
         entry.events!.push(event);
-        // Reserve the complete encoded page, including its size prefix and JSON quotes.
+        // Reserve the complete Google token, including its JSON quotes.
         const maxTokenSize = MAX_EVENT_PAGE + 2;
         const tokenReserve =
           entry.next_page === undefined
@@ -354,7 +336,7 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
                 const event = searchEvent(item, input.account, calendar, ctx.zone, range);
                 return event === undefined ? [] : [event];
               }),
-              ...(page.next_page === undefined ? {} : { next_page: page.next_page }),
+              ...(page.nextPageToken === undefined ? {} : { next_page: page.nextPageToken }),
             };
             // A changed calendar can grow between requests. Never mix a token with a prefix
             // from a different answer, or cut the replacement page away from its own token.
