@@ -132,6 +132,7 @@ import {
   readWrittenEvent,
   type WrittenEvent,
 } from "../google/event-write";
+import { Repeat, repeatIssue, repeatRule } from "../google/repeat";
 type AccountExecution<A, S> =
   | {
       run: (
@@ -422,6 +423,7 @@ const CreateEventInput = Schema.Struct({
   end: TimeText,
   time_zone: Schema.optionalKey(ZoneName),
   location: Schema.optionalKey(Location),
+  repeat: Schema.optionalKey(Repeat),
   description: Schema.optionalKey(Description),
   guests: Schema.optionalKey(Guests),
   meet: Schema.optionalKey(Schema.Boolean),
@@ -436,7 +438,7 @@ const CreateEventInput = Schema.Struct({
       )
     )
       return { path: ["guests"], issue: "without the account's own address" };
-    return true;
+    return repeatIssue(args);
   }),
 );
 type CreateEventArgs = typeof CreateEventInput.Type;
@@ -649,6 +651,7 @@ const createEventPlan = (args: CreateEventArgs, ctx: CalendarContext) =>
   Effect.gen(function* () {
     const calendar = yield* Effect.fromResult(writableCalendar(ctx, args.calendar));
     const points = yield* Effect.fromResult(eventPoints(args, ctx.zone));
+    const repeat = yield* Effect.fromResult(repeatRule(args, ctx.zone, ctx.primary?.time_zone));
     const description = yield* checkedDescription(args.description ?? "");
     const calendarText = `${unfold(calendar.name)} (${calendar.calendar})`;
     const values: ViewValue[] = [
@@ -658,7 +661,16 @@ const createEventPlan = (args: CreateEventArgs, ctx: CalendarContext) =>
         : []),
       { name: "Title", text: args.title, from: "agent" },
       ...timeValues(args.start, args.end, ctx.zone),
-      ...(args.guests?.length ? [guestsValue(args.guests, "the invitation", "agent")] : []),
+      ...(repeat ? [{ name: "Repeats", text: repeat.text, from: "agent" as const }] : []),
+      ...(args.guests?.length
+        ? [
+            guestsValue(
+              args.guests,
+              repeat ? "one invitation for the whole series" : "the invitation",
+              "agent",
+            ),
+          ]
+        : []),
       ...(args.meet
         ? [
             {
@@ -674,7 +686,7 @@ const createEventPlan = (args: CreateEventArgs, ctx: CalendarContext) =>
         ? [{ name: "Description", text: args.description, from: "agent" as const }]
         : []),
     ];
-    return { calendar, points, description, values };
+    return { calendar, points, repeat, description, values };
   });
 const forwardBody = (quoted: string, note?: string) => (note ? `${note}\n\n${quoted}` : quoted);
 const draftNote =
@@ -1363,9 +1375,9 @@ export const TOOLS: ReadonlyArray<Tool> = [
     irreversible: true,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     permissionDescription:
-      "Create events in calendars where this account can add events. Google emails an invitation to every guest, and an invitation cannot be taken back.",
+      "Create events in calendars where this account can add events. Google emails an invitation to every guest, and an invitation cannot be taken back. It can also create repeating events, including series with no end date.",
     description:
-      "Creates an event in one Google account and invites its guests. Google emails an invitation to every guest, and an invitation cannot be taken back. `account` is an address from list_accounts. `calendar` is an optional calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters; without it, the event goes in the primary calendar. The alias `primary` and unlisted IDs get not_found. The calendar must have access owner or writer; reader and free_busy get invalid_arguments naming calendar. `title` is required, 1 to 1,000 characters without control characters. `start` and `end` are required and must both be dates (YYYY-MM-DD) or both times (YYYY-MM-DDTHH:MM, optionally with :00 seconds and Z or ±HH:MM). Years are 1900 to 2999; seconds other than 00 and fractions are refused because approvals show minutes. A local time without an offset uses the call's zone; a time with an offset names an instant. A local time that does not exist during a daylight-saving change is refused: give another time or an offset. `end` must be after start; an all-day end is exclusive, so a one-day event on 2026-11-20 ends on 2026-11-21. `time_zone` is UTC or an IANA zone with a slash, such as America/Bogota; without it the call uses the primary calendar's zone, even for another calendar. This is also the timed event's own zone. Leave time_zone out for all-day events. `location` is optional, up to 1,000 characters without control characters; empty means none. `description` is optional plain text, empty by default. It is limited to 8,000 UTF-8 bytes as sent to Google after escaping HTML; line breaks, tabs, quotes, and backslashes count 2 each. Controls other than line breaks and tabs are refused. Text with <, >, or & is escaped so guests see it as written; such a text is refused when HTML would change its characters, for example repeated spaces, tabs, or leading or trailing whitespace. Text without those characters goes unchanged. `guests` defaults to [], with at most 50 different bare email addresses, unique ignoring case. Each is at most 254 characters, with one @, a non-empty local part, and a domain with a dot; no whitespace, control or format characters, or display names. Leave the account's own address out. In a secondary calendar, guests see that calendar as the organizer; the invitation comes from account. Google emails each address; a group's address reaches its members. `meet: true` asks Google to add a Google Meet link; it defaults to false. `duplicate` is an optional whole number from 2 to 100 for a deliberate copy. The calendar's default reminders stay in place; no color or attachments are set. The result has account, calendar (the real ID), event, optional link to Google Calendar, and meet only when Google confirms a Meet link. A note explains when the Meet link is pending or absent, or when a recovered event is no longer in the calendar. read_event gives a pending Meet link once Google adds it.\n\nRepeating: a call with the same arguments as a call of the last 7 days is the same call. It never creates a second event. It returns the first call's result with repeat_of, or its pending approval. When you get no answer or an error that says to try again, call again with exactly the same arguments. Copy them; do not reword the text, because changed text is a new event. When the outcome is unknown, call again with exactly the same arguments in a minute: the server checks Google Calendar by its chosen event ID and never creates it twice. If that read still finds nothing, ask the owner to look in Google Calendar and use duplicate only if the owner says it is missing. To create one more on purpose, for example after the owner deleted it, add duplicate: 2 (then 3).\n\nWith ask, a call that cannot be built appears on the owner's page without Approve. The tool returns a pending approval with a link instead of creating the event; get_approval returns the result after the owner approves.",
+      "Creates an event in one Google account and invites its guests. Google emails an invitation to every guest, and an invitation cannot be taken back. `account` is an address from list_accounts. `calendar` is an optional calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters; without it, the event goes in the primary calendar. The alias `primary` and unlisted IDs get not_found. The calendar must have access owner or writer; reader and free_busy get invalid_arguments naming calendar. `title` is required, 1 to 1,000 characters without control characters. `start` and `end` are required and must both be dates (YYYY-MM-DD) or both times (YYYY-MM-DDTHH:MM, optionally with :00 seconds and Z or ±HH:MM). Years are 1900 to 2999; seconds other than 00 and fractions are refused because approvals show minutes. A local time without an offset uses the call's zone; a time with an offset names an instant. A local time that does not exist during a daylight-saving change is refused: give another time or an offset. `end` must be after start; an all-day end is exclusive, so a one-day event on 2026-11-20 ends on 2026-11-21. `time_zone` is UTC or an IANA zone with a slash, such as America/Bogota; without it the call uses the primary calendar's zone, even for another calendar. This is also the timed event's own zone. Leave time_zone out for all-day events. `location` is optional, up to 1,000 characters without control characters; empty means none. `description` is optional plain text, empty by default. It is limited to 8,000 UTF-8 bytes as sent to Google after escaping HTML; line breaks, tabs, quotes, and backslashes count 2 each. Controls other than line breaks and tabs are refused. Text with <, >, or & is escaped so guests see it as written; such a text is refused when HTML would change its characters, for example repeated spaces, tabs, or leading or trailing whitespace. Text without those characters goes unchanged. `guests` defaults to [], with at most 50 different bare email addresses, unique ignoring case. Each is at most 254 characters, with one @, a non-empty local part, and a domain with a dot; no whitespace, control or format characters, or display names. Leave the account's own address out. In a secondary calendar, guests see that calendar as the organizer; the invitation comes from account. Google emails each address; a group's address reaches its members. `meet: true` asks Google to add a Google Meet link; it defaults to false. `duplicate` is an optional whole number from 2 to 100 for a deliberate copy. The calendar's default reminders stay in place; no color or attachments are set. The result has account, calendar (the real ID), event, optional link to Google Calendar, and meet only when Google confirms a Meet link. A note explains when the Meet link is pending or absent, or when a recovered event is no longer in the calendar. read_event gives a pending Meet link once Google adds it.\n\n`repeat` is optional. Its `every` is day, week, or month. `interval` is a whole number from 1 to 99, with 1 when absent. `weekdays` is 1 to 7 distinct lowercase names spelled monday through sunday, only with every week. Without weekdays, a weekly rule repeats on the weekday of start; a monthly rule repeats on the day of the month of start. The rule repeats in the event's zone. `start` is the first occurrence and must fall on a listed weekday. `until` is a YYYY-MM-DD date from 1900 to 2999, on or after the date of start, and includes that whole day. `count` is a whole number from 1 to 730. Give at most one of until and count. Monthly events on days 29 to 31 skip months without that day. Weeks run Monday to Sunday, and an interval counts from the week of start. Without until or count, the stored rule has no end date; Google may return no occurrences far ahead. For a repeating event, the result's `event` is the series ID.\n\nCalling again: a call with the same arguments as a call of the last 7 days is the same call. It never creates a second event. It returns the first call's result with repeat_of, or its pending approval. When you get no answer or an error that says to try again, call again with exactly the same arguments. Copy them; do not reword the text, because changed text is a new event. When the outcome is unknown, call again with exactly the same arguments in a minute: the server checks Google Calendar by its chosen event ID and never creates it twice. If that read still finds nothing, ask the owner to look in Google Calendar and use duplicate only if the owner says it is missing. To create one more on purpose, for example after the owner deleted it, add duplicate: 2 (then 3).\n\nWith ask, a call that cannot be built appears on the owner's page without Approve. The tool returns a pending approval with a link instead of creating the event; get_approval returns the result after the owner approves.",
     input: CreateEventInput,
     expects: {
       account: "a string",
@@ -1375,6 +1387,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
       start: `${timeExpects}, with seconds omitted or 00 and no fractions`,
       end: `${timeExpects}, in the same date or time form as start, after start, with seconds omitted or 00 and no fractions`,
       time_zone: `${zoneExpects}, left out for all-day dates`,
+      repeat:
+        'an object with every: "day", "week", or "month"; optional interval: a whole number from 1 to 99, 1 when absent; optional weekdays: 1 to 7 distinct lowercase day names spelled monday through sunday, only with every "week", including the weekday of start in the event\'s zone; optional until: a valid YYYY-MM-DD date from 1900 to 2999, on or after the date of start in that zone; optional count: a whole number from 1 to 730; until and count cannot be given together; without either, the rule has no end date',
       location: "a string of at most 1,000 characters without control characters",
       description:
         "plain text of at most 8,000 UTF-8 bytes after HTML encoding, counting each line break, tab, quote, and backslash as 2, without other control characters",
@@ -1420,10 +1434,19 @@ export const TOOLS: ReadonlyArray<Tool> = [
     view: {
       action: "create an event",
       joiner: "in",
-      notes: (args) =>
-        args.guests?.length
+      notes: (args) => [
+        ...(args.guests?.length
           ? [{ text: "A group's address reaches each of its members.", warning: false }]
-          : [],
+          : []),
+        ...(args.repeat && args.repeat.until === undefined && args.repeat.count === undefined
+          ? [
+              {
+                text: "The rule has no end date. It ends only when someone deletes the series or gives it an end date in Google Calendar.",
+                warning: true,
+              },
+            ]
+          : []),
+      ],
       values: (args, send) =>
         calendarContext(send, args.time_zone).pipe(
           Effect.flatMap((ctx) => createEventPlan(args, ctx)),
@@ -1451,6 +1474,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
               id: key,
               summary: args.title,
               ...plan.points,
+              ...(plan.repeat ? { recurrence: [plan.repeat.line] } : {}),
               ...(args.location ? { location: args.location } : {}),
               ...(plan.description ? { description: plan.description } : {}),
               ...(args.guests?.length

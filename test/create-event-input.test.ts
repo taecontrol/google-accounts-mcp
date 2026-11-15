@@ -1,6 +1,6 @@
 import "./support/account-checks";
 import { expect, it } from "vite-plus/test";
-import { answer } from "./support/approvals";
+import { answer, rows } from "./support/approvals";
 import { eventsFixture } from "./support/calendar";
 import { createEventCall, eventWriter, primaryList } from "./support/event-write";
 import { expectError, PERSONAL } from "./support/permissions";
@@ -74,6 +74,75 @@ it.each([
     "invalid_arguments",
     new RegExp(`The ${field} field`),
   );
+  expect(lists).toHaveLength(0);
+  expect(google.inserts).toHaveLength(0);
+});
+
+it.each([
+  { repeat: null },
+  { repeat: "week" },
+  { repeat: {} },
+  { repeat: { every: "year" } },
+  { repeat: { every: "DAY" } },
+  ...[0, 100, 1.5, "2"].map((interval) => ({ repeat: { every: "day", interval } })),
+  ...[0, 731, 1.5, "2"].map((count) => ({ repeat: { every: "day", count } })),
+  ...[[], ["Friday"], ["fri"], ["friday", "friday"], ["monday"], "friday"].map((weekdays) => ({
+    repeat: { every: "week", weekdays },
+  })),
+  { repeat: { every: "week", weekdays: [...Array<string>(7).fill("monday"), "friday"] } },
+  { repeat: { every: "day", weekdays: ["friday"] } },
+  { repeat: { every: "month", weekdays: ["friday"] } },
+  ...[
+    "2026-11-19",
+    "2026-11-20T10:00",
+    "2026-11-20\n",
+    "2026-02-30",
+    "3000-01-01",
+    "2026-1-20",
+  ].map((until) => ({
+    repeat: { every: "day", until },
+  })),
+  { repeat: { every: "day", until: "2026-11-20", count: 1 } },
+  { repeat: { every: "day", extra: true } },
+  {
+    start: "2026-11-20",
+    end: "2026-11-21",
+    repeat: { every: "week", weekdays: ["thursday"] },
+  },
+  {
+    start: "2026-11-20",
+    end: "2026-11-21",
+    repeat: { every: "day", until: "2026-11-19" },
+  },
+  {
+    start: "2026-11-17T01:00Z",
+    end: "2026-11-17T02:00Z",
+    time_zone: "America/Bogota",
+    repeat: { every: "week", weekdays: ["tuesday"] },
+  },
+  {
+    start: "2026-11-17T23:00-05:00",
+    end: "2026-11-18T00:00-05:00",
+    time_zone: "Asia/Tokyo",
+    repeat: { every: "day", until: "2026-11-17" },
+  },
+  // An instant without time_zone that fails on every local date it can have.
+  {
+    start: "2026-11-17T12:00Z",
+    end: "2026-11-17T13:00Z",
+    repeat: { every: "day", until: "2020-01-01" },
+  },
+  {
+    start: "2026-11-17T12:00Z",
+    end: "2026-11-17T13:00Z",
+    repeat: { every: "week", weekdays: ["friday"] },
+  },
+])("refuses invalid repeat before any approval or Google request: %j", async (args) => {
+  const f = await eventsFixture("create_event", "ask");
+  const lists = primaryList();
+  const google = eventWriter();
+  await expectError(await createEventCall(f, args), "invalid_arguments", /The repeat field/);
+  expect(await rows()).toEqual([]);
   expect(lists).toHaveLength(0);
   expect(google.inserts).toHaveLength(0);
 });

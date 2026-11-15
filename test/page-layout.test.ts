@@ -17,6 +17,8 @@ const approvalStates = [
 ];
 const toolViews = [
   "approval-create-event",
+  "approval-create-event-repeat",
+  "approval-create-event-repeat-no-end",
   "approval-waiting-thread",
   "approval-waiting-search",
   "approval-waiting-notes",
