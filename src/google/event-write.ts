@@ -11,6 +11,8 @@ export const MAX_DESCRIPTION = 8_000;
 export const MAX_GUESTS = 50;
 /** The only statuses after which Google created nothing; every other answer is uncertain. */
 export const NOT_CREATED: readonly number[] = [400, 403, 404, 429];
+export const DESCRIPTION_EXPECTS =
+  "plain text of at most 8,000 UTF-8 bytes after HTML encoding, counting each line break, tab, quote, and backslash as 2, without other control characters";
 const noControls = Schema.isPattern(/^[^\p{Cc}]*$/u);
 export const Title = Schema.String.check(Schema.isBetweenLength(1, MAX_TITLE), noControls);
 export const Location = Schema.String.check(Schema.isMaxLength(MAX_LOCATION), noControls);

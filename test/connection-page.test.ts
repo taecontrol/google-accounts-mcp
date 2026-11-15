@@ -171,6 +171,8 @@ it("marks sends, permanent delete, new events, and invitation answers as irrever
     { name: "send_draft", label: "Send draft" },
     { name: "delete_messages", label: "Delete permanently" },
     { name: "create_event", label: "Create event" },
+    { name: "update_event", label: "Change event" },
+    { name: "delete_event", label: "Delete event" },
     { name: "respond_to_event", label: "Respond to invitation" },
   ]);
   expect(tools.find((tool) => tool.name === "create_draft")!.irreversible).toBe(false);

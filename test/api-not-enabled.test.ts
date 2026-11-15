@@ -1,7 +1,7 @@
 import "./support/account-checks";
 import { expect, it } from "vite-plus/test";
 import { answer } from "./support/approvals";
-import { CALENDAR_SCOPES, calendarFake } from "./support/calendar";
+import { CALENDAR_SCOPES, calendarFake, eventsFixture, eventChangeCall } from "./support/calendar";
 import { callRows, expectError, fixture, PERSONAL, toolCall } from "./support/permissions";
 import { draftCall, draftFixture, onceRows } from "./support/draft";
 import { google } from "./support/google";
@@ -124,4 +124,19 @@ it("keeps a lost creating response unknown and never creates again on repeat", a
   await expectError(await draftCall(f), "outcome_unknown", /does not know/);
   await expectError(await draftCall(f), "outcome_unknown", /does not know/);
   expect(google.draftCreates).toHaveLength(1);
+});
+
+it.each(
+  (["update_event", "delete_event"] as const).flatMap((tool) =>
+    (["ErrorInfo", "legacy"] as const).map((marker) => ({ tool, marker })),
+  ),
+)("refuses $tool when the Calendar API is disabled: $marker", async ({ tool, marker }) => {
+  const f = await eventsFixture(tool);
+  calendarFake(disabled(marker));
+  await expectError(
+    await eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {}),
+    "api_not_enabled",
+    /Google Calendar API is not enabled/,
+  );
+  expect((await callRows()).at(-1)).toMatchObject({ outcome: "failed", reason: "api_not_enabled" });
 });

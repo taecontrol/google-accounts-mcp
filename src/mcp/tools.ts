@@ -95,6 +95,13 @@ import {
 import { EventResponse, invitation, respondToEvent, WHOLE_SERIES } from "../google/respond";
 import { Created, createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
+  DeleteEventInput,
+  UpdateEventInput,
+  deletePlan,
+  updatePlan,
+  runChange,
+} from "../google/event-change";
+import {
   MAX_SUBJECT,
   mailboxText,
   messageText,
@@ -126,6 +133,7 @@ import {
   windowIssue,
   eventPoints,
   checkedDescription,
+  DESCRIPTION_EXPECTS,
   timeValues,
   guestsValue,
   writeEvent,
@@ -1390,8 +1398,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
       repeat:
         'an object with every: "day", "week", or "month"; optional interval: a whole number from 1 to 99, 1 when absent; optional weekdays: 1 to 7 distinct lowercase day names spelled monday through sunday, only with every "week", including the weekday of start in the event\'s zone; optional until: a valid YYYY-MM-DD date from 1900 to 2999, on or after the date of start in that zone; optional count: a whole number from 1 to 730; until and count cannot be given together; without either, the rule has no end date',
       location: "a string of at most 1,000 characters without control characters",
-      description:
-        "plain text of at most 8,000 UTF-8 bytes after HTML encoding, counting each line break, tab, quote, and backslash as 2, without other control characters",
+      description: DESCRIPTION_EXPECTS,
       guests:
         "a list of at most 50 different bare email addresses, unique ignoring case, each at most 254 characters with one @ and a domain with a dot, without whitespace, control or format characters, display names, or the account's own address",
       meet: "a boolean",
@@ -1844,6 +1851,77 @@ export const TOOLS: ReadonlyArray<Tool> = [
     },
     run: (send, account, args, _takes, { confirm }) =>
       respondToEvent(send, confirm, { ...args, account: account.email }),
+  }),
+  accountTool({
+    name: "update_event",
+    label: "Change event",
+    group: "Create and change events",
+    irreversible: true,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    permissionDescription:
+      "Change events in this account's calendars: their title, time, place, description, and guests. Google emails the guests about each change.",
+    description:
+      "Changes one event in one Google account. `account` is an address from list_accounts. `calendar` is an optional calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters; leave it out to use the primary calendar. Google's alias `primary` and unlisted calendars get not_found. A calendar with reader or free_busy access gets invalid_arguments. `event` is an event ID from search_events, 1 to 1,024 letters, digits, hyphens, or underscores, valid only in the calendar and account that returned it. An occurrence ID changes that occurrence only. A series ID, including an occurrence's `series`, cannot be changed with this tool: change occurrences one at a time, or ask the owner to change the series in Google Calendar. Only the organizer's copy and only regular events can be changed. On a guest's copy, use respond_to_event to decline. Missing and cancelled events get not_found. Give at least one change. `title` is 1 to 1,000 characters, and `location` is 0 to 1,000; neither accepts control characters. `description` is plain text, at most 8,000 UTF-8 bytes as sent to Google, after HTML encoding; line breaks, tabs, quotes and backslashes count as 2. Newlines and tabs are allowed; other controls are refused. Text with <, >, or & is HTML-escaped; it is refused if that encoding would lose characters, such as tabs, repeated spaces, or leading or trailing whitespace. An empty location or description removes it. `start` and `end` are dates (YYYY-MM-DD) or date-times (YYYY-MM-DDTHH:MM, optionally :00 and Z or ±HH:MM), in years 1900 to 2999. Seconds other than 00 and fractions are refused. All-day end is exclusive, the day after the last day. With only start the event keeps its length; with only end the start stays. End must be after start. To switch between dates and times, give both. `time_zone` is UTC or an IANA zone name with a slash, such as Europe/Madrid; without it the call uses the primary calendar's zone. A date-time without an offset is read in the call's zone; a time that does not exist because of a DST change is refused. Zones are written and compared in their canonical spelling. Each written point keeps its own zone, else the call's zone, unless time_zone sets both. time_zone alone keeps the same instants, and cannot be used with dates or on an event that stays all-day. `add_guests` and `remove_guests` are lists of up to 50 different bare email addresses each, at most 254 characters per address, compared without regard to case. No address may be in both lists. The account's own address and rooms cannot be added or removed. Adding a present guest or removing an absent one changes nothing. A cut guest list refuses guest edits. Google emails added guests an invitation, staying guests the change, and removed guests a cancellation. Only changed fields are sent; when nothing differs, no request is sent, so a retry with the same arguments emails nobody again. The result has account, calendar, event, and link. If the event changes after approval or during the call, nothing is changed and calling again is safe. After a lost answer the change may have been made, and calling again is safe. When the owner sets this tool to ask, it returns a pending approval with a link instead of a result; get_approval returns the result after the owner approves.",
+    input: UpdateEventInput,
+    onExcessProperty: "error",
+    expects: {
+      account: "a string",
+      calendar:
+        "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters",
+      event: "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores",
+      title:
+        "a string of 1 to 1,000 characters without control characters; give at least one change",
+      location: "a string of at most 1,000 characters without control characters",
+      description: DESCRIPTION_EXPECTS,
+      start:
+        "a valid date or date-time in years 1900 to 2999: YYYY-MM-DD or YYYY-MM-DDTHH:MM[:00], with an optional Z or ±HH:MM offset; fractions are not allowed",
+      end: "a valid date or date-time in years 1900 to 2999: YYYY-MM-DD or YYYY-MM-DDTHH:MM[:00], with an optional Z or ±HH:MM offset; fractions are not allowed",
+      time_zone: zoneExpects,
+      add_guests:
+        "a list of at most 50 different bare email addresses, at most 254 characters each, compared without regard to case; no account address or room",
+      remove_guests:
+        "a list of at most 50 different bare email addresses, at most 254 characters each, compared without regard to case; none also in add_guests, no account address or room",
+    },
+    view: {
+      action: "change an event",
+      joiner: "in",
+      values: (args, send) =>
+        updatePlan(send, { ...args, account: normalizeEmail(args.account)! }).pipe(
+          Effect.map((plan) => plan.values),
+        ),
+    },
+    run: (send, account, args, _takes, approval) =>
+      runChange(updatePlan(send, { ...args, account: account.email }), approval),
+  }),
+  accountTool({
+    name: "delete_event",
+    label: "Delete event",
+    group: "Create and change events",
+    irreversible: true,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    permissionDescription:
+      "Delete events from this account's calendars. Google emails the guests a cancellation.",
+    description:
+      "Deletes one event in one Google account. `account` is an address from list_accounts. `calendar` is an optional calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters; leave it out to use the primary calendar. Google's alias `primary` and unlisted calendars get not_found. A calendar with reader or free_busy access gets invalid_arguments. `event` is an event ID from search_events, 1 to 1,024 letters, digits, hyphens, or underscores, valid only in the calendar and account that returned it. An occurrence ID deletes that occurrence only; the rest of the series stays. A series ID, including an occurrence's `series`, deletes the whole series, every occurrence. A whole series with past occurrences cannot be deleted: delete occurrences one at a time, or ask the owner to use \"This and following events\" in Google Calendar. A series must start in the future and have no occurrence moved into the past. Only the organizer's copy and only regular events can be deleted. On a guest's copy, use respond_to_event to decline. Google emails the guests a cancellation. When deleting a whole series, guests invited only to single occurrences also get a cancellation. The result has account, calendar, and event. Missing or cancelled events get not_found, so after a lost answer, a later not_found means the event is gone. If the event changes after approval or during the call, nothing is changed and calling again is safe. When the owner sets this tool to ask, it returns a pending approval with a link instead of a result; get_approval returns the result after the owner approves.",
+    input: DeleteEventInput,
+    onExcessProperty: "error",
+    expects: {
+      account: "a string",
+      calendar:
+        "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters",
+      event: "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores",
+    },
+    view: {
+      action: "delete an event",
+      joiner: "from",
+      notes: () => [{ text: "Google emails each guest a cancellation.", warning: true }],
+      values: (args, send) =>
+        deletePlan(send, { ...args, account: normalizeEmail(args.account)! }).pipe(
+          Effect.map((plan) => plan.values),
+        ),
+    },
+    run: (send, account, args, _takes, approval) =>
+      runChange(deletePlan(send, { ...args, account: account.email }), approval),
   }),
   {
     kind: "plain",

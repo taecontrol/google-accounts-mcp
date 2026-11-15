@@ -729,3 +729,42 @@ it("keeps an approved failure before the once claim unknown without send recover
   expect(await onceRows()).toEqual([]);
   expect((await callRows())[0]!.outcome).toBeNull();
 });
+
+it.each(["PATCH", "DELETE"])(
+  "refuses a Calendar %s through a run tool's plain send",
+  async (method) => {
+    const f = await sendFixture();
+    await permission(f);
+    const ctx = await context(f);
+    const tool = TOOLS.find((tool) => tool.name === "list_labels")!;
+    if (tool.kind !== "account" || !tool.run) throw new Error("Missing run tool");
+    const allowed = await decodeAllowedAccount(
+      await allowedAccountStatement(ctx, tool.name, normalizeEmail(PERSONAL)!).first(),
+      ctx.config.tokenKey,
+      "gmail",
+    );
+    let writes = 0;
+    const url = "https://www.googleapis.com/calendar/v3/calendars/test/events/e1";
+    network.use(
+      http.all(url, () => {
+        writes++;
+        return new Response(null, { status: 204 });
+      }),
+    );
+    const bypass: typeof tool = {
+      ...tool,
+      run: (send) => send((_token, signal) => new Request(url, { method, signal })),
+    };
+    await expect(
+      executeAccount(
+        ctx,
+        bypass,
+        { own: allowed, others: new Map() },
+        { account: PERSONAL },
+        Date.now() + CALL_DEADLINE,
+        Effect.void,
+      ),
+    ).rejects.toMatchObject({ code: "google_unavailable" });
+    expect(writes).toBe(0);
+  },
+);
