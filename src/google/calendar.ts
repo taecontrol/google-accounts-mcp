@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import type { Send } from "../mcp/tools";
 import { ToolFailure } from "../mcp/failures";
-import { shorten } from "./bounds";
+import { shorten, unfold } from "./bounds";
 import { ZoneName } from "./calendar-time";
 
 export const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
@@ -138,6 +138,8 @@ export interface Calendar {
   readonly access: "owner" | "writer" | "reader" | "free_busy";
   readonly time_zone?: string;
 }
+export const calendarLabel = (calendar: { name: string; calendar: string }): string =>
+  `${unfold(calendar.name)} (${calendar.calendar})`;
 export const MAX_CALENDAR_PAGES = 8;
 export const MAX_CALENDARS = 100;
 export const MAX_CALENDARS_CHARACTERS = 30_000;

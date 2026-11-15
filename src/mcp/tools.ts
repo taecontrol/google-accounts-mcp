@@ -58,6 +58,7 @@ import {
   CalendarId,
   CALENDAR_ID_EXPECTS,
   calendarContext,
+  calendarLabel,
   readableCalendar,
   listCalendars,
   MAX_CALENDARS,
@@ -69,7 +70,7 @@ import {
   parseTime,
   rangeOf,
   viewTime,
-  zonedIso,
+  viewRange,
 } from "../google/calendar-time";
 import {
   DEFAULT_EVENT_LIMIT,
@@ -1417,8 +1418,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
           const busy: string[] = [];
           for (const id of args.calendars ?? [undefined]) {
             const calendar = readableCalendar(ctx, id, "calendars");
-            if (Result.isSuccess(calendar))
-              listed.push(`${unfold(calendar.success.name)} (${calendar.success.calendar})`);
+            if (Result.isSuccess(calendar)) listed.push(calendarLabel(calendar.success));
             else if (calendar.failure.code === "not_found") {
               if (id === undefined) return yield* Effect.fail(calendar.failure);
               unlisted.push(id);
@@ -1426,7 +1426,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
               const entry = ctx.calendars.find(
                 (calendar) => calendar.calendar === (id ?? ctx.primary?.calendar),
               )!;
-              busy.push(`${unfold(entry.name)} (${entry.calendar})`);
+              busy.push(calendarLabel(entry));
             }
           }
           const values: ViewValue[] = [];
@@ -1446,7 +1446,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
             });
           values.push({
             name: "Range",
-            text: `${viewTime(zonedIso(range.from, ctx.zone), ctx.zone, false)} to ${viewTime(zonedIso(range.to, ctx.zone), ctx.zone)}`,
+            text: viewRange(range, ctx.zone),
             from: "agent",
           });
           if (args.query !== undefined)
@@ -1500,7 +1500,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
           return [
             {
               name: "Calendar",
-              text: `${unfold(calendar.name)} (${calendar.calendar})`,
+              text: calendarLabel(calendar),
               from: "calendar" as const,
             },
             { name: "Event", text: unfold(event.title), from: "calendar" as const },
@@ -1546,7 +1546,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
           for (const id of calendars) {
             const calendar =
               id === "primary" ? undefined : ctx.calendars.find((entry) => entry.calendar === id);
-            if (calendar) listed.push(`${unfold(calendar.name)} (${calendar.calendar})`);
+            if (calendar) listed.push(calendarLabel(calendar));
             else others.push(id);
           }
           const values: ViewValue[] = [];
@@ -1560,7 +1560,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
             });
           values.push({
             name: "Range",
-            text: `${viewTime(zonedIso(range.from, ctx.zone), ctx.zone, false)} to ${viewTime(zonedIso(range.to, ctx.zone), ctx.zone)}`,
+            text: viewRange(range, ctx.zone),
             from: "agent",
           });
           return values;

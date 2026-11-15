@@ -4,10 +4,10 @@ import { normalizeEmail } from "../email";
 import { Duplicate, duplicateValue } from "../mcp/duplicate";
 import { creating, ToolFailure } from "../mcp/failures";
 import type { Send, Sending } from "../mcp/tools";
-import { unfold } from "./bounds";
 import {
   CALENDAR_API,
   CalendarId,
+  calendarLabel,
   readCalendarList,
   writableCalendar,
   type CalendarContext,
@@ -80,7 +80,7 @@ export const createEventPlan = (args: CreateEventArgs, ctx: CalendarContext) =>
     const points = yield* Effect.fromResult(eventPoints(args, ctx.zone));
     const repeat = yield* Effect.fromResult(repeatRule(args, ctx.zone, ctx.primary?.time_zone));
     const description = yield* checkedDescription(args.description ?? "");
-    const calendarText = `${unfold(calendar.name)} (${calendar.calendar})`;
+    const calendarText = calendarLabel(calendar);
     const values: ViewValue[] = [
       { name: "Calendar", text: calendarText, from: "calendar" },
       ...(!calendar.primary

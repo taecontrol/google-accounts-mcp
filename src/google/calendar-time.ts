@@ -175,3 +175,6 @@ export const viewTime = (text: string, zone: string, showZone = true): string =>
   }).format(ms);
   return `${date} at ${time}${showZone ? ` (${zone})` : ""}`;
 };
+
+export const viewRange = (range: { from: number; to: number }, zone: string): string =>
+  `${viewTime(zonedIso(range.from, zone), zone, false)} to ${viewTime(zonedIso(range.to, zone), zone)}`;

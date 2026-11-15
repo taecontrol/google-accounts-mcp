@@ -24,6 +24,21 @@ const base = [
 const single = { name: "Changes", text: "A single event", from: "agent" };
 const guest = { email: "stay@example.com" };
 
+it.each(["update_event", "delete_event"] as const)(
+  "%s unfolds the calendar name in the approval values",
+  async (tool) => {
+    const f = await eventsFixture(tool, "ask");
+    repeatList({ ...PRIMARY_CALENDAR, summary: "Personal\nFake heading" });
+    eventsFake({ [PERSONAL]: { events: { e1: Response.json(eventFixture()) } } });
+    const id = (
+      await answer(await eventChangeCall(f, tool, tool === "update_event" ? { title: "New" } : {}))
+    ).approval as string;
+    expect((await page(f, id)).request.values.slice(0, 1)).toEqual([
+      { name: "Calendar", text: `Personal Fake heading (${PERSONAL})`, from: "calendar" },
+    ]);
+  },
+);
+
 it("shows before and after field values, removals and Calendar attribution in the update view", async () => {
   const f = await eventsFixture("update_event", "ask");
   repeatList(PRIMARY_CALENDAR);
