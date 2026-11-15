@@ -51,6 +51,7 @@ import {
   ToolFailure,
 } from "./failures";
 import { GROUP_SERVICE, type Group } from "./groups";
+import { Duplicate, DUPLICATE_EXPECTS, duplicateValue, nextDuplicate } from "./duplicate";
 import { SERVICES, type Service } from "../google/services";
 import {
   CalendarId,
@@ -364,7 +365,7 @@ const DraftInput = Schema.Struct({
   attachments: Schema.optionalKey(Attachments),
   reply_to: Schema.optionalKey(GmailId),
   reply_all: Schema.optionalKey(Schema.Boolean),
-  duplicate: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 100 }))),
+  duplicate: Schema.optionalKey(Duplicate),
 }).check(
   Schema.makeFilter((args) => {
     if (
@@ -444,7 +445,7 @@ const CreateEventInput = Schema.Struct({
   description: Schema.optionalKey(Description),
   guests: Schema.optionalKey(Guests),
   meet: Schema.optionalKey(Schema.Boolean),
-  duplicate: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 100 }))),
+  duplicate: Schema.optionalKey(Duplicate),
 }).check(
   Schema.makeFilter((args) => {
     const issue = windowIssue(args);
@@ -542,12 +543,7 @@ const draftValues = (
   if (mail.subject)
     values.push({ name: "Subject", text: mail.subject, from: plan ? "gmail" : "agent" });
   values.push(...files);
-  if (args.duplicate !== undefined)
-    values.push({
-      name: "Duplicate",
-      text: `${args.duplicate} (a deliberate copy of an earlier call)`,
-      from: "agent",
-    });
+  values.push(...duplicateValue(args.duplicate));
   values.push({ name: "Body", text: args.body, from: "agent" });
   return values;
 };
@@ -563,7 +559,7 @@ const draftExpects = {
   reply_to:
     "a message ID of 1 to 64 letters, digits, hyphens, or underscores from this account; a reply requires an empty or absent subject",
   reply_all: "a boolean, true only with reply_to and no given recipients",
-  duplicate: "a whole number from 2 to 100",
+  duplicate: DUPLICATE_EXPECTS,
 };
 
 const repeatSend =
@@ -575,8 +571,8 @@ const unknownSend = (
   until: number,
   args: { duplicate?: number; attachments?: readonly Item[] },
 ) => {
-  const next = (args.duplicate ?? 1) + 1;
-  return `The server does not know whether this mail went out from ${email}. Ask the owner to look in Sent. If it is not there, it may still be in Drafts, and the owner can send it from Gmail. Until ${isoSeconds(until)}, repeating this call does not send it again.${next <= 100 ? ` Only if the owner says that it is in neither place, call again with duplicate: ${next}${uploadsOf(args.attachments).length ? " and a new upload of each file" : ""}.` : ""}`;
+  const next = nextDuplicate(args.duplicate);
+  return `The server does not know whether this mail went out from ${email}. Ask the owner to look in Sent. If it is not there, it may still be in Drafts, and the owner can send it from Gmail. Until ${isoSeconds(until)}, repeating this call does not send it again.${next !== null ? ` Only if the owner says that it is in neither place, call again with duplicate: ${next}${uploadsOf(args.attachments).length ? " and a new upload of each file" : ""}.` : ""}`;
 };
 const sendRefused = (status: number) =>
   status === 400 ? notSendable(null) : new ToolFailure({ code: "google_unavailable" });
@@ -653,16 +649,6 @@ const fileValues = (
     })),
   ];
 };
-const duplicateValue = (duplicate?: number): ViewValue[] =>
-  duplicate === undefined
-    ? []
-    : [
-        {
-          name: "Duplicate",
-          text: `${duplicate} (a deliberate copy of an earlier call)`,
-          from: "agent",
-        },
-      ];
 /** One calendar-list snapshot supplies both the approved values and the request. */
 const createEventPlan = (args: CreateEventArgs, ctx: CalendarContext) =>
   Effect.gen(function* () {
@@ -995,8 +981,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
     uploads: (args) => uploadsOf(args.attachments),
     defaults: { to: [], cc: [], bcc: [], subject: "", reply_all: false, attachments: [] },
     unknown: (email, until, args) => {
-      const next = (args.duplicate ?? 1) + 1;
-      return `The server does not know whether the draft was created in ${email}. Ask the owner to look in Drafts. Until ${isoSeconds(until)}, repeating this call does not create it again.${next <= 100 ? ` If the owner says that the draft is missing, call again with duplicate: ${next}${uploadsOf(args.attachments).length ? " and a new upload of each file" : ""}.` : ""}`;
+      const next = nextDuplicate(args.duplicate);
+      return `The server does not know whether the draft was created in ${email}. Ask the owner to look in Drafts. Until ${isoSeconds(until)}, repeating this call does not create it again.${next !== null ? ` If the owner says that the draft is missing, call again with duplicate: ${next}${uploadsOf(args.attachments).length ? " and a new upload of each file" : ""}.` : ""}`;
     },
     expects: draftExpects,
     view: {
@@ -1484,7 +1470,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
       guests:
         "a list of at most 50 different bare email addresses, unique ignoring case, each at most 254 characters with one @ and a domain with a dot, without whitespace, control or format characters, display names, or the account's own address",
       meet: "a boolean",
-      duplicate: "a whole number from 2 to 100",
+      duplicate: DUPLICATE_EXPECTS,
     },
     defaults: { location: "", description: "", guests: [], meet: false },
     stored: CreatedEvent,
@@ -1497,9 +1483,9 @@ export const TOOLS: ReadonlyArray<Tool> = [
       if (stored.meet_status === "failure" || stored.meet_status === "none")
         notes.push("The event exists without a Meet link.");
       if (stored.cancelled) {
-        const next = (args.duplicate ?? 1) + 1;
+        const next = nextDuplicate(args.duplicate);
         notes.push(
-          `This call created the event and it is no longer in the calendar.${next <= 100 ? ` To create another, call again with duplicate: ${next}.` : ""}`,
+          `This call created the event and it is no longer in the calendar.${next !== null ? ` To create another, call again with duplicate: ${next}.` : ""}`,
         );
       }
       return {
@@ -1517,8 +1503,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
         return `The server does not know yet whether the event was created in ${email}. Call again with exactly the same arguments in a minute: the server checks Google Calendar and never creates it twice.`;
       if (checked === "failed")
         return `The server could not check Google Calendar for the event in ${email} just now. Call again with exactly the same arguments in a minute: the server checks again and never creates it twice. If this keeps happening, ask the owner to look in Google Calendar. Until ${isoSeconds(until)}, repeating this call does not create it.`;
-      const next = (args.duplicate ?? 1) + 1;
-      return `Google Calendar does not show the event. Ask the owner to look in Google Calendar. Until ${isoSeconds(until)}, repeating this call does not create it.${next <= 100 ? ` If the owner says that it is missing, call again with duplicate: ${next}.` : ""}`;
+      const next = nextDuplicate(args.duplicate);
+      return `Google Calendar does not show the event. Ask the owner to look in Google Calendar. Until ${isoSeconds(until)}, repeating this call does not create it.${next !== null ? ` If the owner says that it is missing, call again with duplicate: ${next}.` : ""}`;
     },
     view: {
       action: "create an event",

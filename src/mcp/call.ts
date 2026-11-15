@@ -35,6 +35,7 @@ import {
 import type { Config } from "../config";
 import type { ActiveConnection } from "../connections/model";
 import { normalizeEmail } from "../email";
+import { nextDuplicate } from "./duplicate";
 import type { Owner } from "../owner/owner";
 import { apiNotEnabled } from "../google/errors";
 import {
@@ -113,11 +114,11 @@ export const repeatAnswer = (
   switch (repeat.kind) {
     case "done": {
       const at = isoSeconds(repeat.at);
-      const next = (args.duplicate ?? 1) + 1;
+      const next = nextDuplicate(args.duplicate);
       const result = createdAnswer(repeat.result, tool, args);
       const note = tool.repeated
-        ? tool.repeated(at, next <= 100 ? next : null, args)
-        : `This call already ran at ${at}. Nothing was created or sent again. This is its result.${"duplicate" in tool.expects && next <= 100 ? ` To make one more on purpose, call again with duplicate: ${next}${tool.uploads?.(args).length ? " and a new upload of each file" : ""}.` : ""}`;
+        ? tool.repeated(at, next, args)
+        : `This call already ran at ${at}. Nothing was created or sent again. This is its result.${"duplicate" in tool.expects && next !== null ? ` To make one more on purpose, call again with duplicate: ${next}${tool.uploads?.(args).length ? " and a new upload of each file" : ""}.` : ""}`;
       return {
         account,
         ...result,
