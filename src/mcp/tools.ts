@@ -92,7 +92,15 @@ import {
   availabilityRange,
   checkAvailability,
 } from "../google/availability";
-import { EventResponse, invitation, respondToEvent, WHOLE_SERIES } from "../google/respond";
+import {
+  answerInvitation,
+  EventResponse,
+  invitation,
+  type Invitation,
+  type RespondInput,
+  type RespondResult,
+  WHOLE_SERIES,
+} from "../google/respond";
 import { Created, createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
   DeleteEventInput,
@@ -100,6 +108,7 @@ import {
   deletePlan,
   updatePlan,
   runChange,
+  type ChangePlan,
 } from "../google/event-change";
 import {
   MAX_SUBJECT,
@@ -700,6 +709,79 @@ const forwardBody = (quoted: string, note?: string) => (note ? `${note}\n\n${quo
 const draftNote =
   "This is the draft as it is in Gmail now. It is sent as it is at the moment you approve, also if it changed after this page loaded.";
 
+/** What the approval page shows of an answer, built from one read of the invitation. */
+const invitationValues = (
+  { calendar, event, mine, organizer }: Invitation,
+  args: { response: typeof EventResponse.Type; note?: string },
+) =>
+  Effect.gen(function* () {
+    // The view needs the primary calendar's zone; the answer itself does not.
+    const zone = calendar.time_zone;
+    if (zone === undefined || !Schema.is(ZoneName)(zone))
+      return yield* Effect.fail(new ViewUnavailable());
+    const ctx = { zone };
+    const series = event.recurrence !== undefined && event.recurringEventId === undefined;
+    const start = eventTime(event.start, event.end, ctx.zone).start;
+    const values: ViewValue[] = [
+      {
+        name: "Event",
+        text: unfold(shortJson(event.summary ?? "", 1_000)),
+        from: "calendar",
+      },
+      {
+        name: series ? "First occurrence" : "Starts",
+        text: `${viewTime(start, ctx.zone)}${event.start.timeZone && event.start.timeZone !== ctx.zone ? `; event's own zone: ${event.start.timeZone}` : ""}`,
+        from: "calendar",
+      },
+      {
+        name: "Kind",
+        text:
+          event.recurringEventId !== undefined
+            ? "One occurrence of a repeating event"
+            : series
+              ? WHOLE_SERIES
+              : "A single event",
+        from: "calendar",
+      },
+      { name: "Organizer", text: unfold(organizer), from: "calendar" },
+    ];
+    if (mine.responseStatus !== undefined && mine.responseStatus !== "needsAction")
+      values.push({
+        name: "Current answer",
+        text: { accepted: "Accepted", declined: "Declined", tentative: "Maybe" }[
+          mine.responseStatus
+        ],
+        from: "calendar",
+      });
+    values.push({
+      name: "Answer",
+      text: { accepted: "Accept", declined: "Decline", tentative: "Maybe" }[args.response],
+      from: "agent",
+    });
+    if (args.note !== undefined) values.push({ name: "Note", text: args.note, from: "agent" });
+    // Google erases an earlier note on every answer, so the owner always sees the one that goes.
+    if (mine.comment)
+      values.push({
+        name: args.note === undefined ? "Note removed" : "Earlier note, replaced",
+        text: shortJson(mine.comment, 4_000),
+        from: "calendar",
+      });
+    return values;
+  });
+/** One read supplies the approved page's values and the write, as update_event and delete_event do. */
+const respondPlan = (
+  send: Send,
+  input: RespondInput,
+): Effect.Effect<ChangePlan<RespondResult>, ToolFailure> =>
+  Effect.gen(function* () {
+    const found = yield* invitation(send, input);
+    // The answer needs no zone. Without one the page cannot be built, and an empty list never
+    // equals an approved page, which always shows the event, so only an allowed call writes.
+    const values = yield* invitationValues(found, input).pipe(
+      Effect.catch(() => Effect.succeed<ViewValue[]>([])),
+    );
+    return { values, write: (sending) => answerInvitation(sending, found, input) };
+  });
 export const TOOLS: ReadonlyArray<Tool> = [
   {
     kind: "plain",
@@ -1789,68 +1871,12 @@ export const TOOLS: ReadonlyArray<Tool> = [
             ]),
       ],
       values: (args, send) =>
-        Effect.gen(function* () {
-          const { calendar, event, mine, organizer } = yield* invitation(send, {
-            ...args,
-            account: normalizeEmail(args.account)!,
-          });
-          // The view needs the primary calendar's zone; the answer itself does not.
-          const zone = calendar.time_zone;
-          if (zone === undefined || !Schema.is(ZoneName)(zone))
-            return yield* Effect.fail(new ViewUnavailable());
-          const ctx = { zone };
-          const series = event.recurrence !== undefined && event.recurringEventId === undefined;
-          const start = eventTime(event.start, event.end, ctx.zone).start;
-          const values: ViewValue[] = [
-            {
-              name: "Event",
-              text: unfold(shortJson(event.summary ?? "", 1_000)),
-              from: "calendar",
-            },
-            {
-              name: series ? "First occurrence" : "Starts",
-              text: `${viewTime(start, ctx.zone)}${event.start.timeZone && event.start.timeZone !== ctx.zone ? `; event's own zone: ${event.start.timeZone}` : ""}`,
-              from: "calendar",
-            },
-            {
-              name: "Kind",
-              text:
-                event.recurringEventId !== undefined
-                  ? "One occurrence of a repeating event"
-                  : series
-                    ? WHOLE_SERIES
-                    : "A single event",
-              from: "calendar",
-            },
-            { name: "Organizer", text: unfold(organizer), from: "calendar" },
-          ];
-          if (mine.responseStatus !== undefined && mine.responseStatus !== "needsAction")
-            values.push({
-              name: "Current answer",
-              text: { accepted: "Accepted", declined: "Declined", tentative: "Maybe" }[
-                mine.responseStatus
-              ],
-              from: "calendar",
-            });
-          values.push({
-            name: "Answer",
-            text: { accepted: "Accept", declined: "Decline", tentative: "Maybe" }[args.response],
-            from: "agent",
-          });
-          if (args.note !== undefined)
-            values.push({ name: "Note", text: args.note, from: "agent" });
-          // Google erases an earlier note on every answer, so the owner always sees the one that goes.
-          if (mine.comment)
-            values.push({
-              name: args.note === undefined ? "Note removed" : "Earlier note, replaced",
-              text: shortJson(mine.comment, 4_000),
-              from: "calendar",
-            });
-          return values;
-        }),
+        invitation(send, { ...args, account: normalizeEmail(args.account)! }).pipe(
+          Effect.flatMap((found) => invitationValues(found, args)),
+        ),
     },
-    run: (send, account, args, _takes, { confirm }) =>
-      respondToEvent(send, confirm, { ...args, account: account.email }),
+    run: (send, account, args, _takes, approval) =>
+      runChange(respondPlan(send, { ...args, account: account.email }), approval),
   }),
   accountTool({
     name: "update_event",

@@ -312,6 +312,56 @@ it.each([undefined, "BST", "invalid/zone"])(
   },
 );
 
+it.each([
+  {
+    change: "start",
+    changed: {
+      start: { dateTime: "2026-11-21T14:00:00Z" },
+      end: { dateTime: "2026-11-21T15:00:00Z" },
+    },
+  },
+  {
+    change: "earlier note",
+    changed: {
+      attendees: [{ email: PERSONAL, self: true, responseStatus: "accepted", comment: "New" }],
+    },
+  },
+  { change: "title", changed: { summary: "Renamed" } },
+])(
+  "answers nothing when the $change changed between approval and the run's read",
+  async ({ changed }) => {
+    const f = await eventsFixture("respond_to_event", "ask");
+    repeatList(PRIMARY_CALENDAR);
+    let approved = false;
+    eventsFake({
+      [PERSONAL]: {
+        events: {
+          e1: () =>
+            Response.json(
+              invitationFixture(approved ? { etag: '"after-approval"', ...changed } : {}),
+            ),
+        },
+      },
+    });
+    const patches = patchEventsFake(Response.json({}));
+    const id = (await answer(await respondCall(f))).approval as string;
+    const shown = await digest(f, id);
+    const db = observeStatements(env.DB, (sql) => {
+      if (sql.startsWith("UPDATE approvals SET state = 'approved'")) approved = true;
+    });
+    const result = await decided(
+      await post(f, id, "approve", { digest: shown }, testEnv({ DB: db })),
+    );
+    expect(approved).toBe(true);
+    expect(result.state.kind).toBe("failed");
+    expect((await get(f, id)).error).toMatchObject({
+      code: "google_unavailable",
+      message: expect.stringMatching(/The event changed after the approval\. Nothing was changed/),
+    });
+    expect(patches).toEqual([]);
+  },
+);
+
 it("repeats invitation refusals in the approved run when the own entry becomes the organizer", async () => {
   const f = await eventsFixture("respond_to_event", "ask");
   repeatList(PRIMARY_CALENDAR);
