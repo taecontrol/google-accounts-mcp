@@ -261,12 +261,13 @@ it("stops before the build when the list of secrets is not what wrangler documen
 });
 
 it("keeps the server's settings out of the build's and wrangler's environment", () => {
-  const env = childEnv({
-    ...VALID,
-    TOKEN_KEY: GENERATED_KEY,
-    PATH: "/bin",
-    CLOUDFLARE_ACCOUNT_ID: "x",
-  });
-  expect(Object.keys(env).filter((name) => ALL.includes(name))).toEqual([]);
-  expect(env).toMatchObject({ PATH: "/bin", CLOUDFLARE_ACCOUNT_ID: "x" });
+  const env = { ...VALID, TOKEN_KEY: GENERATED_KEY, PATH: "/bin", CLOUDFLARE_ACCOUNT_ID: "x" };
+  const kept = { PATH: "/bin", CLOUDFLARE_ACCOUNT_ID: "x" };
+  const wrangler = childEnv(env, "wrangler");
+  expect(Object.keys(wrangler).filter((name) => ALL.includes(name))).toEqual([]);
+  expect(wrangler).toMatchObject(kept);
+  // Empty, so the build neither copies them nor warns that they are missing.
+  const build = childEnv(env, "vp");
+  expect(ALL.map((name) => build[name])).toEqual(ALL.map(() => ""));
+  expect(build).toMatchObject(kept);
 });
