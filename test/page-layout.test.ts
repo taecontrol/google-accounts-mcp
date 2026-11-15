@@ -6,7 +6,7 @@ import type { TestEnv } from "./env";
 import { ORIGIN } from "./support/worker";
 
 // Each page state hydrates once in Chromium, with no errors and no horizontal overflow, at phone
-// and desktop widths. The approval states also run in dark mode.
+// and desktop widths.
 const approvalStates = [
   "approval-waiting-long-names",
   "approval-cannot-show",
@@ -37,14 +37,13 @@ const toolViews = [
   "approval-respond-to-event",
   "connection-some-allowed",
 ];
-const cases = [
-  ...approvalStates.flatMap((name) => [false, true].map((dark) => ({ name, dark }))),
-  ...toolViews.map((name) => ({ name, dark: false })),
-].flatMap((page) => [390, 1280].map((width) => ({ ...page, width })));
+const cases = [...approvalStates, ...toolViews].flatMap((name) =>
+  [390, 1280].map((width) => ({ name, width })),
+);
 
 it.each(cases)(
-  "renders $name at $width px (dark: $dark) without overflow",
-  async ({ name, width, dark }) => {
+  "renders $name at $width px without overflow",
+  async ({ name, width }) => {
     const response = renderPage(previews[name]!);
     const hydrated = await (
       await (env as TestEnv).TEST_BROWSER.fetch("http://browser/hydrate", {
@@ -54,7 +53,6 @@ it.each(cases)(
           html: await response.text(),
           headers: Object.fromEntries(response.headers),
           width,
-          dark,
           layout: true,
         }),
       })

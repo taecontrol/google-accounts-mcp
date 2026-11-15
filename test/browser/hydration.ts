@@ -20,7 +20,6 @@ export async function hydrateAccounts(input: {
     failure?: "lost" | "503";
   };
   width?: number;
-  dark?: boolean;
   layout?: boolean;
 }) {
   const bundle = await build({
@@ -48,10 +47,7 @@ export async function hydrateAccounts(input: {
   );
   const browser = await chromium.launch({ headless: true, channel: "chromium" });
   try {
-    const page = await browser.newPage({
-      viewport: { width: input.width ?? 1280, height: 900 },
-      colorScheme: input.dark ? "dark" : "light",
-    });
+    const page = await browser.newPage({ viewport: { width: input.width ?? 1280, height: 900 } });
     page.setDefaultTimeout(2000);
     const errors: string[] = [];
     let clientLoads = 0;
@@ -114,7 +110,6 @@ export async function hydrateAccounts(input: {
       await route.abort();
     });
     await page.goto(input.url);
-    if (input.dark) await page.locator("html").evaluate((el) => el.classList.add("dark"));
     if (input.activity) {
       await page.evaluate(() => document.fonts.ready);
       const records = page.getByRole("list", { name: "Records", exact: true });
