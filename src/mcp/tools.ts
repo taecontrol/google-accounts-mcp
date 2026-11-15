@@ -56,6 +56,7 @@ import { Duplicate, DUPLICATE_EXPECTS, duplicateValue, nextDuplicate } from "./d
 import { SERVICES, type Service } from "../google/services";
 import {
   CalendarId,
+  CALENDAR_ID_EXPECTS,
   calendarContext,
   readableCalendar,
   listCalendars,
@@ -77,6 +78,7 @@ import {
   MAX_EVENT_QUERY,
   MAX_EVENT_PAGE,
   EventId,
+  EVENT_ID_EXPECTS,
   eventView,
   readEvent,
   searchEvents,
@@ -327,6 +329,10 @@ const labelChange = (args: {
 const Mailboxes = Schema.Array(
   Schema.String.check(Schema.makeFilter((value) => parseMailbox(value) !== null)),
 );
+const mailboxesExpects = "a list of mailboxes, each an address or Name <address>";
+const recipientsExpects = "a list of at least one mailbox, each an address or Name <address>";
+const messageExpects =
+  "a message ID of 1 to 64 letters, digits, hyphens, or underscores from this account";
 const Subject = Schema.String.check(
   Schema.isMaxLength(MAX_SUBJECT),
   // oxlint-disable-next-line no-control-regex -- Input subjects cannot contain header controls.
@@ -1001,9 +1007,9 @@ export const TOOLS: ReadonlyArray<Tool> = [
     }),
     expects: {
       account: draftExpects.account,
-      to: "a list of at least one mailbox, each an address or Name <address>",
-      cc: "a list of mailboxes, each an address or Name <address>",
-      bcc: "a list of mailboxes, each an address or Name <address>",
+      to: recipientsExpects,
+      cc: mailboxesExpects,
+      bcc: mailboxesExpects,
       subject: `a string of 1 to ${MAX_SUBJECT} characters without control characters`,
       body: draftExpects.body,
       duplicate: draftExpects.duplicate,
@@ -1053,7 +1059,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     }),
     expects: {
       account: draftExpects.account,
-      message: "a message ID of 1 to 64 letters, digits, hyphens, or underscores from this account",
+      message: messageExpects,
       body: draftExpects.body,
       reply_all: "a boolean",
       duplicate: draftExpects.duplicate,
@@ -1116,10 +1122,10 @@ export const TOOLS: ReadonlyArray<Tool> = [
     }),
     expects: {
       account: draftExpects.account,
-      message: "a message ID of 1 to 64 letters, digits, hyphens, or underscores from this account",
-      to: "a list of at least one mailbox, each an address or Name <address>",
-      cc: "a list of mailboxes, each an address or Name <address>",
-      bcc: "a list of mailboxes, each an address or Name <address>",
+      message: messageExpects,
+      to: recipientsExpects,
+      cc: mailboxesExpects,
+      bcc: mailboxesExpects,
       body: draftExpects.body,
       duplicate: draftExpects.duplicate,
     },
@@ -1276,8 +1282,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     input: CreateEventInput,
     expects: {
       account: "a string",
-      calendar:
-        "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters, with access owner or writer",
+      calendar: `${CALENDAR_ID_EXPECTS}, with access owner or writer`,
       title: "a string of 1 to 1,000 characters without control characters",
       start: `${timeExpects}, with seconds omitted or 00 and no fractions`,
       end: `${timeExpects}, in the same date or time form as start, after start, with seconds omitted or 00 and no fractions`,
@@ -1475,9 +1480,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
     }),
     expects: {
       account: "a string",
-      calendar:
-        "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters",
-      event: "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores",
+      calendar: CALENDAR_ID_EXPECTS,
+      event: EVENT_ID_EXPECTS,
       time_zone: zoneExpects,
     },
     view: {
@@ -1640,9 +1644,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
     onExcessProperty: "error",
     expects: {
       account: "a string",
-      calendar:
-        "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters",
-      event: "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores",
+      calendar: CALENDAR_ID_EXPECTS,
+      event: EVENT_ID_EXPECTS,
       title:
         "a string of 1 to 1,000 characters without control characters; give at least one change",
       location: "a string of at most 1,000 characters without control characters",
@@ -1681,9 +1684,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
     onExcessProperty: "error",
     expects: {
       account: "a string",
-      calendar:
-        "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters",
-      event: "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores",
+      calendar: CALENDAR_ID_EXPECTS,
+      event: EVENT_ID_EXPECTS,
     },
     view: {
       action: "delete an event",
