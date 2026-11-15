@@ -2,7 +2,7 @@ import { endApprovals, changeGuard } from "../approvals/store";
 import type { CallContext } from "../mcp/call";
 import { serviceOf, type AccountTool } from "../mcp/tools";
 import { permittedWhere } from "../permissions/store";
-import type { OwnerEmail } from "../owner/owner";
+import type { OwnerEmail } from "../email";
 import { Effect } from "effect";
 import { first, Unavailable, WriteUncertain } from "../db";
 import type { Owner } from "../owner/owner";

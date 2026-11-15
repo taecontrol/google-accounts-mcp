@@ -1,13 +1,17 @@
 import { Data, Result } from "effect";
-import { normalizeEmail, type OwnerEmail } from "./owner/owner";
+// The extension lets `scripts/deploy.ts` load this module in plain Node to check each setting
+// before a deploy, so this module imports nothing else from `src`.
+import { normalizeEmail, type OwnerEmail } from "./email.ts";
 
-export type ConfigName =
-  | "OWNER_EMAIL"
-  | "ACCESS_ISSUER"
-  | "ACCESS_AUDIENCE"
-  | "GOOGLE_CLIENT_ID"
-  | "GOOGLE_CLIENT_SECRET"
-  | "TOKEN_KEY";
+export const CONFIG_NAMES = [
+  "OWNER_EMAIL",
+  "ACCESS_ISSUER",
+  "ACCESS_AUDIENCE",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "TOKEN_KEY",
+] as const;
+export type ConfigName = (typeof CONFIG_NAMES)[number];
 export class Incomplete extends Data.TaggedError("Incomplete")<{
   readonly names: ConfigName[];
 }> {}
@@ -20,38 +24,32 @@ export interface Config {
   readonly access: { readonly issuer: AccessIssuer; readonly audience: string };
 }
 
-export function readConfig(env: Env): Result.Result<Config, Incomplete> {
-  const ownerEmail = normalizeEmail(env.OWNER_EMAIL);
+const hex64 = (value: unknown) => typeof value === "string" && /^[a-fA-F0-9]{64}$/.test(value);
+
+/** Whether each setting holds a value the server accepts. */
+export const CONFIG_CHECKS: Record<ConfigName, (value: unknown) => boolean> = {
+  OWNER_EMAIL: (value) => normalizeEmail(value) !== null,
   // Compare the issuer exactly: trimming or URL normalization could hide a setup mistake.
-  const issuer = env.ACCESS_ISSUER;
-  const validIssuer =
-    typeof issuer === "string" &&
-    /^https:\/\/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.cloudflareaccess\.com$/.test(issuer);
-  const audience = env.ACCESS_AUDIENCE;
-  const validAudience = typeof audience === "string" && /^[a-fA-F0-9]{64}$/.test(audience);
-  const clientId = env.GOOGLE_CLIENT_ID;
-  const validClient =
-    typeof clientId === "string" && /^[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId);
-  const clientSecret = env.GOOGLE_CLIENT_SECRET;
-  const validSecret =
-    typeof clientSecret === "string" &&
-    clientSecret.length > 0 &&
-    clientSecret === clientSecret.trim();
-  const tokenKey = env.TOKEN_KEY;
-  const validKey = typeof tokenKey === "string" && /^[a-fA-F0-9]{64}$/.test(tokenKey);
-  const names: ConfigName[] = [];
-  if (!ownerEmail) names.push("OWNER_EMAIL");
-  if (!validIssuer) names.push("ACCESS_ISSUER");
-  if (!validAudience) names.push("ACCESS_AUDIENCE");
-  if (!validClient) names.push("GOOGLE_CLIENT_ID");
-  if (!validSecret) names.push("GOOGLE_CLIENT_SECRET");
-  if (!validKey) names.push("TOKEN_KEY");
-  if (!ownerEmail || !validIssuer || !validAudience || !validClient || !validSecret || !validKey)
-    return Result.fail(new Incomplete({ names }));
+  ACCESS_ISSUER: (value) =>
+    typeof value === "string" &&
+    /^https:\/\/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.cloudflareaccess\.com$/.test(value),
+  ACCESS_AUDIENCE: hex64,
+  GOOGLE_CLIENT_ID: (value) =>
+    typeof value === "string" && /^[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$/.test(value),
+  GOOGLE_CLIENT_SECRET: (value) =>
+    typeof value === "string" && value.length > 0 && value === value.trim(),
+  TOKEN_KEY: hex64,
+};
+
+export function readConfig(env: Env): Result.Result<Config, Incomplete> {
+  const names = CONFIG_NAMES.filter((name) => !CONFIG_CHECKS[name](env[name]));
+  if (names.length > 0) return Result.fail(new Incomplete({ names }));
   return Result.succeed({
-    ownerEmail,
-    access: { issuer: issuer as AccessIssuer, audience },
-    google: { clientId, clientSecret },
-    tokenKey: Uint8Array.from(tokenKey.match(/../g)!, (byte) => parseInt(byte, 16)) as TokenKey,
+    ownerEmail: normalizeEmail(env.OWNER_EMAIL)!,
+    access: { issuer: env.ACCESS_ISSUER as AccessIssuer, audience: env.ACCESS_AUDIENCE },
+    google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
+    tokenKey: Uint8Array.from(env.TOKEN_KEY.match(/../g)!, (byte) =>
+      parseInt(byte, 16),
+    ) as TokenKey,
   });
 }

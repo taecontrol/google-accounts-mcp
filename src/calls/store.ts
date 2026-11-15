@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { Unavailable } from "../db";
 import { activeWhere } from "../connections/store";
-import type { OwnerEmail } from "../owner/owner";
+import type { OwnerEmail } from "../email";
 import type { CallContext } from "../mcp/call";
 import type { Tool } from "../mcp/tools";
 import type { FailureCode } from "../mcp/failures";

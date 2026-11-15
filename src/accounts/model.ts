@@ -1,4 +1,4 @@
-import { normalizeEmail } from "../owner/owner";
+import { normalizeEmail } from "../email";
 import type { Sealed } from "../seal";
 import { SERVICES, serviceInfo, type Service } from "../google/services";
 import { Data, Schema } from "effect";

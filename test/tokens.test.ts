@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { loadCredential } from "../src/accounts/store";
-import { normalizeEmail, readOwner } from "../src/owner/owner";
+import { normalizeEmail } from "../src/email";
+import { readOwner } from "../src/owner/owner";
 import { env } from "cloudflare:workers";
 import { expect, it, vi } from "vite-plus/test";
 import "./support/account-checks";

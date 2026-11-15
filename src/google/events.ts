@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import type { Send } from "../mcp/tools";
 import { calendarError, notFound, ToolFailure } from "../mcp/failures";
-import { normalizeEmail } from "../owner/owner";
+import { normalizeEmail } from "../email";
 import { calendarContext, get, readableCalendar, type Calendar } from "./calendar";
 import { canonicalZone, EventPoint, eventInstant, eventTime, rangeOf } from "./calendar-time";
 import { REQUESTS_AT_ONCE } from "./gmail";

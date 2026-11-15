@@ -2,13 +2,7 @@ import { Data, Effect, Schema } from "effect";
 import type { Config } from "../config";
 import { first, Unavailable } from "../db";
 import { verifyAccess } from "./access";
-
-export type OwnerEmail = string & { readonly __ownerEmail: unique symbol };
-export function normalizeEmail(raw: unknown): OwnerEmail | null {
-  if (typeof raw !== "string") return null;
-  const email = raw.trim().toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? (email as OwnerEmail) : null;
-}
+import { normalizeEmail, type OwnerEmail } from "../email";
 
 export const GenerationSchema = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),

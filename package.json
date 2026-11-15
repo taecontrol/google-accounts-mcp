@@ -9,7 +9,8 @@
     "check": "vp check && wrangler types --check",
     "test": "vp test run",
     "cf-typegen": "wrangler types",
-    "owner:reset": "node scripts/owner-reset.ts"
+    "owner:reset": "node scripts/owner-reset.ts",
+    "deploy": "node scripts/deploy.ts"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "1.2.4",

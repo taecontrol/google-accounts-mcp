@@ -34,7 +34,8 @@ import {
 } from "@modelcontextprotocol/server";
 import type { Config } from "../config";
 import type { ActiveConnection } from "../connections/model";
-import { normalizeEmail, type Owner } from "../owner/owner";
+import { normalizeEmail } from "../email";
+import type { Owner } from "../owner/owner";
 import { apiNotEnabled } from "../google/errors";
 import {
   allowedAccountStatement,

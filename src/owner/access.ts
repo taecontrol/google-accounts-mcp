@@ -1,7 +1,7 @@
 import { Data, Effect } from "effect";
 import { createLocalJWKSet, errors, jwtVerify, type JSONWebKeySet } from "jose";
 import type { Config } from "../config";
-import { normalizeEmail } from "./owner";
+import { normalizeEmail } from "../email";
 
 export class AccessMissing extends Data.TaggedError("AccessMissing") {}
 export class AccessRejected extends Data.TaggedError("AccessRejected") {}

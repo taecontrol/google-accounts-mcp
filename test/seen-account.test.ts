@@ -7,7 +7,8 @@ import { readConfig } from "../src/config";
 import { parseConnectionId } from "../src/connections/model";
 import type { CallContext } from "../src/mcp/call";
 import { parseAccountTool } from "../src/mcp/tools";
-import { normalizeEmail, readOwner } from "../src/owner/owner";
+import { normalizeEmail } from "../src/email";
+import { readOwner } from "../src/owner/owner";
 import { fixture, permission, PERSONAL } from "./support/permissions";
 import { ORIGIN, testEnv } from "./support/worker";
 
