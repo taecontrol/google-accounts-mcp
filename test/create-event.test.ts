@@ -48,6 +48,7 @@ it.each(["allow", "ask", "ask then allow"] as const)(
 it.each([
   "abort",
   "500",
+  "204",
   "409",
   "412",
   "408",
@@ -102,7 +103,7 @@ it.each([
   },
 );
 
-it.each(["cancelled", "404", "410", "500", "unreadable", "abort"])(
+it.each(["cancelled", "404", "410", "201", "500", "unreadable", "abort"])(
   "settling %s reports the outcome and never inserts again",
   async (status) => {
     const f = await eventsFixture("create_event");
@@ -112,8 +113,11 @@ it.each(["cancelled", "404", "410", "500", "unreadable", "abort"])(
     await expectError(await createEventCall(f), "outcome_unknown", /Call again/);
     const saved = [...google.events.values()][0]!;
     google.fake.read = () =>
-      status === "cancelled"
-        ? Response.json({ ...saved, status: "cancelled" })
+      status === "cancelled" || status === "201"
+        ? Response.json(
+            { ...saved, ...(status === "cancelled" ? { status: "cancelled" } : {}) },
+            { status: status === "201" ? 201 : 200 },
+          )
         : status === "unreadable"
           ? Response.json({ no: "id" })
           : status === "abort"
@@ -204,6 +208,26 @@ it("settles an explicit calendar after access falls to reader without needing it
   expect(lists).toHaveLength(0);
   expect(google.inserts).toHaveLength(1);
 });
+
+it.each([undefined, "primary"])(
+  "cannot recover an implicit calendar when its primary ID is %s",
+  async (id) => {
+    const f = await eventsFixture("create_event");
+    primaryList();
+    const google = eventWriter();
+    google.fake.insert = () => new Response(null, { status: 500 });
+    await expectError(await createEventCall(f), "outcome_unknown", /Call again/);
+    repeatCalendars(...(id === undefined ? [] : [{ ...PRIMARY_CALENDAR, id }]));
+    await expectError(
+      await createEventCall(f),
+      "outcome_unknown",
+      `The server could not check Google Calendar for the event in ${PERSONAL} just now. Call again with exactly the same arguments in a minute: the server checks again and never creates it twice. If this keeps happening, ask the owner to look in Google Calendar. Until ${isoSeconds(Date.now() + WINDOW)}, repeating this call does not create it.`,
+    );
+    expect(google.reads).toEqual([]);
+    expect(google.inserts).toHaveLength(1);
+    expect((await onceRows())[0]!.state).toBe("unknown");
+  },
+);
 
 it.each([400, 403, 404, 429])(
   "releases an insert refused with %s so the identical call can try again",

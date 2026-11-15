@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import type { Send } from "../mcp/tools";
 import { calendarError, ToolFailure } from "../mcp/failures";
-import { calendarContext, type CalendarContext } from "./calendar";
+import { CALENDAR_API, calendarContext, type CalendarContext } from "./calendar";
 import { parseTime, rangeOf, zonedIso } from "./calendar-time";
 
 export const MAX_AVAILABILITY_CALENDARS = 20;
@@ -199,7 +199,7 @@ const freeBusy = (send: Send, calendars: readonly string[], range: Range) =>
     });
     const response = yield* send(
       (token, signal) =>
-        new Request("https://www.googleapis.com/calendar/v3/freeBusy", {
+        new Request(`${CALENDAR_API}/freeBusy`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body,

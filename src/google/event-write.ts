@@ -4,6 +4,7 @@ import { ToolFailure } from "../mcp/failures";
 import type { Send } from "../mcp/tools";
 import { canonicalZone, instantOf, parseTime, viewTime, zonedIso } from "./calendar-time";
 import { htmlToText } from "./html";
+import { CALENDAR_API } from "./calendar";
 
 export const MAX_TITLE = 1_000;
 export const MAX_LOCATION = 1_000;
@@ -210,7 +211,7 @@ export const writeEvent = (
     const path = `calendars/${encodeURIComponent(r.calendar)}/events${r.event === undefined ? "" : `/${encodeURIComponent(r.event)}`}`;
     const response = yield* send(
       (token, signal) =>
-        new Request(`https://www.googleapis.com/calendar/v3/${path}?${query}`, {
+        new Request(`${CALENDAR_API}/${path}?${query}`, {
           method: r.method,
           headers: {
             ...r.headers,

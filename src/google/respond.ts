@@ -1,8 +1,12 @@
 import { Effect, Schema } from "effect";
 import type { Send, Sending } from "../mcp/tools";
-import { notFound, ToolFailure } from "../mcp/failures";
-import { readCalendarList } from "./calendar";
-import { Attendee, findEvent } from "./events";
+import type { ViewValue } from "../approvals/model";
+import type { ChangePlan } from "./event-change";
+import { eventTime, viewTime, ZoneName } from "./calendar-time";
+import { unfold } from "./bounds";
+import { notFound, ToolFailure, ViewUnavailable } from "../mcp/failures";
+import { CALENDAR_API, readCalendarList } from "./calendar";
+import { Attendee, findEvent, shortJson } from "./events";
 
 export const EventResponse = Schema.Literals(["accepted", "declined", "tentative"]);
 export const WHOLE_SERIES =
@@ -91,7 +95,7 @@ export const answerInvitation = (
     const response = yield* sending(
       (token, signal) =>
         new Request(
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.calendar)}/events/${encodeURIComponent(input.event)}?sendUpdates=all`,
+          `${CALENDAR_API}/calendars/${encodeURIComponent(calendar.calendar)}/events/${encodeURIComponent(input.event)}?sendUpdates=all`,
           {
             method: "PATCH",
             headers: {
@@ -135,4 +139,78 @@ export const answerInvitation = (
     if (own.length !== 1 || own[0]!.responseStatus !== input.response)
       return yield* Effect.fail(uncertain());
     return { account: input.account, event: input.event, my_response: own[0]!.responseStatus };
+  });
+
+/** What the approval page shows of an answer, built from one read of the invitation. */
+export const invitationValues = (
+  { calendar, event, mine, organizer }: Invitation,
+  args: { response: typeof EventResponse.Type; note?: string },
+) =>
+  Effect.gen(function* () {
+    // The view needs the primary calendar's zone; the answer itself does not.
+    const zone = calendar.time_zone;
+    if (zone === undefined || !Schema.is(ZoneName)(zone))
+      return yield* Effect.fail(new ViewUnavailable());
+    const ctx = { zone };
+    const series = event.recurrence !== undefined && event.recurringEventId === undefined;
+    const start = eventTime(event.start, event.end, ctx.zone).start;
+    const values: ViewValue[] = [
+      {
+        name: "Event",
+        text: unfold(shortJson(event.summary ?? "", 1_000)),
+        from: "calendar",
+      },
+      {
+        name: series ? "First occurrence" : "Starts",
+        text: `${viewTime(start, ctx.zone)}${event.start.timeZone && event.start.timeZone !== ctx.zone ? `; event's own zone: ${event.start.timeZone}` : ""}`,
+        from: "calendar",
+      },
+      {
+        name: "Kind",
+        text:
+          event.recurringEventId !== undefined
+            ? "One occurrence of a repeating event"
+            : series
+              ? WHOLE_SERIES
+              : "A single event",
+        from: "calendar",
+      },
+      { name: "Organizer", text: unfold(organizer), from: "calendar" },
+    ];
+    if (mine.responseStatus !== undefined && mine.responseStatus !== "needsAction")
+      values.push({
+        name: "Current answer",
+        text: { accepted: "Accepted", declined: "Declined", tentative: "Maybe" }[
+          mine.responseStatus
+        ],
+        from: "calendar",
+      });
+    values.push({
+      name: "Answer",
+      text: { accepted: "Accept", declined: "Decline", tentative: "Maybe" }[args.response],
+      from: "agent",
+    });
+    if (args.note !== undefined) values.push({ name: "Note", text: args.note, from: "agent" });
+    // Google erases an earlier note on every answer, so the owner always sees the one that goes.
+    if (mine.comment)
+      values.push({
+        name: args.note === undefined ? "Note removed" : "Earlier note, replaced",
+        text: shortJson(mine.comment, 4_000),
+        from: "calendar",
+      });
+    return values;
+  });
+/** One read supplies the approved page's values and the write, as update_event and delete_event do. */
+export const respondPlan = (
+  send: Send,
+  input: RespondInput,
+): Effect.Effect<ChangePlan<RespondResult>, ToolFailure> =>
+  Effect.gen(function* () {
+    const found = yield* invitation(send, input);
+    // The answer needs no zone. Without one the page cannot be built, and an empty list never
+    // equals an approved page, which always shows the event, so only an allowed call writes.
+    const values = yield* invitationValues(found, input).pipe(
+      Effect.catch(() => Effect.succeed<ViewValue[]>([])),
+    );
+    return { values, write: (sending) => answerInvitation(sending, found, input) };
   });

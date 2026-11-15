@@ -21,7 +21,7 @@ import {
   type ViewValue,
 } from "../approvals/model";
 import { getApproval } from "../approvals/result";
-import { Data, Effect, Result, Schema, SchemaIssue } from "effect";
+import { Effect, Result, Schema, SchemaIssue } from "effect";
 import type { Unavailable } from "../db";
 import { accountMessage } from "../accounts/model";
 import { listVisibleAccounts } from "../accounts/store";
@@ -49,6 +49,7 @@ import {
   notReadable,
   tooLarge,
   ToolFailure,
+  ViewUnavailable,
 } from "./failures";
 import { GROUP_SERVICE, type Group } from "./groups";
 import { Duplicate, DUPLICATE_EXPECTS, duplicateValue, nextDuplicate } from "./duplicate";
@@ -57,9 +58,6 @@ import {
   CalendarId,
   calendarContext,
   readableCalendar,
-  writableCalendar,
-  readCalendarList,
-  type CalendarContext,
   listCalendars,
   MAX_CALENDARS,
   MAX_CALENDARS_CHARACTERS,
@@ -67,7 +65,6 @@ import {
 import {
   TimeText,
   ZoneName,
-  eventTime,
   parseTime,
   rangeOf,
   viewTime,
@@ -83,7 +80,6 @@ import {
   eventView,
   readEvent,
   searchEvents,
-  shortJson,
 } from "../google/events";
 import {
   MAX_AVAILABILITY_CALENDARS,
@@ -93,15 +89,7 @@ import {
   availabilityRange,
   checkAvailability,
 } from "../google/availability";
-import {
-  answerInvitation,
-  EventResponse,
-  invitation,
-  type Invitation,
-  type RespondInput,
-  type RespondResult,
-  WHOLE_SERIES,
-} from "../google/respond";
+import { EventResponse, invitation, invitationValues, respondPlan } from "../google/respond";
 import { Created, createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
   DeleteEventInput,
@@ -109,7 +97,6 @@ import {
   deletePlan,
   updatePlan,
   runChange,
-  type ChangePlan,
 } from "../google/event-change";
 import {
   MAX_SUBJECT,
@@ -134,23 +121,14 @@ import {
 import { sendExisting, sendStaged } from "../google/send";
 import { forwardFiles, forwardPlan, MAX_FORWARD_FILES, MAX_FORWARD_BYTES } from "../google/forward";
 import { addresses, header, readMessage, attachmentParts, otherParts } from "../google/message";
+import { DESCRIPTION_EXPECTS } from "../google/event-write";
 import {
-  Title,
-  Location,
-  Description,
-  Guests,
-  guestKey,
-  windowIssue,
-  eventPoints,
-  checkedDescription,
-  DESCRIPTION_EXPECTS,
-  timeValues,
-  guestsValue,
-  writeEvent,
-  readWrittenEvent,
-  type WrittenEvent,
-} from "../google/event-write";
-import { Repeat, repeatIssue, repeatRule } from "../google/repeat";
+  CreateEventInput,
+  CreatedEvent,
+  createEventPlan,
+  insertEvent,
+  settleEvent,
+} from "../google/event-create";
 type AccountExecution<A, S> =
   | {
       run: (
@@ -186,7 +164,6 @@ type AccountExecution<A, S> =
       repeated?: (at: string, next: number | null, args: A) => string;
       run?: never;
     };
-export class ViewUnavailable extends Data.TaggedError("ViewUnavailable") {}
 /** What every tool with a setting takes. A tool reads its own fields through its typed definition. */
 export type DecodedArgs = { readonly account: string };
 /** A name that the tool list accepted. The list below is the only list of tool names. */
@@ -433,49 +410,6 @@ const SearchEventsInput = Schema.Struct({
     return true;
   }),
 );
-const CreateEventInput = Schema.Struct({
-  account: Schema.String,
-  calendar: Schema.optionalKey(CalendarId),
-  title: Title,
-  start: TimeText,
-  end: TimeText,
-  time_zone: Schema.optionalKey(ZoneName),
-  location: Schema.optionalKey(Location),
-  repeat: Schema.optionalKey(Repeat),
-  description: Schema.optionalKey(Description),
-  guests: Schema.optionalKey(Guests),
-  meet: Schema.optionalKey(Schema.Boolean),
-  duplicate: Schema.optionalKey(Duplicate),
-}).check(
-  Schema.makeFilter((args) => {
-    const issue = windowIssue(args);
-    if (issue !== true) return issue;
-    if (
-      args.guests?.some(
-        (address) => guestKey(address) === guestKey(normalizeEmail(args.account) ?? args.account),
-      )
-    )
-      return { path: ["guests"], issue: "without the account's own address" };
-    return repeatIssue(args);
-  }),
-);
-type CreateEventArgs = typeof CreateEventInput.Type;
-const CreatedEvent = Schema.Struct({
-  calendar: Schema.NonEmptyString,
-  event: Schema.NonEmptyString,
-  link: Schema.optionalKey(Schema.String),
-  meet: Schema.optionalKey(Schema.String),
-  meet_status: Schema.optionalKey(Schema.Literals(["pending", "failure", "none"])),
-  cancelled: Schema.optionalKey(Schema.Literal(true)),
-});
-const eventResult = (event: WrittenEvent, calendar: string): typeof CreatedEvent.Type => ({
-  calendar,
-  event: event.id,
-  ...(event.link === undefined ? {} : { link: event.link }),
-  ...(event.meet === undefined ? {} : { meet: event.meet }),
-  ...(event.meetStatus === undefined ? {} : { meet_status: event.meetStatus }),
-  ...(event.status === "cancelled" ? { cancelled: true as const } : {}),
-});
 const zoneExpects = "UTC or an IANA zone name with a slash, such as America/Bogota";
 const CheckAvailabilityInput = Schema.Struct({
   account: Schema.String,
@@ -649,125 +583,10 @@ const fileValues = (
     })),
   ];
 };
-/** One calendar-list snapshot supplies both the approved values and the request. */
-const createEventPlan = (args: CreateEventArgs, ctx: CalendarContext) =>
-  Effect.gen(function* () {
-    const calendar = yield* Effect.fromResult(writableCalendar(ctx, args.calendar));
-    const points = yield* Effect.fromResult(eventPoints(args, ctx.zone));
-    const repeat = yield* Effect.fromResult(repeatRule(args, ctx.zone, ctx.primary?.time_zone));
-    const description = yield* checkedDescription(args.description ?? "");
-    const calendarText = `${unfold(calendar.name)} (${calendar.calendar})`;
-    const values: ViewValue[] = [
-      { name: "Calendar", text: calendarText, from: "calendar" },
-      ...(!calendar.primary
-        ? [{ name: "Guests see the organizer as", text: calendarText, from: "calendar" as const }]
-        : []),
-      { name: "Title", text: args.title, from: "agent" },
-      ...timeValues(args.start, args.end, ctx.zone),
-      ...(repeat ? [{ name: "Repeats", text: repeat.text, from: "agent" as const }] : []),
-      ...(args.guests?.length
-        ? [
-            guestsValue(
-              args.guests,
-              repeat ? "one invitation for the whole series" : "the invitation",
-              "agent",
-            ),
-          ]
-        : []),
-      ...(args.meet
-        ? [
-            {
-              name: "Google Meet",
-              text: "Asks Google to add a Google Meet link",
-              from: "agent" as const,
-            },
-          ]
-        : []),
-      ...(args.location ? [{ name: "Location", text: args.location, from: "agent" as const }] : []),
-      ...duplicateValue(args.duplicate),
-      ...(args.description
-        ? [{ name: "Description", text: args.description, from: "agent" as const }]
-        : []),
-    ];
-    return { calendar, points, repeat, description, values };
-  });
 const forwardBody = (quoted: string, note?: string) => (note ? `${note}\n\n${quoted}` : quoted);
 const draftNote =
   "This is the draft as it is in Gmail now. It is sent as it is at the moment you approve, also if it changed after this page loaded.";
 
-/** What the approval page shows of an answer, built from one read of the invitation. */
-const invitationValues = (
-  { calendar, event, mine, organizer }: Invitation,
-  args: { response: typeof EventResponse.Type; note?: string },
-) =>
-  Effect.gen(function* () {
-    // The view needs the primary calendar's zone; the answer itself does not.
-    const zone = calendar.time_zone;
-    if (zone === undefined || !Schema.is(ZoneName)(zone))
-      return yield* Effect.fail(new ViewUnavailable());
-    const ctx = { zone };
-    const series = event.recurrence !== undefined && event.recurringEventId === undefined;
-    const start = eventTime(event.start, event.end, ctx.zone).start;
-    const values: ViewValue[] = [
-      {
-        name: "Event",
-        text: unfold(shortJson(event.summary ?? "", 1_000)),
-        from: "calendar",
-      },
-      {
-        name: series ? "First occurrence" : "Starts",
-        text: `${viewTime(start, ctx.zone)}${event.start.timeZone && event.start.timeZone !== ctx.zone ? `; event's own zone: ${event.start.timeZone}` : ""}`,
-        from: "calendar",
-      },
-      {
-        name: "Kind",
-        text:
-          event.recurringEventId !== undefined
-            ? "One occurrence of a repeating event"
-            : series
-              ? WHOLE_SERIES
-              : "A single event",
-        from: "calendar",
-      },
-      { name: "Organizer", text: unfold(organizer), from: "calendar" },
-    ];
-    if (mine.responseStatus !== undefined && mine.responseStatus !== "needsAction")
-      values.push({
-        name: "Current answer",
-        text: { accepted: "Accepted", declined: "Declined", tentative: "Maybe" }[
-          mine.responseStatus
-        ],
-        from: "calendar",
-      });
-    values.push({
-      name: "Answer",
-      text: { accepted: "Accept", declined: "Decline", tentative: "Maybe" }[args.response],
-      from: "agent",
-    });
-    if (args.note !== undefined) values.push({ name: "Note", text: args.note, from: "agent" });
-    // Google erases an earlier note on every answer, so the owner always sees the one that goes.
-    if (mine.comment)
-      values.push({
-        name: args.note === undefined ? "Note removed" : "Earlier note, replaced",
-        text: shortJson(mine.comment, 4_000),
-        from: "calendar",
-      });
-    return values;
-  });
-/** One read supplies the approved page's values and the write, as update_event and delete_event do. */
-const respondPlan = (
-  send: Send,
-  input: RespondInput,
-): Effect.Effect<ChangePlan<RespondResult>, ToolFailure> =>
-  Effect.gen(function* () {
-    const found = yield* invitation(send, input);
-    // The answer needs no zone. Without one the page cannot be built, and an empty list never
-    // equals an approved page, which always shows the event, so only an allowed call writes.
-    const values = yield* invitationValues(found, input).pipe(
-      Effect.catch(() => Effect.succeed<ViewValue[]>([])),
-    );
-    return { values, write: (sending) => answerInvitation(sending, found, input) };
-  });
 export const TOOLS: ReadonlyArray<Tool> = [
   {
     kind: "plain",
@@ -1540,66 +1359,9 @@ export const TOOLS: ReadonlyArray<Tool> = [
             }),
           );
         const sending = yield* confirm.check;
-        const event = yield* creating(
-          writeEvent(sending, {
-            method: "POST",
-            calendar: plan.calendar.calendar,
-            query: args.meet ? { conferenceDataVersion: "1" } : {},
-            body: {
-              id: key,
-              summary: args.title,
-              ...plan.points,
-              ...(plan.repeat ? { recurrence: [plan.repeat.line] } : {}),
-              ...(args.location ? { location: args.location } : {}),
-              ...(plan.description ? { description: plan.description } : {}),
-              ...(args.guests?.length
-                ? { attendees: args.guests.map((email) => ({ email })) }
-                : {}),
-              ...(args.meet
-                ? {
-                    conferenceData: {
-                      createRequest: {
-                        requestId: key,
-                        conferenceSolutionKey: { type: "hangoutsMeet" },
-                      },
-                    },
-                  }
-                : {}),
-            },
-            refused: (status) =>
-              status === 400
-                ? new ToolFailure({ code: "invalid_arguments" })
-                : status === 404
-                  ? new ToolFailure({
-                      code: "not_found",
-                      missing: { kind: "calendar", id: plan.calendar.calendar },
-                    })
-                  : new ToolFailure({ code: "google_unavailable" }),
-          }),
-        );
-        if (event === null)
-          return yield* Effect.fail(new ToolFailure({ code: "outcome_unknown", unknown: true }));
-        return eventResult(event, plan.calendar.calendar);
+        return yield* insertEvent(sending, plan, args, key);
       }),
-    settle: (read, args, key) =>
-      Effect.gen(function* () {
-        const calendar =
-          args.calendar ??
-          (yield* readCalendarList(read)).calendars.find((entry) => entry.primary)?.calendar;
-        if (calendar === undefined || calendar === "primary")
-          return yield* Effect.fail(new ToolFailure({ code: "not_found" }));
-        const response = yield* read(
-          (token, signal) =>
-            new Request(
-              `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(key)}`,
-              { headers: { Authorization: `Bearer ${token}` }, redirect: "manual", signal },
-            ),
-        );
-        if (response.status === 404 || response.status === 410) return null;
-        if (response.status !== 200)
-          return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
-        return eventResult(yield* readWrittenEvent(response, args.meet ?? false), calendar);
-      }),
+    settle: settleEvent,
   }),
   accountTool({
     name: "list_calendars",

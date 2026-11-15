@@ -4,7 +4,7 @@ import { ToolFailure } from "../mcp/failures";
 import { shorten } from "./bounds";
 import { ZoneName } from "./calendar-time";
 
-const API = "https://www.googleapis.com/calendar/v3";
+export const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
 /** An ID that an agent gives. Approval views list IDs one per line, so none may break a line. */
 export const CalendarId = Schema.String.check(
@@ -21,7 +21,7 @@ export const get = <A>(
   Effect.gen(function* () {
     const response = yield* send(
       (token, signal) =>
-        new Request(`${API}/${path}`, {
+        new Request(`${CALENDAR_API}/${path}`, {
           headers: { Authorization: `Bearer ${token}` },
           redirect: "manual",
           signal,

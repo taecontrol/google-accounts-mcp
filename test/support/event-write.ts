@@ -27,7 +27,7 @@ export const repeatCalendars = (...items: object[]) =>
 export const primaryList = () => repeatCalendars(PRIMARY_CALENDAR);
 
 type Event = Record<string, unknown>;
-type Insert = { request: CalendarRequest; body: Event; calendar: string };
+type Insert = { request: CalendarRequest; body: Event; bodyText: string; calendar: string };
 /** Calendar stores the caller-chosen ID before it can lose the insert's answer. */
 export function eventWriter() {
   const inserts: Insert[] = [];
@@ -39,9 +39,10 @@ export function eventWriter() {
   } = {};
   network.use(
     http.post("https://www.googleapis.com/calendar/v3/calendars/*", async ({ request }) => {
+      const bodyText = await request.clone().text();
       const body = (await request.json()) as Event;
       const calendar = decodeURIComponent(new URL(request.url).pathname.split("/")[4]!);
-      const entry = { request, body, calendar };
+      const entry = { request, body, bodyText, calendar };
       inserts.push(entry);
       const event = {
         id: body.id,
