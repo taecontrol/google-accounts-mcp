@@ -170,14 +170,19 @@ async function collectSecrets(
 }
 
 /**
- * The environment of every binary the command runs: without the server's settings, which the
- * Vite build would otherwise copy into a `.dev.vars` file under `dist/`.
+ * The environment of a binary the command runs, without the server's settings: the Vite build
+ * copies them from the environment into a `.dev.vars` file under `dist/`. The build gets them
+ * empty instead of absent, so it does not warn that they are missing.
  */
 export function childEnv(
   env: Readonly<Record<string, string | undefined>>,
+  bin: "vp" | "wrangler",
 ): Record<string, string | undefined> {
   const child: Record<string, string | undefined> = { ...env, WRANGLER_SEND_METRICS: "false" };
-  for (const name of CONFIG_NAMES) delete child[name];
+  for (const name of CONFIG_NAMES) {
+    if (bin === "vp") child[name] = "";
+    else delete child[name];
+  }
   return child;
 }
 
@@ -272,7 +277,7 @@ const nodeIo: Io = {
             : ["ignore", "inherit", "inherit"];
       // worker-configuration.d.ts types the settings into ProcessEnv for the Worker; the
       // children of this command must not get them.
-      const env = childEnv(process.env) as NodeJS.ProcessEnv;
+      const env = childEnv(process.env, name) as NodeJS.ProcessEnv;
       const options: SpawnOptions = { stdio, env };
       const child = spawn(bin(name), args, options);
       let stdout = "";
