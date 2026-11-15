@@ -2,7 +2,7 @@ import { Effect, Result, Schema } from "effect";
 import type { ViewValue } from "../approvals/model";
 import type { Confirm, Send, Sending } from "../mcp/tools";
 import { notFound, ToolFailure } from "../mcp/failures";
-import { CalendarId, calendarContext, get, writableCalendar } from "./calendar";
+import { CalendarId, calendarContext, calendarLabel, get, writableCalendar } from "./calendar";
 import {
   canonicalZone,
   EventPoint,
@@ -147,7 +147,7 @@ const readForChange = (send: Send, input: ChangeInput) =>
   });
 type ReadChange = Effect.Success<ReturnType<typeof readForChange>>;
 const baseValues = ({ ctx, calendar, event }: ReadChange): ViewValue[] => [
-  { name: "Calendar", text: `${unfold(calendar.name)} (${calendar.calendar})`, from: "calendar" },
+  { name: "Calendar", text: calendarLabel(calendar), from: "calendar" },
   {
     name: "Event",
     text: `${unfold(event.summary ?? "")}\n${viewTime(eventTime(event.start, event.end, ctx.zone).start, ctx.zone)}`,

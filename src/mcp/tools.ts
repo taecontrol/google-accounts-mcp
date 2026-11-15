@@ -21,7 +21,7 @@ import {
   type ViewValue,
 } from "../approvals/model";
 import { getApproval } from "../approvals/result";
-import { Data, Effect, Result, Schema, SchemaIssue } from "effect";
+import { Effect, Result, Schema, SchemaIssue } from "effect";
 import type { Unavailable } from "../db";
 import { accountMessage } from "../accounts/model";
 import { listVisibleAccounts } from "../accounts/store";
@@ -49,16 +49,17 @@ import {
   notReadable,
   tooLarge,
   ToolFailure,
+  ViewUnavailable,
 } from "./failures";
 import { GROUP_SERVICE, type Group } from "./groups";
+import { Duplicate, DUPLICATE_EXPECTS, duplicateValue, nextDuplicate } from "./duplicate";
 import { SERVICES, type Service } from "../google/services";
 import {
   CalendarId,
+  CALENDAR_ID_EXPECTS,
   calendarContext,
+  calendarLabel,
   readableCalendar,
-  writableCalendar,
-  readCalendarList,
-  type CalendarContext,
   listCalendars,
   MAX_CALENDARS,
   MAX_CALENDARS_CHARACTERS,
@@ -66,11 +67,10 @@ import {
 import {
   TimeText,
   ZoneName,
-  eventTime,
   parseTime,
   rangeOf,
   viewTime,
-  zonedIso,
+  viewRange,
 } from "../google/calendar-time";
 import {
   DEFAULT_EVENT_LIMIT,
@@ -79,10 +79,10 @@ import {
   MAX_EVENT_QUERY,
   MAX_EVENT_PAGE,
   EventId,
+  EVENT_ID_EXPECTS,
   eventView,
   readEvent,
   searchEvents,
-  shortJson,
 } from "../google/events";
 import {
   MAX_AVAILABILITY_CALENDARS,
@@ -92,15 +92,7 @@ import {
   availabilityRange,
   checkAvailability,
 } from "../google/availability";
-import {
-  answerInvitation,
-  EventResponse,
-  invitation,
-  type Invitation,
-  type RespondInput,
-  type RespondResult,
-  WHOLE_SERIES,
-} from "../google/respond";
+import { EventResponse, invitation, invitationValues, respondPlan } from "../google/respond";
 import { Created, createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
   DeleteEventInput,
@@ -108,7 +100,6 @@ import {
   deletePlan,
   updatePlan,
   runChange,
-  type ChangePlan,
 } from "../google/event-change";
 import {
   MAX_SUBJECT,
@@ -133,23 +124,14 @@ import {
 import { sendExisting, sendStaged } from "../google/send";
 import { forwardFiles, forwardPlan, MAX_FORWARD_FILES, MAX_FORWARD_BYTES } from "../google/forward";
 import { addresses, header, readMessage, attachmentParts, otherParts } from "../google/message";
+import { DESCRIPTION_EXPECTS } from "../google/event-write";
 import {
-  Title,
-  Location,
-  Description,
-  Guests,
-  guestKey,
-  windowIssue,
-  eventPoints,
-  checkedDescription,
-  DESCRIPTION_EXPECTS,
-  timeValues,
-  guestsValue,
-  writeEvent,
-  readWrittenEvent,
-  type WrittenEvent,
-} from "../google/event-write";
-import { Repeat, repeatIssue, repeatRule } from "../google/repeat";
+  CreateEventInput,
+  CreatedEvent,
+  createEventPlan,
+  insertEvent,
+  settleEvent,
+} from "../google/event-create";
 type AccountExecution<A, S> =
   | {
       run: (
@@ -185,7 +167,6 @@ type AccountExecution<A, S> =
       repeated?: (at: string, next: number | null, args: A) => string;
       run?: never;
     };
-export class ViewUnavailable extends Data.TaggedError("ViewUnavailable") {}
 /** What every tool with a setting takes. A tool reads its own fields through its typed definition. */
 export type DecodedArgs = { readonly account: string };
 /** A name that the tool list accepted. The list below is the only list of tool names. */
@@ -349,6 +330,10 @@ const labelChange = (args: {
 const Mailboxes = Schema.Array(
   Schema.String.check(Schema.makeFilter((value) => parseMailbox(value) !== null)),
 );
+const mailboxesExpects = "a list of mailboxes, each an address or Name <address>";
+const recipientsExpects = "a list of at least one mailbox, each an address or Name <address>";
+const messageExpects =
+  "a message ID of 1 to 64 letters, digits, hyphens, or underscores from this account";
 const Subject = Schema.String.check(
   Schema.isMaxLength(MAX_SUBJECT),
   // oxlint-disable-next-line no-control-regex -- Input subjects cannot contain header controls.
@@ -364,7 +349,7 @@ const DraftInput = Schema.Struct({
   attachments: Schema.optionalKey(Attachments),
   reply_to: Schema.optionalKey(GmailId),
   reply_all: Schema.optionalKey(Schema.Boolean),
-  duplicate: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 100 }))),
+  duplicate: Schema.optionalKey(Duplicate),
 }).check(
   Schema.makeFilter((args) => {
     if (
@@ -432,49 +417,6 @@ const SearchEventsInput = Schema.Struct({
     return true;
   }),
 );
-const CreateEventInput = Schema.Struct({
-  account: Schema.String,
-  calendar: Schema.optionalKey(CalendarId),
-  title: Title,
-  start: TimeText,
-  end: TimeText,
-  time_zone: Schema.optionalKey(ZoneName),
-  location: Schema.optionalKey(Location),
-  repeat: Schema.optionalKey(Repeat),
-  description: Schema.optionalKey(Description),
-  guests: Schema.optionalKey(Guests),
-  meet: Schema.optionalKey(Schema.Boolean),
-  duplicate: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 2, maximum: 100 }))),
-}).check(
-  Schema.makeFilter((args) => {
-    const issue = windowIssue(args);
-    if (issue !== true) return issue;
-    if (
-      args.guests?.some(
-        (address) => guestKey(address) === guestKey(normalizeEmail(args.account) ?? args.account),
-      )
-    )
-      return { path: ["guests"], issue: "without the account's own address" };
-    return repeatIssue(args);
-  }),
-);
-type CreateEventArgs = typeof CreateEventInput.Type;
-const CreatedEvent = Schema.Struct({
-  calendar: Schema.NonEmptyString,
-  event: Schema.NonEmptyString,
-  link: Schema.optionalKey(Schema.String),
-  meet: Schema.optionalKey(Schema.String),
-  meet_status: Schema.optionalKey(Schema.Literals(["pending", "failure", "none"])),
-  cancelled: Schema.optionalKey(Schema.Literal(true)),
-});
-const eventResult = (event: WrittenEvent, calendar: string): typeof CreatedEvent.Type => ({
-  calendar,
-  event: event.id,
-  ...(event.link === undefined ? {} : { link: event.link }),
-  ...(event.meet === undefined ? {} : { meet: event.meet }),
-  ...(event.meetStatus === undefined ? {} : { meet_status: event.meetStatus }),
-  ...(event.status === "cancelled" ? { cancelled: true as const } : {}),
-});
 const zoneExpects = "UTC or an IANA zone name with a slash, such as America/Bogota";
 const CheckAvailabilityInput = Schema.Struct({
   account: Schema.String,
@@ -542,12 +484,7 @@ const draftValues = (
   if (mail.subject)
     values.push({ name: "Subject", text: mail.subject, from: plan ? "gmail" : "agent" });
   values.push(...files);
-  if (args.duplicate !== undefined)
-    values.push({
-      name: "Duplicate",
-      text: `${args.duplicate} (a deliberate copy of an earlier call)`,
-      from: "agent",
-    });
+  values.push(...duplicateValue(args.duplicate));
   values.push({ name: "Body", text: args.body, from: "agent" });
   return values;
 };
@@ -563,7 +500,7 @@ const draftExpects = {
   reply_to:
     "a message ID of 1 to 64 letters, digits, hyphens, or underscores from this account; a reply requires an empty or absent subject",
   reply_all: "a boolean, true only with reply_to and no given recipients",
-  duplicate: "a whole number from 2 to 100",
+  duplicate: DUPLICATE_EXPECTS,
 };
 
 const repeatSend =
@@ -575,8 +512,8 @@ const unknownSend = (
   until: number,
   args: { duplicate?: number; attachments?: readonly Item[] },
 ) => {
-  const next = (args.duplicate ?? 1) + 1;
-  return `The server does not know whether this mail went out from ${email}. Ask the owner to look in Sent. If it is not there, it may still be in Drafts, and the owner can send it from Gmail. Until ${isoSeconds(until)}, repeating this call does not send it again.${next <= 100 ? ` Only if the owner says that it is in neither place, call again with duplicate: ${next}${uploadsOf(args.attachments).length ? " and a new upload of each file" : ""}.` : ""}`;
+  const next = nextDuplicate(args.duplicate);
+  return `The server does not know whether this mail went out from ${email}. Ask the owner to look in Sent. If it is not there, it may still be in Drafts, and the owner can send it from Gmail. Until ${isoSeconds(until)}, repeating this call does not send it again.${next !== null ? ` Only if the owner says that it is in neither place, call again with duplicate: ${next}${uploadsOf(args.attachments).length ? " and a new upload of each file" : ""}.` : ""}`;
 };
 const sendRefused = (status: number) =>
   status === 400 ? notSendable(null) : new ToolFailure({ code: "google_unavailable" });
@@ -653,135 +590,10 @@ const fileValues = (
     })),
   ];
 };
-const duplicateValue = (duplicate?: number): ViewValue[] =>
-  duplicate === undefined
-    ? []
-    : [
-        {
-          name: "Duplicate",
-          text: `${duplicate} (a deliberate copy of an earlier call)`,
-          from: "agent",
-        },
-      ];
-/** One calendar-list snapshot supplies both the approved values and the request. */
-const createEventPlan = (args: CreateEventArgs, ctx: CalendarContext) =>
-  Effect.gen(function* () {
-    const calendar = yield* Effect.fromResult(writableCalendar(ctx, args.calendar));
-    const points = yield* Effect.fromResult(eventPoints(args, ctx.zone));
-    const repeat = yield* Effect.fromResult(repeatRule(args, ctx.zone, ctx.primary?.time_zone));
-    const description = yield* checkedDescription(args.description ?? "");
-    const calendarText = `${unfold(calendar.name)} (${calendar.calendar})`;
-    const values: ViewValue[] = [
-      { name: "Calendar", text: calendarText, from: "calendar" },
-      ...(!calendar.primary
-        ? [{ name: "Guests see the organizer as", text: calendarText, from: "calendar" as const }]
-        : []),
-      { name: "Title", text: args.title, from: "agent" },
-      ...timeValues(args.start, args.end, ctx.zone),
-      ...(repeat ? [{ name: "Repeats", text: repeat.text, from: "agent" as const }] : []),
-      ...(args.guests?.length
-        ? [
-            guestsValue(
-              args.guests,
-              repeat ? "one invitation for the whole series" : "the invitation",
-              "agent",
-            ),
-          ]
-        : []),
-      ...(args.meet
-        ? [
-            {
-              name: "Google Meet",
-              text: "Asks Google to add a Google Meet link",
-              from: "agent" as const,
-            },
-          ]
-        : []),
-      ...(args.location ? [{ name: "Location", text: args.location, from: "agent" as const }] : []),
-      ...duplicateValue(args.duplicate),
-      ...(args.description
-        ? [{ name: "Description", text: args.description, from: "agent" as const }]
-        : []),
-    ];
-    return { calendar, points, repeat, description, values };
-  });
 const forwardBody = (quoted: string, note?: string) => (note ? `${note}\n\n${quoted}` : quoted);
 const draftNote =
   "This is the draft as it is in Gmail now. It is sent as it is at the moment you approve, also if it changed after this page loaded.";
 
-/** What the approval page shows of an answer, built from one read of the invitation. */
-const invitationValues = (
-  { calendar, event, mine, organizer }: Invitation,
-  args: { response: typeof EventResponse.Type; note?: string },
-) =>
-  Effect.gen(function* () {
-    // The view needs the primary calendar's zone; the answer itself does not.
-    const zone = calendar.time_zone;
-    if (zone === undefined || !Schema.is(ZoneName)(zone))
-      return yield* Effect.fail(new ViewUnavailable());
-    const ctx = { zone };
-    const series = event.recurrence !== undefined && event.recurringEventId === undefined;
-    const start = eventTime(event.start, event.end, ctx.zone).start;
-    const values: ViewValue[] = [
-      {
-        name: "Event",
-        text: unfold(shortJson(event.summary ?? "", 1_000)),
-        from: "calendar",
-      },
-      {
-        name: series ? "First occurrence" : "Starts",
-        text: `${viewTime(start, ctx.zone)}${event.start.timeZone && event.start.timeZone !== ctx.zone ? `; event's own zone: ${event.start.timeZone}` : ""}`,
-        from: "calendar",
-      },
-      {
-        name: "Kind",
-        text:
-          event.recurringEventId !== undefined
-            ? "One occurrence of a repeating event"
-            : series
-              ? WHOLE_SERIES
-              : "A single event",
-        from: "calendar",
-      },
-      { name: "Organizer", text: unfold(organizer), from: "calendar" },
-    ];
-    if (mine.responseStatus !== undefined && mine.responseStatus !== "needsAction")
-      values.push({
-        name: "Current answer",
-        text: { accepted: "Accepted", declined: "Declined", tentative: "Maybe" }[
-          mine.responseStatus
-        ],
-        from: "calendar",
-      });
-    values.push({
-      name: "Answer",
-      text: { accepted: "Accept", declined: "Decline", tentative: "Maybe" }[args.response],
-      from: "agent",
-    });
-    if (args.note !== undefined) values.push({ name: "Note", text: args.note, from: "agent" });
-    // Google erases an earlier note on every answer, so the owner always sees the one that goes.
-    if (mine.comment)
-      values.push({
-        name: args.note === undefined ? "Note removed" : "Earlier note, replaced",
-        text: shortJson(mine.comment, 4_000),
-        from: "calendar",
-      });
-    return values;
-  });
-/** One read supplies the approved page's values and the write, as update_event and delete_event do. */
-const respondPlan = (
-  send: Send,
-  input: RespondInput,
-): Effect.Effect<ChangePlan<RespondResult>, ToolFailure> =>
-  Effect.gen(function* () {
-    const found = yield* invitation(send, input);
-    // The answer needs no zone. Without one the page cannot be built, and an empty list never
-    // equals an approved page, which always shows the event, so only an allowed call writes.
-    const values = yield* invitationValues(found, input).pipe(
-      Effect.catch(() => Effect.succeed<ViewValue[]>([])),
-    );
-    return { values, write: (sending) => answerInvitation(sending, found, input) };
-  });
 export const TOOLS: ReadonlyArray<Tool> = [
   {
     kind: "plain",
@@ -995,8 +807,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
     uploads: (args) => uploadsOf(args.attachments),
     defaults: { to: [], cc: [], bcc: [], subject: "", reply_all: false, attachments: [] },
     unknown: (email, until, args) => {
-      const next = (args.duplicate ?? 1) + 1;
-      return `The server does not know whether the draft was created in ${email}. Ask the owner to look in Drafts. Until ${isoSeconds(until)}, repeating this call does not create it again.${next <= 100 ? ` If the owner says that the draft is missing, call again with duplicate: ${next}${uploadsOf(args.attachments).length ? " and a new upload of each file" : ""}.` : ""}`;
+      const next = nextDuplicate(args.duplicate);
+      return `The server does not know whether the draft was created in ${email}. Ask the owner to look in Drafts. Until ${isoSeconds(until)}, repeating this call does not create it again.${next !== null ? ` If the owner says that the draft is missing, call again with duplicate: ${next}${uploadsOf(args.attachments).length ? " and a new upload of each file" : ""}.` : ""}`;
     },
     expects: draftExpects,
     view: {
@@ -1196,9 +1008,9 @@ export const TOOLS: ReadonlyArray<Tool> = [
     }),
     expects: {
       account: draftExpects.account,
-      to: "a list of at least one mailbox, each an address or Name <address>",
-      cc: "a list of mailboxes, each an address or Name <address>",
-      bcc: "a list of mailboxes, each an address or Name <address>",
+      to: recipientsExpects,
+      cc: mailboxesExpects,
+      bcc: mailboxesExpects,
       subject: `a string of 1 to ${MAX_SUBJECT} characters without control characters`,
       body: draftExpects.body,
       duplicate: draftExpects.duplicate,
@@ -1248,7 +1060,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     }),
     expects: {
       account: draftExpects.account,
-      message: "a message ID of 1 to 64 letters, digits, hyphens, or underscores from this account",
+      message: messageExpects,
       body: draftExpects.body,
       reply_all: "a boolean",
       duplicate: draftExpects.duplicate,
@@ -1311,10 +1123,10 @@ export const TOOLS: ReadonlyArray<Tool> = [
     }),
     expects: {
       account: draftExpects.account,
-      message: "a message ID of 1 to 64 letters, digits, hyphens, or underscores from this account",
-      to: "a list of at least one mailbox, each an address or Name <address>",
-      cc: "a list of mailboxes, each an address or Name <address>",
-      bcc: "a list of mailboxes, each an address or Name <address>",
+      message: messageExpects,
+      to: recipientsExpects,
+      cc: mailboxesExpects,
+      bcc: mailboxesExpects,
       body: draftExpects.body,
       duplicate: draftExpects.duplicate,
     },
@@ -1471,8 +1283,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     input: CreateEventInput,
     expects: {
       account: "a string",
-      calendar:
-        "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters, with access owner or writer",
+      calendar: `${CALENDAR_ID_EXPECTS}, with access owner or writer`,
       title: "a string of 1 to 1,000 characters without control characters",
       start: `${timeExpects}, with seconds omitted or 00 and no fractions`,
       end: `${timeExpects}, in the same date or time form as start, after start, with seconds omitted or 00 and no fractions`,
@@ -1484,7 +1295,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
       guests:
         "a list of at most 50 different bare email addresses, unique ignoring case, each at most 254 characters with one @ and a domain with a dot, without whitespace, control or format characters, display names, or the account's own address",
       meet: "a boolean",
-      duplicate: "a whole number from 2 to 100",
+      duplicate: DUPLICATE_EXPECTS,
     },
     defaults: { location: "", description: "", guests: [], meet: false },
     stored: CreatedEvent,
@@ -1497,9 +1308,9 @@ export const TOOLS: ReadonlyArray<Tool> = [
       if (stored.meet_status === "failure" || stored.meet_status === "none")
         notes.push("The event exists without a Meet link.");
       if (stored.cancelled) {
-        const next = (args.duplicate ?? 1) + 1;
+        const next = nextDuplicate(args.duplicate);
         notes.push(
-          `This call created the event and it is no longer in the calendar.${next <= 100 ? ` To create another, call again with duplicate: ${next}.` : ""}`,
+          `This call created the event and it is no longer in the calendar.${next !== null ? ` To create another, call again with duplicate: ${next}.` : ""}`,
         );
       }
       return {
@@ -1517,8 +1328,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
         return `The server does not know yet whether the event was created in ${email}. Call again with exactly the same arguments in a minute: the server checks Google Calendar and never creates it twice.`;
       if (checked === "failed")
         return `The server could not check Google Calendar for the event in ${email} just now. Call again with exactly the same arguments in a minute: the server checks again and never creates it twice. If this keeps happening, ask the owner to look in Google Calendar. Until ${isoSeconds(until)}, repeating this call does not create it.`;
-      const next = (args.duplicate ?? 1) + 1;
-      return `Google Calendar does not show the event. Ask the owner to look in Google Calendar. Until ${isoSeconds(until)}, repeating this call does not create it.${next <= 100 ? ` If the owner says that it is missing, call again with duplicate: ${next}.` : ""}`;
+      const next = nextDuplicate(args.duplicate);
+      return `Google Calendar does not show the event. Ask the owner to look in Google Calendar. Until ${isoSeconds(until)}, repeating this call does not create it.${next !== null ? ` If the owner says that it is missing, call again with duplicate: ${next}.` : ""}`;
     },
     view: {
       action: "create an event",
@@ -1554,66 +1365,9 @@ export const TOOLS: ReadonlyArray<Tool> = [
             }),
           );
         const sending = yield* confirm.check;
-        const event = yield* creating(
-          writeEvent(sending, {
-            method: "POST",
-            calendar: plan.calendar.calendar,
-            query: args.meet ? { conferenceDataVersion: "1" } : {},
-            body: {
-              id: key,
-              summary: args.title,
-              ...plan.points,
-              ...(plan.repeat ? { recurrence: [plan.repeat.line] } : {}),
-              ...(args.location ? { location: args.location } : {}),
-              ...(plan.description ? { description: plan.description } : {}),
-              ...(args.guests?.length
-                ? { attendees: args.guests.map((email) => ({ email })) }
-                : {}),
-              ...(args.meet
-                ? {
-                    conferenceData: {
-                      createRequest: {
-                        requestId: key,
-                        conferenceSolutionKey: { type: "hangoutsMeet" },
-                      },
-                    },
-                  }
-                : {}),
-            },
-            refused: (status) =>
-              status === 400
-                ? new ToolFailure({ code: "invalid_arguments" })
-                : status === 404
-                  ? new ToolFailure({
-                      code: "not_found",
-                      missing: { kind: "calendar", id: plan.calendar.calendar },
-                    })
-                  : new ToolFailure({ code: "google_unavailable" }),
-          }),
-        );
-        if (event === null)
-          return yield* Effect.fail(new ToolFailure({ code: "outcome_unknown", unknown: true }));
-        return eventResult(event, plan.calendar.calendar);
+        return yield* insertEvent(sending, plan, args, key);
       }),
-    settle: (read, args, key) =>
-      Effect.gen(function* () {
-        const calendar =
-          args.calendar ??
-          (yield* readCalendarList(read)).calendars.find((entry) => entry.primary)?.calendar;
-        if (calendar === undefined || calendar === "primary")
-          return yield* Effect.fail(new ToolFailure({ code: "not_found" }));
-        const response = yield* read(
-          (token, signal) =>
-            new Request(
-              `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(key)}`,
-              { headers: { Authorization: `Bearer ${token}` }, redirect: "manual", signal },
-            ),
-        );
-        if (response.status === 404 || response.status === 410) return null;
-        if (response.status !== 200)
-          return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
-        return eventResult(yield* readWrittenEvent(response, args.meet ?? false), calendar);
-      }),
+    settle: settleEvent,
   }),
   accountTool({
     name: "list_calendars",
@@ -1664,8 +1418,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
           const busy: string[] = [];
           for (const id of args.calendars ?? [undefined]) {
             const calendar = readableCalendar(ctx, id, "calendars");
-            if (Result.isSuccess(calendar))
-              listed.push(`${unfold(calendar.success.name)} (${calendar.success.calendar})`);
+            if (Result.isSuccess(calendar)) listed.push(calendarLabel(calendar.success));
             else if (calendar.failure.code === "not_found") {
               if (id === undefined) return yield* Effect.fail(calendar.failure);
               unlisted.push(id);
@@ -1673,7 +1426,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
               const entry = ctx.calendars.find(
                 (calendar) => calendar.calendar === (id ?? ctx.primary?.calendar),
               )!;
-              busy.push(`${unfold(entry.name)} (${entry.calendar})`);
+              busy.push(calendarLabel(entry));
             }
           }
           const values: ViewValue[] = [];
@@ -1693,7 +1446,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
             });
           values.push({
             name: "Range",
-            text: `${viewTime(zonedIso(range.from, ctx.zone), ctx.zone, false)} to ${viewTime(zonedIso(range.to, ctx.zone), ctx.zone)}`,
+            text: viewRange(range, ctx.zone),
             from: "agent",
           });
           if (args.query !== undefined)
@@ -1727,9 +1480,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
     }),
     expects: {
       account: "a string",
-      calendar:
-        "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters",
-      event: "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores",
+      calendar: CALENDAR_ID_EXPECTS,
+      event: EVENT_ID_EXPECTS,
       time_zone: zoneExpects,
     },
     view: {
@@ -1748,7 +1500,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
           return [
             {
               name: "Calendar",
-              text: `${unfold(calendar.name)} (${calendar.calendar})`,
+              text: calendarLabel(calendar),
               from: "calendar" as const,
             },
             { name: "Event", text: unfold(event.title), from: "calendar" as const },
@@ -1794,7 +1546,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
           for (const id of calendars) {
             const calendar =
               id === "primary" ? undefined : ctx.calendars.find((entry) => entry.calendar === id);
-            if (calendar) listed.push(`${unfold(calendar.name)} (${calendar.calendar})`);
+            if (calendar) listed.push(calendarLabel(calendar));
             else others.push(id);
           }
           const values: ViewValue[] = [];
@@ -1808,7 +1560,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
             });
           values.push({
             name: "Range",
-            text: `${viewTime(zonedIso(range.from, ctx.zone), ctx.zone, false)} to ${viewTime(zonedIso(range.to, ctx.zone), ctx.zone)}`,
+            text: viewRange(range, ctx.zone),
             from: "agent",
           });
           return values;
@@ -1892,9 +1644,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
     onExcessProperty: "error",
     expects: {
       account: "a string",
-      calendar:
-        "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters",
-      event: "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores",
+      calendar: CALENDAR_ID_EXPECTS,
+      event: EVENT_ID_EXPECTS,
       title:
         "a string of 1 to 1,000 characters without control characters; give at least one change",
       location: "a string of at most 1,000 characters without control characters",
@@ -1933,9 +1684,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
     onExcessProperty: "error",
     expects: {
       account: "a string",
-      calendar:
-        "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters",
-      event: "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores",
+      calendar: CALENDAR_ID_EXPECTS,
+      event: EVENT_ID_EXPECTS,
     },
     view: {
       action: "delete an event",

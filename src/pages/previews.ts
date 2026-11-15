@@ -536,7 +536,7 @@ const approvalPreviews: Readonly<Record<string, ApprovalPageProps>> = {
       },
       account: {
         name: "Fabrikam Holdings International, Finance and Legal Operations",
-        email: "alexandra.personal-archive@fabrikam-holdings.example",
+        email: "alexandra.personal.archive.finance.legal@fabrikamholdingsinternational.example",
         workspace: true,
       },
     },
@@ -1102,7 +1102,7 @@ export const previews: Readonly<Record<string, Page>> = {
           ];
           const senders = [
             "Sam <sam@example.com>",
-            "Kim Lee (Northwind Billing and Customer Accounts) <kim.lee@northwind.example>",
+            "Kim Lee (Northwind Billing and Customer Accounts) <kim.lee.billing.customer.accounts@northwindcustomeraccounts.example>",
             "Jo <jo@example.com>",
             "The workshop planning team <workshops@fabrikam-holdings.example>",
           ];

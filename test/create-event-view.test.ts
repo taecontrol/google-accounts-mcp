@@ -20,6 +20,25 @@ import { setTool } from "./support/uploads";
 import { network } from "./support/network";
 import { rpcResult } from "./support/oauth";
 
+it("unfolds a secondary calendar name in both calendar and organizer values", async () => {
+  const f = await eventsFixture("create_event", "ask");
+  repeatCalendars(PRIMARY_CALENDAR, {
+    ...SECONDARY_CALENDAR,
+    summary: "Team\nFake heading",
+    accessRole: "writer",
+  });
+  const id = (await answer(await createEventCall(f, { calendar: SECONDARY_CALENDAR.id })))
+    .approval as string;
+  expect((await page(f, id)).request.values.slice(0, 2)).toEqual([
+    { name: "Calendar", text: `Team Fake heading (${SECONDARY_CALENDAR.id})`, from: "calendar" },
+    {
+      name: "Guests see the organizer as",
+      text: `Team Fake heading (${SECONDARY_CALENDAR.id})`,
+      from: "calendar",
+    },
+  ]);
+});
+
 it("names the last day of an all-day event, not its exclusive end", async () => {
   const f = await eventsFixture("create_event", "ask");
   repeatCalendars(PRIMARY_CALENDAR);

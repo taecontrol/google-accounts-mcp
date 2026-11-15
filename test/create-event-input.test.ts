@@ -2,10 +2,40 @@ import "./support/account-checks";
 import { expect, it } from "vite-plus/test";
 import { answer, rows } from "./support/approvals";
 import { eventsFixture } from "./support/calendar";
-import { createEventCall, eventWriter, primaryList } from "./support/event-write";
+import { createEventCall, eventWriter, primaryList, repeatCalendars } from "./support/event-write";
+import { PRIMARY_CALENDAR } from "./support/calendar";
 import { expectError, PERSONAL } from "./support/permissions";
 import { readEventCall } from "./support/calendar";
 import { setTool } from "./support/uploads";
+
+it.each([false, true])("keeps the exact insert request bytes, Meet: %s", async (meet) => {
+  const f = await eventsFixture("create_event");
+  const calendar = "team+calendar@example.com";
+  repeatCalendars({ ...PRIMARY_CALENDAR, id: calendar });
+  const google = eventWriter();
+  await answer(
+    await createEventCall(f, {
+      calendar,
+      location: "Room 1",
+      description: "a <b> c & d\nNext",
+      guests: ["Guest@Example.com"],
+      repeat: { every: "day", count: 2 },
+      meet,
+    }),
+  );
+  const insert = google.inserts[0]!;
+  expect(insert.request.url).toBe(
+    `https://www.googleapis.com/calendar/v3/calendars/team%2Bcalendar%40example.com/events?${meet ? "conferenceDataVersion=1&" : ""}sendUpdates=all`,
+  );
+  expect(insert.request.method).toBe("POST");
+  expect(insert.request.redirect).toBe("manual");
+  expect([...insert.request.headers.keys()].sort()).toEqual(["authorization", "content-type"]);
+  expect(insert.request.headers.get("Authorization")).toMatch(/^Bearer /);
+  expect(insert.request.headers.get("Content-Type")).toBe("application/json");
+  expect(insert.bodyText).toBe(
+    `{"id":"${String(insert.body.id)}","summary":"Planning","start":{"dateTime":"2026-11-20T09:00:00-05:00","timeZone":"America/Bogota"},"end":{"dateTime":"2026-11-20T10:00:00-05:00","timeZone":"America/Bogota"},"recurrence":["RRULE:FREQ=DAILY;COUNT=2"],"location":"Room 1","description":"<span>a &lt;b&gt; c &amp; d<br>Next</span>","attendees":[{"email":"Guest@Example.com"}]${meet ? `,"conferenceData":{"createRequest":{"requestId":"${String(insert.body.id)}","conferenceSolutionKey":{"type":"hangoutsMeet"}}}` : ""}}`,
+  );
+});
 
 it.each([
   { title: "Planning\n" },

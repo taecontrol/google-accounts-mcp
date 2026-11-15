@@ -22,6 +22,9 @@ export const EventId = Schema.String.check(
   Schema.isPattern(/^[A-Za-z0-9_-]+$/u),
 );
 
+export const EVENT_ID_EXPECTS =
+  "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores";
+
 const Person = Schema.Struct({
   email: Schema.optionalKey(Schema.String),
   self: Schema.optionalKey(Schema.Boolean),

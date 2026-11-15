@@ -5,6 +5,7 @@ import type { Outcome } from "../calls/store";
 import { WAITING_LIMIT } from "../approvals/model";
 import type { ConnectionId } from "../connections/model";
 import type { ToolAnnotations } from "./tools";
+export class ViewUnavailable extends Data.TaggedError("ViewUnavailable") {}
 export const failures = {
   upload_not_available: {
     outcome: "refused",

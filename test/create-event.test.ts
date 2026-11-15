@@ -10,7 +10,8 @@ import { createEventCall, eventWriter, primaryList, repeatCalendars } from "./su
 import { callRows, expectError, PERSONAL } from "./support/permissions";
 import { setTool } from "./support/uploads";
 import { onceRows } from "./support/draft";
-import { STALE } from "../src/once/store";
+import { STALE, WINDOW } from "../src/once/store";
+import { isoSeconds } from "../src/approvals/model";
 import { observeStatements } from "./support/db";
 import { testEnv } from "./support/worker";
 
@@ -47,6 +48,7 @@ it.each(["allow", "ask", "ask then allow"] as const)(
 it.each([
   "abort",
   "500",
+  "204",
   "409",
   "412",
   "408",
@@ -101,7 +103,7 @@ it.each([
   },
 );
 
-it.each(["cancelled", "404", "410", "500", "unreadable", "abort"])(
+it.each(["cancelled", "404", "410", "201", "500", "unreadable", "abort"])(
   "settling %s reports the outcome and never inserts again",
   async (status) => {
     const f = await eventsFixture("create_event");
@@ -111,8 +113,11 @@ it.each(["cancelled", "404", "410", "500", "unreadable", "abort"])(
     await expectError(await createEventCall(f), "outcome_unknown", /Call again/);
     const saved = [...google.events.values()][0]!;
     google.fake.read = () =>
-      status === "cancelled"
-        ? Response.json({ ...saved, status: "cancelled" })
+      status === "cancelled" || status === "201"
+        ? Response.json(
+            { ...saved, ...(status === "cancelled" ? { status: "cancelled" } : {}) },
+            { status: status === "201" ? 201 : 200 },
+          )
         : status === "unreadable"
           ? Response.json({ no: "id" })
           : status === "abort"
@@ -204,6 +209,26 @@ it("settles an explicit calendar after access falls to reader without needing it
   expect(google.inserts).toHaveLength(1);
 });
 
+it.each([undefined, "primary"])(
+  "cannot recover an implicit calendar when its primary ID is %s",
+  async (id) => {
+    const f = await eventsFixture("create_event");
+    primaryList();
+    const google = eventWriter();
+    google.fake.insert = () => new Response(null, { status: 500 });
+    await expectError(await createEventCall(f), "outcome_unknown", /Call again/);
+    repeatCalendars(...(id === undefined ? [] : [{ ...PRIMARY_CALENDAR, id }]));
+    await expectError(
+      await createEventCall(f),
+      "outcome_unknown",
+      `The server could not check Google Calendar for the event in ${PERSONAL} just now. Call again with exactly the same arguments in a minute: the server checks again and never creates it twice. If this keeps happening, ask the owner to look in Google Calendar. Until ${isoSeconds(Date.now() + WINDOW)}, repeating this call does not create it.`,
+    );
+    expect(google.reads).toEqual([]);
+    expect(google.inserts).toHaveLength(1);
+    expect((await onceRows())[0]!.state).toBe("unknown");
+  },
+);
+
 it.each([400, 403, 404, 429])(
   "releases an insert refused with %s so the identical call can try again",
   async (status) => {
@@ -242,6 +267,50 @@ it("duplicate creates another event and its retry returns that event", async () 
   });
   expect(google.inserts).toHaveLength(2);
 });
+
+it.each([
+  { duplicate: undefined, next: 2 },
+  { duplicate: 99, next: 100 },
+  { duplicate: 100, next: null },
+])(
+  "keeps the exact repeat, missing, and cancelled advice for duplicate $duplicate",
+  async ({ duplicate, next }) => {
+    const f = await eventsFixture("create_event");
+    primaryList();
+    const google = eventWriter();
+    const args = duplicate === undefined ? {} : { duplicate };
+    const at = isoSeconds(Date.now());
+    const repeatNote = `This call already ran at ${at}. Nothing was created again. This is its result.${next === null ? "" : ` To create one more on purpose, for example after the owner deleted it, call again with duplicate: ${next}.`}`;
+    const first = await answer(await createEventCall(f, args));
+    expect(await answer(await createEventCall(f, args))).toEqual({
+      ...first,
+      repeat_of: at,
+      note: repeatNote,
+    });
+
+    google.fake.insert = () => new Response(null, { status: 503 });
+    const uncertain = { ...args, title: "Uncertain" };
+    await expectError(await createEventCall(f, uncertain), "outcome_unknown", /Call again/);
+    google.fake.read = () => new Response(null, { status: 404 });
+    await expectError(
+      await createEventCall(f, uncertain),
+      "outcome_unknown",
+      `Google Calendar does not show the event. Ask the owner to look in Google Calendar. Until ${isoSeconds(Date.now() + WINDOW)}, repeating this call does not create it.${next === null ? "" : ` If the owner says that it is missing, call again with duplicate: ${next}.`}`,
+    );
+
+    const saved = [...google.events.values()].at(-1)!;
+    google.fake.read = () => Response.json({ ...saved, status: "cancelled" });
+    expect(await answer(await createEventCall(f, uncertain))).toEqual({
+      account: PERSONAL,
+      calendar: PERSONAL,
+      event: saved.id,
+      link: saved.htmlLink,
+      repeat_of: at,
+      note: `${repeatNote} This call created the event and it is no longer in the calendar.${next === null ? "" : ` To create another, call again with duplicate: ${next}.`}`,
+    });
+    expect(google.inserts).toHaveLength(2);
+  },
+);
 
 it.each(["success", "video", "pending", "failure", "none", "unconfirmed link"])(
   "requests Meet and returns only a confirmed link for %s, keeping notes on repeats",

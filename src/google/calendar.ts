@@ -1,10 +1,10 @@
 import { Effect, Result, Schema } from "effect";
 import type { Send } from "../mcp/tools";
 import { ToolFailure } from "../mcp/failures";
-import { shorten } from "./bounds";
+import { shorten, unfold } from "./bounds";
 import { ZoneName } from "./calendar-time";
 
-const API = "https://www.googleapis.com/calendar/v3";
+export const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
 /** An ID that an agent gives. Approval views list IDs one per line, so none may break a line. */
 export const CalendarId = Schema.String.check(
@@ -12,6 +12,8 @@ export const CalendarId = Schema.String.check(
   // oxlint-disable-next-line no-control-regex -- IDs must not hold characters that break view lines.
   Schema.makeFilter((id) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(id)),
 );
+export const CALENDAR_ID_EXPECTS =
+  "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters";
 export const get = <A>(
   send: Send,
   path: string,
@@ -21,7 +23,7 @@ export const get = <A>(
   Effect.gen(function* () {
     const response = yield* send(
       (token, signal) =>
-        new Request(`${API}/${path}`, {
+        new Request(`${CALENDAR_API}/${path}`, {
           headers: { Authorization: `Bearer ${token}` },
           redirect: "manual",
           signal,
@@ -136,6 +138,8 @@ export interface Calendar {
   readonly access: "owner" | "writer" | "reader" | "free_busy";
   readonly time_zone?: string;
 }
+export const calendarLabel = (calendar: { name: string; calendar: string }): string =>
+  `${unfold(calendar.name)} (${calendar.calendar})`;
 export const MAX_CALENDAR_PAGES = 8;
 export const MAX_CALENDARS = 100;
 export const MAX_CALENDARS_CHARACTERS = 30_000;
