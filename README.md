@@ -17,7 +17,7 @@ The Gmail tools list labels, search and read threads, change labels, write draft
 
 ## Deploy
 
-You deploy from a copy of this repository on your own computer. You need Node.js 26 with pnpm (`corepack enable pnpm`), a Cloudflare account on the Workers Paid plan, and a hostname in a zone of that account, such as `mcp.example.com`.
+You deploy from a copy of this repository on your own computer. You need Node.js 26 with pnpm (`npm install --global pnpm`), a Cloudflare account on the Workers Paid plan, and a hostname in a zone of that account, such as `mcp.example.com`.
 
 Set up these first, with your hostname in place of `<host>`:
 
@@ -51,7 +51,7 @@ The first time, the command asks for these settings and stores them as secrets o
 
 It also generates `TOKEN_KEY`, the key that encrypts Google tokens. Only the Worker keeps it, and the Worker cannot read your connected accounts without it. To keep your own copy, generate one with `openssl rand -hex 32` before the first deploy and set it in the environment. The command takes any of these settings from an environment variable of the same name instead of asking, and it checks each value before it changes anything.
 
-The command then builds the server, deploys it to `<host>`, and turns off its `workers.dev` address. The deploy creates the D1 database, the KV namespaces, and a cron trigger that removes expired approvals, uploads, and repeat records every ten minutes. The command applies the database migrations and checks that `https://<host>/mcp` answers. When Access sends that path to its sign-in page, the command says so: the second Access application is missing.
+The command then builds the server, deploys it to `<host>`, and turns off its `workers.dev` address. The deploy creates the D1 database, the KV namespaces, and a cron trigger that removes expired approvals, uploads, and repeat records every ten minutes. The command applies the database migrations and checks that `/mcp`, `/.well-known/`, `/oauth/`, and `/uploads/` on `<host>` answer as this server does. When Access sends one of them to its sign-in page, the command names it: it is missing from the second Access application.
 
 To update, get the new version of the repository and run `pnpm run deploy <host>` again. The command applies the new migrations before it deploys, and asks only for a setting the Worker does not have yet. Set `CLOUDFLARE_ACCOUNT_ID` when your Cloudflare login reaches several accounts. On a machine without a browser, set `CLOUDFLARE_API_TOKEN` instead of running `wrangler login`.
 

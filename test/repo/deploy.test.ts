@@ -1,5 +1,5 @@
 import { expect, it } from "vite-plus/test";
-import { deploy, type Io, type Run } from "../../scripts/deploy.ts";
+import { childEnv, deploy, type Io, type Run } from "../../scripts/deploy.ts";
 
 // The deploy command against a fake wrangler, build, terminal, and network. Each test reads the
 // ordered record of what the command did.
@@ -22,6 +22,13 @@ const VALID: Record<string, string> = {
 };
 const GENERATED_KEY = "c".repeat(64);
 const NOT_FOUND = `✘ [ERROR] Worker "google-accounts-mcp" not found.\n\n  If this is a new Worker, run \`wrangler deploy\` first to create it.`;
+// What the server answers on each path the deploy checks (seen on a local `vp dev`).
+const SERVER: Record<string, number> = {
+  "/mcp": 401,
+  "/.well-known/oauth-authorization-server": 200,
+  "/oauth/token": 405,
+  "/uploads/": 404,
+};
 const ok = (stdout = ""): Run => ({ code: 0, stdout, stderr: "" });
 
 interface Fake {
@@ -31,11 +38,13 @@ interface Fake {
   answers?: string[];
   fail?: string;
   pendingAfterApply?: boolean;
+  secretList?: string;
   statuses?: Record<string, number>;
 }
 
 function fake(options: Fake = {}) {
   const steps: string[] = [];
+  const modes = new Map<string, string>();
   const logs: string[] = [];
   const secretsFiles: Record<string, string>[] = [];
   const asked: { question: string; hidden: boolean }[] = [];
@@ -48,11 +57,14 @@ function fake(options: Fake = {}) {
       asked.push({ question, hidden });
       return answers.shift() ?? "";
     },
-    exec: async (bin, args) => {
+    exec: async (bin, args, mode = "terminal") => {
       const step = [bin, ...args].join(" ");
       steps.push(step);
+      modes.set(step, mode);
       if (options.fail !== undefined && step.startsWith(options.fail))
         return { code: 1, stdout: "", stderr: "failed" };
+      if (step === "wrangler secret list --format json" && options.secretList !== undefined)
+        return ok(options.secretList);
       if (step === "wrangler secret list --format json") {
         const names = options.workerSecrets === undefined ? ALL : options.workerSecrets;
         return names === null
@@ -74,12 +86,12 @@ function fake(options: Fake = {}) {
     },
     status: async (url) => {
       const path = new URL(url).pathname;
-      return options.statuses?.[path] ?? (path === "/mcp" ? 401 : 200);
+      return options.statuses?.[path] ?? SERVER[path] ?? 0;
     },
     sleep: async () => {},
     randomKey: () => GENERATED_KEY,
   };
-  return { io, steps, logs, secretsFiles, asked };
+  return { io, steps, modes, logs, secretsFiles, asked };
 }
 
 const MIGRATE = [
@@ -115,6 +127,11 @@ it("deploys a new Worker with every setting, then migrates the database it creat
     { question: "GOOGLE_CLIENT_ID: ", hidden: false },
     { question: "GOOGLE_CLIENT_SECRET: ", hidden: true },
   ]);
+  // Unattended, wrangler creates the database under the name the migrations look for, and
+  // leaves wrangler.jsonc as it is.
+  expect(run.modes.get(`wrangler deploy --domain ${HOST} --secrets-file /tmp/secrets.json`)).toBe(
+    "unattended",
+  );
   expect(run.logs.join("\n")).toContain(`redirect URI: https://${HOST}/google/callback`);
   expect(run.logs.at(-1)).toContain(`https://${HOST}/accounts`);
 });
@@ -221,4 +238,35 @@ it("names the missing Bypass application when Access answers /mcp", async () => 
   const run = fake({ statuses: { "/mcp": 302 } });
   expect(await deploy([HOST], run.io)).toBe(false);
   expect(run.logs).toContain("Cloudflare Access covers /mcp: add it to the Bypass application.");
+});
+
+it("names the missing Bypass path for uploads too", async () => {
+  const run = fake({ statuses: { "/uploads/": 302 } });
+  expect(await deploy([HOST], run.io)).toBe(false);
+  expect(run.logs).toContain(
+    "Cloudflare Access covers /uploads/: add it to the Bypass application.",
+  );
+});
+
+it("tells the deployer to run again when a new Worker's migrations fail", async () => {
+  const run = fake({ workerSecrets: null, env: VALID, fail: "wrangler d1 migrations apply" });
+  expect(await deploy([HOST], run.io)).toBe(false);
+  expect(run.logs.at(-1)).toContain("Run this command again.");
+});
+
+it("stops before the build when the list of secrets is not what wrangler documents", async () => {
+  const run = fake({ secretList: '{"name":"OWNER_EMAIL"}' });
+  expect(await deploy([HOST], run.io)).toBe(false);
+  expect(run.steps).toEqual(["wrangler secret list --format json"]);
+});
+
+it("keeps the server's settings out of the build's and wrangler's environment", () => {
+  const env = childEnv({
+    ...VALID,
+    TOKEN_KEY: GENERATED_KEY,
+    PATH: "/bin",
+    CLOUDFLARE_ACCOUNT_ID: "x",
+  });
+  expect(Object.keys(env).filter((name) => ALL.includes(name))).toEqual([]);
+  expect(env).toMatchObject({ PATH: "/bin", CLOUDFLARE_ACCOUNT_ID: "x" });
 });
