@@ -6,40 +6,22 @@ import type { TestEnv } from "./env";
 import { ORIGIN } from "./support/worker";
 
 // Each page state hydrates once in Chromium, with no errors and no horizontal overflow, at phone
-// and desktop widths.
-const approvalStates = [
+// and desktop widths. Every waiting tool shares one approval layout, so three views stand for the
+// rest: the most values, the longest labels and lines, and both kinds of note. Add a view only when
+// it brings a structure this layout does not cover.
+const pages = [
   "approval-waiting-long-names",
   "approval-cannot-show",
   "approval-changed",
   "approval-succeeded",
   "approval-failed",
   "approval-unconfirmed",
-];
-const toolViews = [
-  "approval-create-event",
-  "approval-create-event-repeat",
-  "approval-create-event-repeat-no-end",
-  "approval-update-event",
-  "approval-delete-event",
-  "approval-waiting-thread",
-  "approval-waiting-search",
-  "approval-waiting-notes",
-  "approval-waiting-labels",
   "approval-waiting-labels-many",
-  "approval-waiting-draft",
-  "approval-waiting-reply",
-  "approval-waiting-attachment",
-  "approval-waiting-send",
-  "approval-waiting-send-reply",
-  "approval-waiting-forward",
-  "approval-waiting-send-draft",
-  "approval-waiting-delete",
+  "approval-create-event-repeat",
   "approval-respond-to-event",
   "connection-some-allowed",
 ];
-const cases = [...approvalStates, ...toolViews].flatMap((name) =>
-  [390, 1280].map((width) => ({ name, width })),
-);
+const cases = pages.flatMap((name) => [390, 1280].map((width) => ({ name, width })));
 
 it.each(cases)(
   "renders $name at $width px without overflow",
