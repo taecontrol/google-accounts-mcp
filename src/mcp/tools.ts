@@ -121,7 +121,7 @@ import {
   type Outgoing,
 } from "../google/mail";
 import { replyPlan, type ReplyPlan } from "../google/reply";
-import { normalizeEmail } from "../owner/owner";
+import { normalizeEmail } from "../email";
 import {
   MAX_BODY_PARTS,
   MAX_REPLY_HEADER,

@@ -5,7 +5,7 @@ import { shorten } from "../google/bounds";
 import { MAX_FORWARD_BYTES } from "../google/forward";
 import { GmailId, REQUESTS_AT_ONCE } from "../google/gmail";
 import { fileFields, type FilePart } from "../google/mail";
-import { normalizeEmail } from "../owner/owner";
+import { normalizeEmail } from "../email";
 import { parseUploadId } from "../uploads/store";
 import { messageTooLarge, ToolFailure, uploadNotAvailable } from "./failures";
 import { TOOLS, type Sources } from "./tools";

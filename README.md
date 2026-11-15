@@ -17,46 +17,47 @@ The Gmail tools list labels, search and read threads, change labels, write draft
 
 ## Deploy
 
-You need these before the first deploy:
+You deploy from a copy of this repository on your own computer. You need Node.js 26 with pnpm (`npm install --global pnpm`), a Cloudflare account on the Workers Paid plan, and a hostname in a zone of that account, such as `mcp.example.com`.
 
-- **A Google Cloud OAuth client.** Enable the Gmail API and the Google Calendar API in your Google Cloud project, and create a web application client. Register `https://<host>/google/callback` as a redirect URI, once for each hostname you use. The server asks only for the scopes of the services you choose for each account:
+Set up these first, with your hostname in place of `<host>`:
+
+- **A Google Cloud OAuth client.** Enable the Gmail API and the Google Calendar API in your Google Cloud project, and create a web application client. Register `https://<host>/google/callback` as a redirect URI. The server asks only for the scopes of the services you choose for each account:
   - Gmail: `gmail.readonly`, `gmail.compose`, `gmail.send`, `gmail.modify`, and `https://mail.google.com/`.
   - Calendar: `calendar.calendarlist.readonly`, `calendar.events`, and `calendar.events.freebusy`.
 
   Except for `https://mail.google.com/`, each scope starts with `https://www.googleapis.com/auth/`. The admin of a Workspace organization can block your client for that organization's accounts, or block Calendar alone. You can connect the account with Gmail only.
 
-- **Two Cloudflare Access self-hosted applications** on the Worker's hostname, both with managed OAuth turned off:
-  1. One for the whole hostname, with an Allow policy for your email address only. Its Application Audience (AUD) tag is `ACCESS_AUDIENCE`.
-  2. One for `/mcp`, `/oauth/*`, `/.well-known/*`, and `/uploads/*`, with a Bypass policy for everyone. Agent clients and file uploads call these paths without a browser, and the server checks its own connection and upload credentials there. Without `/uploads/*` here, an upload gets the Access sign-in page.
+- **Two Cloudflare Access self-hosted applications** on `<host>`, both with managed OAuth turned off:
+  1. One for the whole hostname, with an Allow policy for your email address only.
+  2. One for `/mcp`, `/oauth/*`, `/.well-known/*`, and `/uploads/*`, with a Bypass policy for everyone. Agent clients and file uploads call these paths without a browser, and the server checks its own connection and upload credentials there.
 
-  Put the `workers.dev` address behind Access too, or turn it off.
+Then download or clone this repository and run, from its folder:
 
-Then:
+```sh
+pnpm install
+pnpm exec wrangler login
+pnpm run deploy <host>
+```
 
-1. Set the six secrets with `wrangler secret put`. `wrangler deploy` refuses to deploy while one is missing.
+The first time, the command asks for these settings and stores them as secrets of the Worker:
 
-   | Secret                 | Value                                                                                       |
-   | ---------------------- | ------------------------------------------------------------------------------------------- |
-   | `OWNER_EMAIL`          | Your email address. The first request with a valid Access token for it makes you the owner. |
-   | `ACCESS_ISSUER`        | Your Access team domain, exactly `https://<team>.cloudflareaccess.com`.                     |
-   | `ACCESS_AUDIENCE`      | The AUD tag of the first Access application.                                                |
-   | `GOOGLE_CLIENT_ID`     | The OAuth client ID.                                                                        |
-   | `GOOGLE_CLIENT_SECRET` | The OAuth client secret.                                                                    |
-   | `TOKEN_KEY`            | 64 hexadecimal characters, for example from `openssl rand -hex 32`.                         |
+| Setting                | Value                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| `OWNER_EMAIL`          | Your email address. The first request with a valid Access token for it makes you the owner. |
+| `ACCESS_ISSUER`        | Your Access team domain, exactly `https://<team>.cloudflareaccess.com`.                     |
+| `ACCESS_AUDIENCE`      | The Application Audience (AUD) tag of the first Access application.                         |
+| `GOOGLE_CLIENT_ID`     | The OAuth client ID.                                                                        |
+| `GOOGLE_CLIENT_SECRET` | The OAuth client secret.                                                                    |
 
-2. Apply the pending migrations to the deploy's D1 database, with the same configuration and environment as the Worker:
+It also generates `TOKEN_KEY`, the key that encrypts Google tokens. Only the Worker keeps it, and the Worker cannot read your connected accounts without it. To keep your own copy, generate one with `openssl rand -hex 32` before the first deploy and set it in the environment. The command takes any of these settings from an environment variable of the same name instead of asking, and it checks each value before it changes anything.
 
-   ```sh
-   pnpm exec wrangler d1 migrations apply DB --remote
-   ```
+The command then builds the server, deploys it to `<host>`, and turns off its `workers.dev` address. The deploy creates the D1 database, the KV namespaces, and a cron trigger that removes expired approvals, uploads, and repeat records every ten minutes. The command applies the database migrations and checks that `/mcp`, `/.well-known/`, `/oauth/`, and `/uploads/` on `<host>` answer as this server does. When Access sends one of them to its sign-in page, the command names it: it is missing from the second Access application.
 
-   Apply them before you deploy the code, unless a migration's first comment says to deploy first, as `0010_owner_without_instance.sql` does.
+To update, get the new version of the repository and run `pnpm run deploy <host>` again. The command applies the new migrations before it deploys, and asks only for a setting the Worker does not have yet. Set `CLOUDFLARE_ACCOUNT_ID` when your Cloudflare login reaches several accounts. On a machine without a browser, set `CLOUDFLARE_API_TOKEN` instead of running `wrangler login`.
 
-3. Deploy. The deploy creates the D1 database, the KV namespaces, and a cron trigger that removes expired approvals, uploads, and repeat records every ten minutes.
+To change a setting, run `pnpm exec wrangler secret put <NAME>`. To change the owner, set the new `OWNER_EMAIL` this way, which applies it to all traffic at once. Never use a gradual deployment for it, because an older version would still accept the old owner. The server refuses every request until you run `pnpm owner:reset`, which asks for confirmation before it clears the stored owner. The new owner then signs in.
 
 If you already run this server, enable the Google Calendar API in its Google Cloud project. Then reconnect each account that needs Calendar access, with Calendar selected. Existing accounts keep Gmail access; they gain no Calendar access until you reconnect them.
-
-To change the owner, deploy the new `OWNER_EMAIL` to all traffic at once, never as a gradual deployment, because an older version would still accept the old owner. The server refuses every request until you run `pnpm owner:reset`, which asks for confirmation before it clears the stored owner. The new owner then signs in.
 
 ## Before you use it
 

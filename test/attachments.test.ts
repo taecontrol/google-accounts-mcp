@@ -356,7 +356,7 @@ it.each(["POST", "undeclared sending account", "undeclared third account"])(
   async (kind) => {
     const f = await attaching("create_draft");
     await setTool(f, "get_attachment", "allow", f.northwind);
-    const { normalizeEmail } = await import("../src/owner/owner");
+    const { normalizeEmail } = await import("../src/email");
     const { executeAccount, CALL_DEADLINE } = await import("../src/mcp/call");
     const { readConfig } = await import("../src/config");
     const { readOwner } = await import("../src/owner/owner");

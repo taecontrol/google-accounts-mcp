@@ -1,7 +1,7 @@
 import { Data, Effect, Schema } from "effect";
 import { decodeJwt } from "jose";
 import type { Config } from "../config";
-import { normalizeEmail } from "../owner/owner";
+import { normalizeEmail } from "../email";
 import { scopesOf, type Service } from "./services";
 export type GoogleAccountEmail = string & { readonly __googleAccountEmail: unique symbol };
 export interface GoogleIdentity {

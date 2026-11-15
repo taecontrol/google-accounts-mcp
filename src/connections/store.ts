@@ -3,7 +3,8 @@ import { permittedWhere } from "../permissions/store";
 import type { Name } from "../names";
 import { Data, Effect } from "effect";
 import { first, Unavailable, WriteUncertain } from "../db";
-import type { Owner, OwnerEmail } from "../owner/owner";
+import type { OwnerEmail } from "../email";
+import type { Owner } from "../owner/owner";
 import {
   APP_LABELS,
   type ActiveConnection,
