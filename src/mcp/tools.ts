@@ -1591,7 +1591,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
             return (
               length >= 1 &&
               length <= 1_000 &&
-              /[^\s\p{Cf}\u115F\u1160\u2800\u3164\uFFA0]/u.test(note)
+              /[^\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]/u.test(note)
             );
           }),
         ),

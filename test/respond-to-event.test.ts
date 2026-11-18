@@ -185,7 +185,7 @@ it.each(["calendar", "time_zone", "duplicate", "extra"])(
   },
 );
 
-it.each(["😀".repeat(1000), "\n😀", "a"])(
+it.each(["😀".repeat(1000), "\n😀", "a", "\u0000Cafe\u0301\u034F\n👩\u200D💻 ☕\uFE0F"])(
   "sends the full valid note counted in Unicode code points %#",
   async (note) => {
     const f = await eventsFixture("respond_to_event");
