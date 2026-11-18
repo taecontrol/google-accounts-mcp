@@ -154,6 +154,24 @@ it.each([
   expect(calendarPaths()).toEqual([]);
 });
 
+it.each([
+  { kind: "control", note: "\u0000" },
+  { kind: "combining grapheme joiner", note: "\u034f" },
+  { kind: "variation selector", note: "\ufe0f" },
+])("refuses a note containing only an invisible $kind before Calendar", async ({ note }) => {
+  const f = await eventsFixture("respond_to_event");
+  calendarFake(list(PRIMARY_CALENDAR));
+  eventsFake({ [PERSONAL]: { events: { e1: Response.json(invitationFixture()) } } });
+  const patches = patchEventsFake(confirmed());
+  await expectError(
+    await respondCall(f, { note }),
+    "invalid_arguments",
+    /The note field must be .*visible character/,
+  );
+  expect(calendarPaths()).toEqual([]);
+  expect(patches).toEqual([]);
+});
+
 it.each(["calendar", "time_zone", "duplicate", "extra"])(
   "refuses the extra field %s instead of ignoring it",
   async (field) => {
