@@ -1,5 +1,5 @@
 import { Effect, Result, Schema } from "effect";
-import type { ViewValue } from "../approvals/model";
+import { sameValues, type ViewValue } from "../approvals/model";
 import type { Confirm, Send, Sending } from "../mcp/tools";
 import { notFound, ToolFailure } from "../mcp/failures";
 import { CalendarId, calendarContext, calendarLabel, get, writableCalendar } from "./calendar";
@@ -583,18 +583,7 @@ export const runChange = <R>(
 ) =>
   Effect.gen(function* () {
     const current = yield* plan;
-    if (
-      approved !== null &&
-      // Every page shows at least one value, so an empty approval never stands for a real page.
-      (approved.length === 0 ||
-        approved.length !== current.values.length ||
-        current.values.some((value, index) => {
-          const before = approved[index]!;
-          return (
-            value.name !== before.name || value.text !== before.text || value.from !== before.from
-          );
-        }))
-    )
+    if (approved !== null && !sameValues(approved, current.values))
       return yield* Effect.fail(
         new ToolFailure({
           code: "google_unavailable",

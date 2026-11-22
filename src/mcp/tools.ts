@@ -16,6 +16,7 @@ import {
   fileText,
   filesText,
   isoSeconds,
+  sameValues,
   viewDate,
   type ViewNote,
   type ViewValue,
@@ -1357,7 +1358,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
       Effect.gen(function* () {
         const ctx = yield* calendarContext(send, args.time_zone);
         const plan = yield* createEventPlan(args, ctx);
-        if (approved !== null && JSON.stringify(plan.values) !== JSON.stringify(approved))
+        if (approved !== null && !sameValues(approved, plan.values))
           return yield* Effect.fail(
             new ToolFailure({
               code: "invalid_arguments",

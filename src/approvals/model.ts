@@ -91,6 +91,14 @@ export interface ViewValue {
   text: string;
   from: "agent" | "gmail" | "draft" | "calendar";
 }
+/** Match the nonempty, ordered values shown for a Calendar event write. */
+export const sameValues = (approved: readonly ViewValue[], current: readonly ViewValue[]) =>
+  approved.length > 0 &&
+  approved.length === current.length &&
+  current.every((value, index) => {
+    const before = approved[index]!;
+    return value.name === before.name && value.text === before.text && value.from === before.from;
+  });
 export type ApprovalState =
   | { kind: "waiting"; shown: boolean; changed: boolean; digest: string | null }
   | { kind: "running" }
