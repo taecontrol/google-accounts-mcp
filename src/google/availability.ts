@@ -1,18 +1,13 @@
 import { Effect, Result, Schema } from "effect";
 import type { Send } from "../mcp/tools";
 import { calendarError, ToolFailure } from "../mcp/failures";
-import { CALENDAR_API, calendarContext, type CalendarContext } from "./calendar";
+import { CALENDAR_API, calendarContext, missingCalendar, type CalendarContext } from "./calendar";
 import { parseTime, rangeOf, zonedIso } from "./calendar-time";
 
 export const MAX_AVAILABILITY_CALENDARS = 20;
 export const MAX_AVAILABILITY_DAYS = 31;
 export const MAX_BUSY_TIMES = 150;
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
-const missingCalendar = () =>
-  new ToolFailure({
-    code: "not_found",
-    said: "No such calendar in the account's Google Calendar list; leave calendars out to use the primary calendar, or use IDs from list_calendars.",
-  });
 const group = () =>
   new ToolFailure({
     code: "invalid_arguments",

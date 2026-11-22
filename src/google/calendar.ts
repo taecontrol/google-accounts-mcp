@@ -66,6 +66,12 @@ export const calendarContext = (
     }),
   );
 
+export const missingCalendar = () =>
+  new ToolFailure({
+    code: "not_found",
+    said: "No such calendar in the account's Google Calendar list; leave calendars out to use the primary calendar, or use IDs from list_calendars.",
+  });
+
 /** The single access check for every event read, including approval views. */
 export const readableCalendar = (
   ctx: CalendarContext,
@@ -74,13 +80,7 @@ export const readableCalendar = (
 ): Result.Result<Calendar, ToolFailure> => {
   const calendar =
     id === undefined ? ctx.primary : ctx.calendars.find((calendar) => calendar.calendar === id);
-  if (!calendar || calendar.calendar === "primary")
-    return Result.fail(
-      new ToolFailure({
-        code: "not_found",
-        said: "No such calendar in the account's Google Calendar list; leave calendars out to use the primary calendar, or use IDs from list_calendars.",
-      }),
-    );
+  if (!calendar || calendar.calendar === "primary") return Result.fail(missingCalendar());
   if (calendar.access === "free_busy")
     return Result.fail(
       new ToolFailure({
