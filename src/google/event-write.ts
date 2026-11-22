@@ -19,7 +19,7 @@ export const Title = Schema.String.check(Schema.isBetweenLength(1, MAX_TITLE), n
 export const Location = Schema.String.check(Schema.isMaxLength(MAX_LOCATION), noControls);
 
 /** This is the sole encoding of agent text into Google's HTML-capable description. */
-export const descriptionForGoogle = (text: string): string =>
+const descriptionForGoogle = (text: string): string =>
   /[<>&]/.test(text)
     ? `<span>${text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>")}</span>`
     : text;

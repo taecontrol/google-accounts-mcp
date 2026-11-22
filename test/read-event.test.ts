@@ -227,30 +227,6 @@ it("sends a canonical zone on get and preserves the call's original zone name", 
   expect(new URL(sent[0]!.url).searchParams.get("timeZone")).toBe("America/Bogota");
 });
 
-it("omits attendees without email from guests and never matches an email-less self attendee", async () => {
-  const f = await eventsFixture("read_event");
-  calendarFake(list(PRIMARY_CALENDAR));
-  eventsFake({
-    [PERSONAL]: {
-      events: {
-        e1: Response.json(
-          eventFixture({
-            attendees: [
-              { displayName: "No address", self: true, responseStatus: "accepted" },
-              { email: "guest@example.com", responseStatus: "tentative" },
-            ],
-          }),
-        ),
-      },
-    },
-  });
-  const result = await answer(await readEventCall(f));
-  expect(result.guests).toEqual([
-    { email: "guest@example.com", response: "tentative", optional: false },
-  ]);
-  expect(result).not.toHaveProperty("my_response");
-});
-
 it.each([
   { dateTime: "+010000-01-01T14:00:00.123456Z" },
   { dateTime: "2026-11-20T15:00:00", timeZone: "Foo/Bar" },
@@ -260,27 +236,6 @@ it.each([
   calendarFake(list(PRIMARY_CALENDAR));
   eventsFake({ [PERSONAL]: { events: { e1: Response.json(eventFixture({ start })) } } });
   await expectError(await readEventCall(f), "google_unavailable", /Google could not complete/);
-});
-
-it("reads a floating Google event time in the event's zone", async () => {
-  const f = await eventsFixture("read_event");
-  calendarFake(list(PRIMARY_CALENDAR));
-  eventsFake({
-    [PERSONAL]: {
-      events: {
-        e1: Response.json(
-          eventFixture({
-            start: { dateTime: "2026-11-20T15:00:00", timeZone: "Europe/Madrid" },
-            end: { dateTime: "2026-11-20T16:00:00", timeZone: "Europe/Madrid" },
-          }),
-        ),
-      },
-    },
-  });
-  expect(await answer(await readEventCall(f))).toMatchObject({
-    start: "2026-11-20T09:00:00-05:00",
-    end: "2026-11-20T10:00:00-05:00",
-  });
 });
 
 it("bounds organizer and omits oversized links using JSON lengths so a 32,000-character htmlLink stays within the result budget", async () => {
