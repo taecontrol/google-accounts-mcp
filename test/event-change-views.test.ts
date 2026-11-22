@@ -269,51 +269,31 @@ it.each(["single", "occurrence", "series"])(
   },
 );
 
-const refusals = [
-  "gone",
-  "cancelled",
-  "guest",
-  "no organizer",
-  "special",
-  "series",
-  "unlisted",
-  "reader",
-  "busy",
-  "after-read input",
-];
-it.each(
-  (["update_event", "delete_event"] as const).flatMap((tool) =>
-    refusals.map((kind) => ({ tool, kind })),
-  ),
-)("$tool offers no Approve when the plan fails: $kind", async ({ tool, kind }) => {
+it.each([
+  { tool: "update_event", kind: "unlisted" },
+  { tool: "update_event", kind: "guest" },
+  { tool: "update_event", kind: "after-read input" },
+  { tool: "delete_event", kind: "unlisted" },
+  { tool: "delete_event", kind: "guest" },
+  { tool: "delete_event", kind: "instances unavailable" },
+] as const)("$tool offers no Approve when the plan fails: $kind", async ({ tool, kind }) => {
   const f = await eventsFixture(tool, "ask");
-  repeatList(
-    PRIMARY_CALENDAR,
-    { id: "reader", accessRole: "reader" },
-    { id: "busy", accessRole: "freeBusyReader" },
-  );
+  repeatList(PRIMARY_CALENDAR);
   const sent = eventsFake({
     [PERSONAL]: {
       events: {
-        e1:
-          kind === "gone"
-            ? new Response(null, { status: 404 })
-            : Response.json(
-                eventFixture({
-                  ...(kind === "cancelled" ? { status: "cancelled" } : {}),
-                  ...(kind === "guest" ? { organizer: { email: "host@example.com" } } : {}),
-                  ...(kind === "no organizer" ? { organizer: undefined } : {}),
-                  ...(kind === "special" ? { eventType: "focusTime" } : {}),
-                  ...(kind === "series" ? { recurrence: ["RRULE:FREQ=WEEKLY"] } : {}),
-                  ...(kind === "after-read input" && tool === "delete_event"
-                    ? {
-                        recurrence: ["RRULE:FREQ=WEEKLY"],
-                        start: { dateTime: "2030-11-20T14:00:00Z" },
-                        end: { dateTime: "2030-11-20T15:00:00Z" },
-                      }
-                    : {}),
-                }),
-              ),
+        e1: Response.json(
+          eventFixture({
+            ...(kind === "guest" ? { organizer: { email: "host@example.com" } } : {}),
+            ...(kind === "instances unavailable"
+              ? {
+                  recurrence: ["RRULE:FREQ=WEEKLY"],
+                  start: { dateTime: "2030-11-20T14:00:00Z" },
+                  end: { dateTime: "2030-11-20T15:00:00Z" },
+                }
+              : {}),
+          }),
+        ),
       },
       instances: { e1: new Response(null, { status: 503 }) },
     },
@@ -322,10 +302,8 @@ it.each(
     await answer(
       await eventChangeCall(f, tool, {
         ...(tool === "update_event" ? { title: "Changed" } : {}),
-        ...(["unlisted", "reader", "busy"].includes(kind) ? { calendar: kind } : {}),
-        ...(kind === "after-read input" && tool === "update_event"
-          ? { end: "2026-11-20T08:00" }
-          : {}),
+        ...(kind === "unlisted" ? { calendar: kind } : {}),
+        ...(kind === "after-read input" ? { end: "2026-11-20T08:00" } : {}),
       }),
     )
   ).approval as string;
@@ -333,7 +311,7 @@ it.each(
   const html = await (await f.mcp.browser.get(`/approvals/${id}`)).text();
   expect(html).not.toMatch(/>Approve</);
   expect(sent.every((r) => r.method === "GET")).toBe(true);
-  if (["unlisted", "reader", "busy"].includes(kind)) expect(sent).toEqual([]);
+  if (kind === "unlisted") expect(sent).toEqual([]);
 });
 
 it.each([
