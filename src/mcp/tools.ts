@@ -16,6 +16,7 @@ import {
   fileText,
   filesText,
   isoSeconds,
+  sameValues,
   viewDate,
   type ViewNote,
   type ViewValue,
@@ -336,8 +337,7 @@ const messageExpects =
   "a message ID of 1 to 64 letters, digits, hyphens, or underscores from this account";
 const Subject = Schema.String.check(
   Schema.isMaxLength(MAX_SUBJECT),
-  // oxlint-disable-next-line no-control-regex -- Input subjects cannot contain header controls.
-  Schema.isPattern(/^[^\u0000-\u001f\u007f]*$/),
+  Schema.isPattern(/^[^\p{Cc}]*$/u),
 );
 const DraftInput = Schema.Struct({
   account: Schema.String,
@@ -1357,7 +1357,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
       Effect.gen(function* () {
         const ctx = yield* calendarContext(send, args.time_zone);
         const plan = yield* createEventPlan(args, ctx);
-        if (approved !== null && JSON.stringify(plan.values) !== JSON.stringify(approved))
+        if (approved !== null && !sameValues(approved, plan.values))
           return yield* Effect.fail(
             new ToolFailure({
               code: "invalid_arguments",

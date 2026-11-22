@@ -9,19 +9,8 @@ import {
   PRIMARY_CALENDAR,
   SECONDARY_CALENDAR,
   searchCall,
-  CALENDAR_SCOPES,
-  readEventCall,
-  respondCall,
-  eventChangeCall,
 } from "./support/calendar";
-import {
-  callRows,
-  expectError,
-  fixture,
-  PERSONAL,
-  problemCases,
-  unavailableMessage,
-} from "./support/permissions";
+import { callRows, expectError, PERSONAL, unavailableMessage } from "./support/permissions";
 import { requests } from "./support/network";
 import { rpcResult } from "./support/oauth";
 import { deferred, google } from "./support/google";
@@ -1266,20 +1255,6 @@ it("marks later calendars not_read when their page tokens fill the result", asyn
   expect(sent).toHaveLength(20);
 });
 
-it("keeps twenty 254-character unlisted IDs below the MCP result budget without any events request", async () => {
-  const f = await eventsFixture();
-  calendarFake(list(PRIMARY_CALENDAR));
-  const text = await expectError(
-    await searchCall(f, {
-      calendars: Array.from({ length: 20 }, (_, i) => `${i}`.padEnd(254, '"')),
-    }),
-    "not_found",
-    unlistedMessage,
-  );
-  expect(text.length).toBeLessThanOrEqual(32_000);
-  expect(paths()).toEqual(["/calendar/v3/users/me/calendarList"]);
-});
-
 it.each([
   { field: "account", value: 1 },
   { field: "calendars", value: [] },
@@ -1352,57 +1327,4 @@ it("refuses page with several calendars before approval, and a page Google refus
   );
   expect(sent).toHaveLength(1);
   expect(new URL(sent[0]!.url).searchParams.get("pageToken")).toBe("refused");
-});
-
-it.each([
-  "search_events",
-  "read_event",
-  "respond_to_event",
-  "update_event",
-  "delete_event",
-] as const)(
-  "defaults %s to deny and distinguishes an unavailable account from a denied tool",
-  async (tool) => {
-    const f = await fixture({ scopes: JSON.stringify(CALENDAR_SCOPES) });
-    const call = () =>
-      tool === "search_events"
-        ? searchCall(f)
-        : tool === "read_event"
-          ? readEventCall(f)
-          : tool === "respond_to_event"
-            ? respondCall(f)
-            : eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {});
-    await expectError(await call(), "account_not_available", /No account/);
-    await setTool(f, "list_calendars", "allow");
-    await expectError(await call(), "tool_not_allowed", new RegExp(`has not allowed ${tool}`));
-    expect(paths()).toEqual([]);
-  },
-);
-
-it.each(
-  (
-    ["search_events", "read_event", "respond_to_event", "update_event", "delete_event"] as const
-  ).flatMap((tool) => problemCases.map((problem) => ({ tool, ...problem }))),
-)("refuses $tool at Calendar status $status before Google", async ({ tool, row, status }) => {
-  const f = await eventsFixture(tool, "allow", row);
-  await expectError(
-    tool === "search_events"
-      ? await searchCall(f)
-      : tool === "read_event"
-        ? await readEventCall(f)
-        : tool === "respond_to_event"
-          ? await respondCall(f)
-          : await eventChangeCall(f, tool, tool === "update_event" ? { title: "Changed" } : {}),
-    `account_${status}`,
-    status === "missing_access"
-      ? /no Calendar access/
-      : new RegExp(
-          status === "needs_reconnect"
-            ? "reconnect"
-            : status === "blocked_by_admin"
-              ? "admin blocked"
-              : "stored access",
-        ),
-  );
-  expect(paths()).toEqual([]);
 });

@@ -470,7 +470,7 @@ it("fails closed on a stored event result that does not match the tool's schema"
   expect(google.inserts).toHaveLength(1);
 });
 
-it("recovery sends can only read the call's own account", async () => {
+it("recovery reads refuse a write request", async () => {
   const f = await eventsFixture("create_event");
   primaryList();
   const google = eventWriter();

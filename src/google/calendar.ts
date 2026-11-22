@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import type { Send } from "../mcp/tools";
 import { ToolFailure } from "../mcp/failures";
-import { shorten, unfold } from "./bounds";
+import { boundedList, shorten, unfold } from "./bounds";
 import { ZoneName } from "./calendar-time";
 
 export const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
@@ -66,6 +66,12 @@ export const calendarContext = (
     }),
   );
 
+export const missingCalendar = () =>
+  new ToolFailure({
+    code: "not_found",
+    said: "No such calendar in the account's Google Calendar list; leave calendars out to use the primary calendar, or use IDs from list_calendars.",
+  });
+
 /** The single access check for every event read, including approval views. */
 export const readableCalendar = (
   ctx: CalendarContext,
@@ -74,13 +80,7 @@ export const readableCalendar = (
 ): Result.Result<Calendar, ToolFailure> => {
   const calendar =
     id === undefined ? ctx.primary : ctx.calendars.find((calendar) => calendar.calendar === id);
-  if (!calendar || calendar.calendar === "primary")
-    return Result.fail(
-      new ToolFailure({
-        code: "not_found",
-        said: "No such calendar in the account's Google Calendar list; leave calendars out to use the primary calendar, or use IDs from list_calendars.",
-      }),
-    );
+  if (!calendar || calendar.calendar === "primary") return Result.fail(missingCalendar());
   if (calendar.access === "free_busy")
     return Result.fail(
       new ToolFailure({
@@ -202,14 +202,10 @@ export const listCalendars = (send: Send) =>
           compare(a.name, b.name) ||
           compare(a.calendar, b.calendar),
       );
-      let size = 2;
-      const calendars: Calendar[] = [];
-      for (const entry of ordered) {
-        const extra = JSON.stringify(entry).length + (calendars.length ? 1 : 0);
-        if (calendars.length >= MAX_CALENDARS || size + extra > MAX_CALENDARS_CHARACTERS) break;
-        calendars.push(entry);
-        size += extra;
-      }
+      const { kept: calendars } = boundedList(
+        ordered.slice(0, MAX_CALENDARS),
+        MAX_CALENDARS_CHARACTERS,
+      );
       const omitted = ordered.length - calendars.length;
       const notes = [
         ...(omitted

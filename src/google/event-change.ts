@@ -1,11 +1,11 @@
 import { Effect, Result, Schema } from "effect";
-import type { ViewValue } from "../approvals/model";
+import { sameValues, type ViewValue } from "../approvals/model";
 import type { Confirm, Send, Sending } from "../mcp/tools";
 import { notFound, ToolFailure } from "../mcp/failures";
 import { CalendarId, calendarContext, calendarLabel, get, writableCalendar } from "./calendar";
 import {
   canonicalZone,
-  EventPoint,
+  type EventPoint,
   eventInstant,
   eventTime,
   type EventTime,
@@ -29,9 +29,15 @@ import {
   windowIssue,
   type GooglePoint,
 } from "./event-write";
-import { EventId } from "./events";
+import {
+  CancelledEvent,
+  EventId,
+  liveEventFields,
+  plainDescription,
+  sameEventPointKind,
+  wholeSeries,
+} from "./events";
 import { unfold } from "./bounds";
-import { htmlToText } from "./html";
 
 const ChangeTime = TimeText.check(
   Schema.makeFilter(
@@ -80,39 +86,15 @@ const Attendee = Schema.StructWithRest(Schema.Struct({ email: Schema.String }), 
   Schema.Record(Schema.String, Schema.Unknown),
 ]);
 const ChangeEvent = Schema.Struct({
-  id: EventId,
+  ...liveEventFields,
   etag: Schema.NonEmptyString,
-  status: Schema.Literals(["confirmed", "tentative"]),
-  start: EventPoint,
-  end: EventPoint,
-  summary: Schema.optionalKey(Schema.String),
-  location: Schema.optionalKey(Schema.String),
-  description: Schema.optionalKey(Schema.String),
-  organizer: Schema.optionalKey(
-    Schema.Struct({
-      email: Schema.optionalKey(Schema.String),
-      self: Schema.optionalKey(Schema.Boolean),
-    }),
-  ),
   attendees: Schema.optionalKey(Schema.Array(Attendee)),
-  attendeesOmitted: Schema.optionalKey(Schema.Boolean),
-  guestsCanSeeOtherGuests: Schema.optionalKey(Schema.Boolean),
-  recurringEventId: Schema.optionalKey(EventId),
-  recurrence: Schema.optionalKey(Schema.Array(Schema.String)),
-  hangoutLink: Schema.optionalKey(Schema.String),
-  htmlLink: Schema.optionalKey(Schema.String),
-  eventType: Schema.optionalKey(Schema.String),
-}).check(Schema.makeFilter((event) => "date" in event.start === "date" in event.end));
+}).check(sameEventPointKind);
 type ChangeEvent = typeof ChangeEvent.Type;
-const GoogleEvent = Schema.Union([
-  Schema.Struct({ id: EventId, status: Schema.Literal("cancelled") }),
-  ChangeEvent,
-]);
+const GoogleEvent = Schema.Union([CancelledEvent, ChangeEvent]);
 const invalid = (name: string, expects: string) =>
   new ToolFailure({ code: "invalid_arguments", field: { name, expects } });
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
-const wholeSeries = (event: ChangeEvent) =>
-  event.recurrence !== undefined && event.recurringEventId === undefined;
 const readForChange = (send: Send, input: ChangeInput) =>
   Effect.gen(function* () {
     const ctx = yield* calendarContext(send, input.time_zone);
@@ -371,10 +353,6 @@ const guestChange = (event: ChangeEvent, input: UpdateInput) => {
         : undefined,
   });
 };
-const plainDescription = (text: string) =>
-  /<\/?(?:br|p|div|span|a|b|i|u|ul|ol|li)(?:\s|\/?>)/i.test(text)
-    ? Effect.tryPromise({ try: () => htmlToText(text), catch: unavailable })
-    : Effect.succeed(text);
 interface ChangeResult {
   account: string;
   calendar: string;
@@ -583,18 +561,7 @@ export const runChange = <R>(
 ) =>
   Effect.gen(function* () {
     const current = yield* plan;
-    if (
-      approved !== null &&
-      // Every page shows at least one value, so an empty approval never stands for a real page.
-      (approved.length === 0 ||
-        approved.length !== current.values.length ||
-        current.values.some((value, index) => {
-          const before = approved[index]!;
-          return (
-            value.name !== before.name || value.text !== before.text || value.from !== before.from
-          );
-        }))
-    )
+    if (approved !== null && !sameValues(approved, current.values))
       return yield* Effect.fail(
         new ToolFailure({
           code: "google_unavailable",

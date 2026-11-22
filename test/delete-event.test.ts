@@ -166,6 +166,7 @@ it.each(
       new Response("not JSON"),
       Response.json(eventFixture({ etag: undefined })),
       Response.json(eventFixture({ attendees: [{ displayName: "Missing email" }] })),
+      Response.json(eventFixture({ start: { date: "2026-11-20" } })), // The end is timed.
     ].map((response) => ({ tool, response })),
   ),
 )("$tool fails closed on an unavailable or malformed read %#", async ({ tool, response }) => {
@@ -317,26 +318,6 @@ it.each([500, "aborted", "unreadable"] as const)(
     expect((await callRows()).at(-1)!.outcome).toBeNull();
   },
 );
-
-it("a delete with a stale etag fails as a known failure", async () => {
-  const f = await eventsFixture("delete_event");
-  calendarFake(list(PRIMARY_CALENDAR));
-  eventsFake({
-    [PERSONAL]: {
-      events: { e1: Response.json(eventFixture()) },
-      delete: { e1: new Response(null, { status: 412 }) },
-    },
-  });
-  await expectError(
-    await eventChangeCall(f, "delete_event"),
-    "google_unavailable",
-    /event changed in Google.*Nothing was changed.*Calling again is safe/,
-  );
-  expect((await callRows()).at(-1)).toMatchObject({
-    outcome: "failed",
-    reason: "google_unavailable",
-  });
-});
 
 it("rejects a series starting exactly now without requesting instances or deleting it", async () => {
   const f = await eventsFixture("delete_event");

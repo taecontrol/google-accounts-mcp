@@ -114,7 +114,7 @@ it.each([
   [{ reply_to: SOURCE, subject: "Subject" }, "subject"],
   ...["to", "cc", "bcc"].map((field) => [{ [field]: ["not a mailbox"] }, field]),
   [{ to: ["a".repeat(1000) + "@example.com"] }, "to"],
-  ...["\n", "\r", "\t", "\0", "\x1f", "\x7f"].map((value) => [
+  ...["\n", "\r", "\t", "\0", "\x1f", "\x7f", "\u0085"].map((value) => [
     { subject: `Hi${value}There` },
     "subject",
   ]),

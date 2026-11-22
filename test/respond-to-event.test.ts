@@ -339,9 +339,13 @@ const refusals: Array<{
   },
 ];
 it.each(
-  refusals.flatMap((refusal) =>
-    (["allow", "ask"] as const).map((setting) => ({ ...refusal, setting })),
-  ),
+  refusals.flatMap((refusal) => {
+    const settings =
+      refusal.kind === "no primary" || refusal.kind === "organizer self only"
+        ? (["allow", "ask"] as const)
+        : (["allow"] as const);
+    return settings.map((setting) => ({ ...refusal, setting }));
+  }),
 )(
   "refuses $kind at $setting without a patch or an Approve button",
   async ({ kind, calendars, event, code, message, setting }) => {

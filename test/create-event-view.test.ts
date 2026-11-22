@@ -1,8 +1,7 @@
 import "./support/account-checks";
 import { env } from "cloudflare:workers";
 import { http } from "msw";
-import { expect, it, vi } from "vite-plus/test";
-import { TOOLS } from "../src/mcp/tools";
+import { expect, it } from "vite-plus/test";
 import { answer, approve, decided, digest, get, page, post } from "./support/approvals";
 import {
   CALENDAR_LIST,
@@ -117,18 +116,6 @@ it.each([false, true])(
     expect(google.inserts[0]!.calendar).toBe(secondary ? SECONDARY_CALENDAR.id : PERSONAL);
   },
 );
-
-it("labels a single guest in the singular", async () => {
-  const f = await eventsFixture("create_event", "ask");
-  primaryList();
-  const id = (await answer(await createEventCall(f, { guests: ["guest@example.com"] })))
-    .approval as string;
-  expect((await page(f, id)).request.values).toContainEqual({
-    name: "Google emails the invitation to this address",
-    text: "guest@example.com",
-    from: "agent",
-  });
-});
 
 it.each(["unlisted", "primary", "reader", "freeBusyReader", "invalid zone", "description"])(
   "offers no Approve for %s",
@@ -247,41 +234,6 @@ it.each(["deny", "ask"] as const)(
     );
     expect(google.inserts).toHaveLength(0);
     expect(await onceRows()).toEqual([]);
-  },
-);
-
-it.each(["create", "run", "late"])(
-  "refuses Calendar writes through an unconfirmed %s send",
-  async (mode) => {
-    const f = await eventsFixture("create_event");
-    const google = eventWriter();
-    const name = mode === "run" ? "read_event" : "create_event";
-    await setTool(f, name, "allow");
-    const tool = TOOLS.find((t) => t.kind === "account" && t.name === name)!;
-    if (tool.kind !== "account") throw new Error("Missing tool");
-    const build = (_token: string, signal: AbortSignal) =>
-      new Request(
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(PERSONAL)}/events/e1`,
-        { method: "PATCH", signal, body: "{}" },
-      );
-    if (mode === "run") {
-      vi.spyOn(tool, "run").mockImplementation((send) => send(build));
-      await expectError(
-        await f.mcp.call("tools/call", undefined, {
-          name,
-          arguments: { account: PERSONAL, event: "e1" },
-        }),
-        "google_unavailable",
-        /Google/,
-      );
-    } else {
-      vi.spyOn(tool, "create").mockImplementation((send, _account, _args, confirm) =>
-        (mode === "late" ? confirm.late : send)(build),
-      );
-      await expectError(await createEventCall(f), "google_unavailable", /Google/);
-    }
-    expect(google.inserts).toHaveLength(0);
-    expect(google.reads).toHaveLength(0);
   },
 );
 

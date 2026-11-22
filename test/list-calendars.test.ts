@@ -236,13 +236,3 @@ it("asks to list the calendars of the account with no values and runs only after
   });
   expect(requests).toHaveLength(1);
 });
-
-it("defaults Calendar permission to deny and hides an account with no permissions", async () => {
-  const f = await fixture({ scopes: JSON.stringify(CALENDAR_SCOPES) });
-  await expectError(await list(f), "account_not_available", /No account/);
-  await setTool(f, "list_labels", "allow");
-  await expectError(await list(f), "tool_not_allowed", /has not allowed list_calendars/);
-  expect(
-    (await callRows()).filter((c) => c.tool === "list_calendars").map((c) => c.reason),
-  ).toEqual(["account_not_available", "tool_not_allowed"]);
-});

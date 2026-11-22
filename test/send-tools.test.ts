@@ -113,6 +113,7 @@ it.each([
     ["cc", "bcc"].map((field) => ({ name, args: { [field]: ["not a mailbox"] }, field })),
   ),
   { name: "send_message", args: { subject: "Hi\r\nBcc: thief@example.com" }, field: "subject" },
+  { name: "send_message", args: { subject: "Hi\u0085There" }, field: "subject" },
   ...["send_message", "send_reply", "forward_message"].map((name) => ({
     name,
     args: { duplicate: 101 },

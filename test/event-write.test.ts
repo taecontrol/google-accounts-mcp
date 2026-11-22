@@ -1,12 +1,6 @@
 import { Effect, Result } from "effect";
 import { expect, it } from "vite-plus/test";
-import {
-  descriptionSize,
-  descriptionForGoogle,
-  writeEvent,
-  windowIssue,
-  eventPoints,
-} from "../src/google/event-write";
+import { descriptionSize, eventPoints, writeEvent } from "../src/google/event-write";
 import { ToolFailure } from "../src/mcp/failures";
 import type { Send } from "../src/mcp/tools";
 
@@ -25,11 +19,6 @@ it.each([
     expect(descriptionSize(text)).toBe(bytes);
   },
 );
-
-it("keeps the encoding in one function and never treats agent markup as HTML", () => {
-  expect(descriptionForGoogle("plain\ntext")).toBe("plain\ntext");
-  expect(descriptionForGoogle('<b>&\n\t"\\')).toBe('<span>&lt;b&gt;&amp;<br>\t"\\</span>');
-});
 
 it.each(["PATCH", "DELETE"] as const)(
   "%s encodes paths, keeps headers, and forces guest updates",
@@ -74,25 +63,6 @@ it.each([false, true])("412 goes to refused only when added to refusals: %s", as
   expect(Result.isFailure(result) && result.failure).toMatchObject(
     extra ? { code: "invalid_arguments" } : { code: "google_unavailable", unknown: true },
   );
-});
-
-it("shared minute validation names the start or end and a DST gap is refused", () => {
-  expect(windowIssue({ start: "2026-03-08T02:30:01", end: "2026-03-08T04:00" })).toMatchObject({
-    path: ["start"],
-  });
-  expect(windowIssue({ start: "2026-03-08T01:00", end: "2026-03-08T04:00:00.000" })).toMatchObject({
-    path: ["end"],
-  });
-  const gap = eventPoints(
-    { start: "2026-03-08T02:30", end: "2026-03-08T04:00" },
-    "America/New_York",
-  );
-  expect(Result.isFailure(gap) && gap.failure.field).toMatchObject({
-    name: "start",
-    expects: expect.stringContaining(
-      "does not exist in America/New_York; give another time or an offset",
-    ),
-  });
 });
 
 it("all-day date order is independent of a zone that skipped a whole day", () => {

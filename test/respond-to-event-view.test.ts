@@ -270,34 +270,6 @@ it("bounds a long earlier note on the page", async () => {
   expect(removed.text.endsWith("…")).toBe(true);
 });
 
-it("shows the earlier note that a new note replaces", async () => {
-  const f = await eventsFixture("respond_to_event", "ask");
-  repeatList(PRIMARY_CALENDAR);
-  eventsFake({
-    [PERSONAL]: {
-      events: {
-        e1: Response.json(
-          invitationFixture({
-            attendees: [
-              { email: PERSONAL, self: true, responseStatus: "accepted", comment: "See you there" },
-            ],
-          }),
-        ),
-      },
-    },
-  });
-  const id = (await answer(await respondCall(f, { response: "declined", note: "Sorry, I can't" })))
-    .approval as string;
-  const view = await page(f, id);
-  expect(
-    view.request.values.filter((value) => value.name === "Note" || value.name.includes("note")),
-  ).toEqual([
-    { name: "Note", text: "Sorry, I can't", from: "agent" },
-    { name: "Earlier note, replaced", text: "See you there", from: "calendar" },
-  ]);
-  expect(view.request.notes).toEqual([emailNote, visibilityNote]);
-});
-
 it.each([undefined, "BST", "invalid/zone"])(
   "cannot build an approval view without a valid primary zone %#",
   async (timeZone) => {

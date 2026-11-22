@@ -45,6 +45,19 @@ export const boundedRecipients = (addresses: string[]): string[] => {
   return kept;
 };
 
+/** Keep a prefix of whole items within the JSON array's character budget. */
+export const boundedList = <A>(items: readonly A[], limit: number): { kept: A[]; left: number } => {
+  let size = 2;
+  const kept: A[] = [];
+  for (const item of items) {
+    const extra = JSON.stringify(item).length + (kept.length ? 1 : 0);
+    if (size + extra > limit) break;
+    kept.push(item);
+    size += extra;
+  }
+  return { kept, left: items.length - kept.length };
+};
+
 /** Inline flags must be set before measuring the attachments' JSON. */
 export const boundedAttachments = <A>(
   attachments: A[],
@@ -52,17 +65,10 @@ export const boundedAttachments = <A>(
   attachments: A[];
   attachments_left_out?: number;
 } => {
-  let size = 2;
-  let count = 0;
-  for (const attachment of attachments) {
-    const extra = JSON.stringify(attachment).length + (count ? 1 : 0);
-    if (size + extra > 6_000) break;
-    size += extra;
-    count++;
-  }
+  const { kept, left } = boundedList(attachments, 6_000);
   return {
-    attachments: attachments.slice(0, count),
-    ...(count < attachments.length ? { attachments_left_out: attachments.length - count } : {}),
+    attachments: kept,
+    ...(left ? { attachments_left_out: left } : {}),
   };
 };
 

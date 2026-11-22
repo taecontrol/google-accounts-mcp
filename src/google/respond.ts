@@ -6,7 +6,7 @@ import { eventTime, viewTime, ZoneName } from "./calendar-time";
 import { unfold } from "./bounds";
 import { notFound, ToolFailure, ViewUnavailable } from "../mcp/failures";
 import { CALENDAR_API, readCalendarList } from "./calendar";
-import { Attendee, findEvent, shortJson } from "./events";
+import { Attendee, findEvent, shortJson, wholeSeries } from "./events";
 
 export const EventResponse = Schema.Literals(["accepted", "declined", "tentative"]);
 export const WHOLE_SERIES =
@@ -152,7 +152,7 @@ export const invitationValues = (
     if (zone === undefined || !Schema.is(ZoneName)(zone))
       return yield* Effect.fail(new ViewUnavailable());
     const ctx = { zone };
-    const series = event.recurrence !== undefined && event.recurringEventId === undefined;
+    const series = wholeSeries(event);
     const start = eventTime(event.start, event.end, ctx.zone).start;
     const values: ViewValue[] = [
       {

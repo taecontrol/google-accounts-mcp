@@ -5,7 +5,7 @@ import { normalizeEmail } from "../email";
 import { calendarContext, get, readableCalendar, type Calendar } from "./calendar";
 import { canonicalZone, EventPoint, eventInstant, eventTime, rangeOf } from "./calendar-time";
 import { REQUESTS_AT_ONCE } from "./gmail";
-import { safeEnd } from "./bounds";
+import { boundedList, safeEnd } from "./bounds";
 import { htmlToText } from "./html";
 
 export const DEFAULT_EVENT_LIMIT = 25;
@@ -25,6 +25,11 @@ export const EventId = Schema.String.check(
 export const EVENT_ID_EXPECTS =
   "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores";
 
+export const plainDescription = (text: string) =>
+  /<\/?(?:br|p|div|span|a|b|i|u|ul|ol|li)(?:\s|\/?>)/i.test(text)
+    ? Effect.tryPromise({ try: () => htmlToText(text), catch: unavailable })
+    : Effect.succeed(text);
+
 const Person = Schema.Struct({
   email: Schema.optionalKey(Schema.String),
   self: Schema.optionalKey(Schema.Boolean),
@@ -41,7 +46,7 @@ export const Attendee = Schema.Struct({
   organizer: Schema.optionalKey(Schema.Boolean),
   comment: Schema.optionalKey(Schema.String),
 });
-const LiveEvent = Schema.Struct({
+export const liveEventFields = {
   id: EventId,
   etag: Schema.optionalKey(Schema.String),
   status: Schema.Literals(["confirmed", "tentative"]),
@@ -59,12 +64,17 @@ const LiveEvent = Schema.Struct({
   hangoutLink: Schema.optionalKey(Schema.String),
   htmlLink: Schema.optionalKey(Schema.String),
   eventType: Schema.optionalKey(Schema.String),
-}).check(Schema.makeFilter((event) => "date" in event.start === "date" in event.end));
+};
+export const sameEventPointKind = Schema.makeFilter(
+  ({ start, end }: { start: EventPoint; end: EventPoint }) => "date" in start === "date" in end,
+);
+const LiveEvent = Schema.Struct(liveEventFields).check(sameEventPointKind);
 type LiveEvent = typeof LiveEvent.Type;
-const GoogleEvent = Schema.Union([
-  Schema.Struct({ id: EventId, status: Schema.Literal("cancelled") }),
-  LiveEvent,
-]);
+export const wholeSeries = (event: Pick<LiveEvent, "recurrence" | "recurringEventId">) =>
+  event.recurrence !== undefined && event.recurringEventId === undefined;
+
+export const CancelledEvent = Schema.Struct({ id: EventId, status: Schema.Literal("cancelled") });
+const GoogleEvent = Schema.Union([CancelledEvent, LiveEvent]);
 const EventList = Schema.Struct({
   items: Schema.optionalKey(Schema.Array(GoogleEvent)),
   nextPageToken: Schema.optionalKey(
@@ -87,17 +97,6 @@ export const shortJson = (text: string, limit: number, marker = "…"): string =
     else high = middle - 1;
   }
   return text.slice(0, safeEnd(text, low)) + marker;
-};
-const boundedList = <A>(items: readonly A[], limit: number): { kept: A[]; left: number } => {
-  let size = 2;
-  const kept: A[] = [];
-  for (const item of items) {
-    const extra = JSON.stringify(item).length + (kept.length ? 1 : 0);
-    if (size + extra > limit) break;
-    kept.push(item);
-    size += extra;
-  }
-  return { kept, left: items.length - kept.length };
 };
 const responseOf = (attendee: typeof Attendee.Type) =>
   attendee.responseStatus === undefined || attendee.responseStatus === "needsAction"
@@ -420,16 +419,9 @@ export const readEvent = (
       })),
       8_000,
     );
-    const recurrence = boundedList(
-      event.recurringEventId === undefined ? (event.recurrence ?? []) : [],
-      4_000,
-    );
-    let description = event.description ?? "";
-    if (/<\/?(?:br|p|div|span|a|b|i|u|ul|ol|li)(?:\s|\/?>)/i.test(description))
-      description = yield* Effect.tryPromise({
-        try: () => htmlToText(description),
-        catch: unavailable,
-      });
+    const series = wholeSeries(event);
+    const recurrence = boundedList(series ? (event.recurrence ?? []) : [], 4_000);
+    const description = yield* plainDescription(event.description ?? "");
     return {
       account: input.account,
       calendar: calendar.calendar,
@@ -439,9 +431,7 @@ export const readEvent = (
       guests: guests.kept,
       ...people.flags,
       ...(guests.left ? { guests_left_out: guests.left } : {}),
-      ...(event.recurrence !== undefined && event.recurringEventId === undefined
-        ? { recurrence: recurrence.kept }
-        : {}),
+      ...(series ? { recurrence: recurrence.kept } : {}),
       ...(recurrence.left ? { recurrence_left_out: recurrence.left } : {}),
       ...(event.hangoutLink === undefined || JSON.stringify(event.hangoutLink).length > 2_000
         ? {}
