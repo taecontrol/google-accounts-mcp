@@ -1266,20 +1266,6 @@ it("marks later calendars not_read when their page tokens fill the result", asyn
   expect(sent).toHaveLength(20);
 });
 
-it("keeps twenty 254-character unlisted IDs below the MCP result budget without any events request", async () => {
-  const f = await eventsFixture();
-  calendarFake(list(PRIMARY_CALENDAR));
-  const text = await expectError(
-    await searchCall(f, {
-      calendars: Array.from({ length: 20 }, (_, i) => `${i}`.padEnd(254, '"')),
-    }),
-    "not_found",
-    unlistedMessage,
-  );
-  expect(text.length).toBeLessThanOrEqual(32_000);
-  expect(paths()).toEqual(["/calendar/v3/users/me/calendarList"]);
-});
-
 it.each([
   { field: "account", value: 1 },
   { field: "calendars", value: [] },

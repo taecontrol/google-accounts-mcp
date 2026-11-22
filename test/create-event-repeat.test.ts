@@ -154,18 +154,15 @@ it.each([
 });
 
 it.each([
-  { every: "week", weekdays: ["tuesday"] },
-  { every: "day", until: "2026-11-15" },
-])("refuses a primary-zone-dependent repeat with allow: %j", async (repeat) => {
+  { start: "2026-11-17T01:00:00Z", repeat: { every: "week", weekdays: ["tuesday"] } },
+  { start: "2026-11-17T06:00:00Z", repeat: { every: "day", until: "2026-11-16" } },
+])("refuses a primary-zone-dependent repeat with allow: %j", async ({ start, repeat }) => {
   const f = await eventsFixture("create_event");
   primaryList();
   const google = eventWriter();
+  const end = new Date(Date.parse(start) + 3_600_000).toISOString().replace(".000Z", "Z");
   await expectError(
-    await createEventCall(f, {
-      start: "2026-11-17T01:00:00Z",
-      end: "2026-11-17T02:00:00Z",
-      repeat,
-    }),
+    await createEventCall(f, { start, end, repeat }),
     "invalid_arguments",
     /The repeat field/,
   );
