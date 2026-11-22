@@ -337,8 +337,7 @@ const messageExpects =
   "a message ID of 1 to 64 letters, digits, hyphens, or underscores from this account";
 const Subject = Schema.String.check(
   Schema.isMaxLength(MAX_SUBJECT),
-  // oxlint-disable-next-line no-control-regex -- Input subjects cannot contain header controls.
-  Schema.isPattern(/^[^\u0000-\u001f\u007f]*$/),
+  Schema.isPattern(/^[^\p{Cc}]*$/u),
 );
 const DraftInput = Schema.Struct({
   account: Schema.String,
