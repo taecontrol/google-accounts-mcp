@@ -66,6 +66,9 @@ const LiveEvent = Schema.Struct({
   eventType: Schema.optionalKey(Schema.String),
 }).check(Schema.makeFilter((event) => "date" in event.start === "date" in event.end));
 type LiveEvent = typeof LiveEvent.Type;
+export const wholeSeries = (event: Pick<LiveEvent, "recurrence" | "recurringEventId">) =>
+  event.recurrence !== undefined && event.recurringEventId === undefined;
+
 const GoogleEvent = Schema.Union([
   Schema.Struct({ id: EventId, status: Schema.Literal("cancelled") }),
   LiveEvent,
@@ -425,10 +428,8 @@ export const readEvent = (
       })),
       8_000,
     );
-    const recurrence = boundedList(
-      event.recurringEventId === undefined ? (event.recurrence ?? []) : [],
-      4_000,
-    );
+    const series = wholeSeries(event);
+    const recurrence = boundedList(series ? (event.recurrence ?? []) : [], 4_000);
     const description = yield* plainDescription(event.description ?? "");
     return {
       account: input.account,
@@ -439,9 +440,7 @@ export const readEvent = (
       guests: guests.kept,
       ...people.flags,
       ...(guests.left ? { guests_left_out: guests.left } : {}),
-      ...(event.recurrence !== undefined && event.recurringEventId === undefined
-        ? { recurrence: recurrence.kept }
-        : {}),
+      ...(series ? { recurrence: recurrence.kept } : {}),
       ...(recurrence.left ? { recurrence_left_out: recurrence.left } : {}),
       ...(event.hangoutLink === undefined || JSON.stringify(event.hangoutLink).length > 2_000
         ? {}

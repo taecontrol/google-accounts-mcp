@@ -29,7 +29,7 @@ import {
   windowIssue,
   type GooglePoint,
 } from "./event-write";
-import { EventId, plainDescription } from "./events";
+import { EventId, plainDescription, wholeSeries } from "./events";
 import { unfold } from "./bounds";
 
 const ChangeTime = TimeText.check(
@@ -110,8 +110,6 @@ const GoogleEvent = Schema.Union([
 const invalid = (name: string, expects: string) =>
   new ToolFailure({ code: "invalid_arguments", field: { name, expects } });
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
-const wholeSeries = (event: ChangeEvent) =>
-  event.recurrence !== undefined && event.recurringEventId === undefined;
 const readForChange = (send: Send, input: ChangeInput) =>
   Effect.gen(function* () {
     const ctx = yield* calendarContext(send, input.time_zone);
