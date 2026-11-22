@@ -25,6 +25,11 @@ export const EventId = Schema.String.check(
 export const EVENT_ID_EXPECTS =
   "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores";
 
+export const plainDescription = (text: string) =>
+  /<\/?(?:br|p|div|span|a|b|i|u|ul|ol|li)(?:\s|\/?>)/i.test(text)
+    ? Effect.tryPromise({ try: () => htmlToText(text), catch: unavailable })
+    : Effect.succeed(text);
+
 const Person = Schema.Struct({
   email: Schema.optionalKey(Schema.String),
   self: Schema.optionalKey(Schema.Boolean),
@@ -424,12 +429,7 @@ export const readEvent = (
       event.recurringEventId === undefined ? (event.recurrence ?? []) : [],
       4_000,
     );
-    let description = event.description ?? "";
-    if (/<\/?(?:br|p|div|span|a|b|i|u|ul|ol|li)(?:\s|\/?>)/i.test(description))
-      description = yield* Effect.tryPromise({
-        try: () => htmlToText(description),
-        catch: unavailable,
-      });
+    const description = yield* plainDescription(event.description ?? "");
     return {
       account: input.account,
       calendar: calendar.calendar,

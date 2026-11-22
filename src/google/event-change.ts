@@ -29,9 +29,8 @@ import {
   windowIssue,
   type GooglePoint,
 } from "./event-write";
-import { EventId } from "./events";
+import { EventId, plainDescription } from "./events";
 import { unfold } from "./bounds";
-import { htmlToText } from "./html";
 
 const ChangeTime = TimeText.check(
   Schema.makeFilter(
@@ -371,10 +370,6 @@ const guestChange = (event: ChangeEvent, input: UpdateInput) => {
         : undefined,
   });
 };
-const plainDescription = (text: string) =>
-  /<\/?(?:br|p|div|span|a|b|i|u|ul|ol|li)(?:\s|\/?>)/i.test(text)
-    ? Effect.tryPromise({ try: () => htmlToText(text), catch: unavailable })
-    : Effect.succeed(text);
 interface ChangeResult {
   account: string;
   calendar: string;
