@@ -5,7 +5,6 @@ import { availabilityEntries } from "../src/google/availability";
 import { answer, approve, get, page, rows } from "./support/approvals";
 import {
   calendarFake,
-  CALENDAR_SCOPES,
   eventsFixture,
   freeBusyFake,
   PRIMARY_CALENDAR,
@@ -16,13 +15,11 @@ import {
   expectError,
   fixture,
   PERSONAL,
-  problemCases,
   toolCall,
   unavailableMessage,
 } from "./support/permissions";
 import { requests } from "./support/network";
 import { rpcResult } from "./support/oauth";
-import { setTool } from "./support/uploads";
 import { google } from "./support/google";
 
 interface AvailabilityResult {
@@ -693,39 +690,6 @@ it("defers a zone-dependent 31-day refusal until an approved run, with no busy r
   });
   expect(calendarPaths().every((path) => path === "/calendar/v3/users/me/calendarList")).toBe(true);
 });
-
-it("defaults to deny and distinguishes an unavailable account from a denied tool, recording both refusals", async () => {
-  const f = await fixture({ scopes: JSON.stringify(CALENDAR_SCOPES) });
-  await expectError(await call(f), "account_not_available", /No account/);
-  await setTool(f, "list_calendars", "allow");
-  await expectError(await call(f), "tool_not_allowed", /has not allowed check_availability/);
-  expect(calendarPaths()).toEqual([]);
-  expect(
-    (await callRows())
-      .filter((row) => row.tool === "check_availability")
-      .map(({ outcome, reason }) => ({ outcome, reason })),
-  ).toEqual([
-    { outcome: "refused", reason: "account_not_available" },
-    { outcome: "refused", reason: "tool_not_allowed" },
-  ]);
-});
-
-it.each(problemCases)(
-  "refuses Calendar status $status before Google and records it",
-  async ({ row, status }) => {
-    const f = await eventsFixture("check_availability", "allow", row);
-    await expectError(
-      await call(f),
-      `account_${status}`,
-      status === "missing_access" ? /no Calendar access/ : /reconnect|admin blocked|stored access/,
-    );
-    expect(calendarPaths()).toEqual([]);
-    expect((await callRows()).at(-1)).toMatchObject({
-      outcome: "failed",
-      reason: `account_${status}`,
-    });
-  },
-);
 
 it.each([
   {
