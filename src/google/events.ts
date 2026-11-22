@@ -46,7 +46,7 @@ export const Attendee = Schema.Struct({
   organizer: Schema.optionalKey(Schema.Boolean),
   comment: Schema.optionalKey(Schema.String),
 });
-const LiveEvent = Schema.Struct({
+export const liveEventFields = {
   id: EventId,
   etag: Schema.optionalKey(Schema.String),
   status: Schema.Literals(["confirmed", "tentative"]),
@@ -64,15 +64,17 @@ const LiveEvent = Schema.Struct({
   hangoutLink: Schema.optionalKey(Schema.String),
   htmlLink: Schema.optionalKey(Schema.String),
   eventType: Schema.optionalKey(Schema.String),
-}).check(Schema.makeFilter((event) => "date" in event.start === "date" in event.end));
+};
+export const sameEventPointKind = Schema.makeFilter(
+  ({ start, end }: { start: EventPoint; end: EventPoint }) => "date" in start === "date" in end,
+);
+const LiveEvent = Schema.Struct(liveEventFields).check(sameEventPointKind);
 type LiveEvent = typeof LiveEvent.Type;
 export const wholeSeries = (event: Pick<LiveEvent, "recurrence" | "recurringEventId">) =>
   event.recurrence !== undefined && event.recurringEventId === undefined;
 
-const GoogleEvent = Schema.Union([
-  Schema.Struct({ id: EventId, status: Schema.Literal("cancelled") }),
-  LiveEvent,
-]);
+export const CancelledEvent = Schema.Struct({ id: EventId, status: Schema.Literal("cancelled") });
+const GoogleEvent = Schema.Union([CancelledEvent, LiveEvent]);
 const EventList = Schema.Struct({
   items: Schema.optionalKey(Schema.Array(GoogleEvent)),
   nextPageToken: Schema.optionalKey(
