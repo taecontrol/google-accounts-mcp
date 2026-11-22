@@ -166,6 +166,7 @@ it.each(
       new Response("not JSON"),
       Response.json(eventFixture({ etag: undefined })),
       Response.json(eventFixture({ attendees: [{ displayName: "Missing email" }] })),
+      Response.json(eventFixture({ start: { date: "2026-11-20" } })), // The end is timed.
     ].map((response) => ({ tool, response })),
   ),
 )("$tool fails closed on an unavailable or malformed read %#", async ({ tool, response }) => {

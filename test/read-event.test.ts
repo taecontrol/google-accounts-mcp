@@ -254,6 +254,7 @@ it("omits attendees without email from guests and never matches an email-less se
 it.each([
   { dateTime: "+010000-01-01T14:00:00.123456Z" },
   { dateTime: "2026-11-20T15:00:00", timeZone: "Foo/Bar" },
+  { date: "2026-11-20" }, // The fixture's end is timed.
 ])("refuses a malformed Google event time in read_event: %j", async (start) => {
   const f = await eventsFixture("read_event");
   calendarFake(list(PRIMARY_CALENDAR));
