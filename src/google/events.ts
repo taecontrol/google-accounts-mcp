@@ -5,7 +5,7 @@ import { normalizeEmail } from "../email";
 import { calendarContext, get, readableCalendar, type Calendar } from "./calendar";
 import { canonicalZone, EventPoint, eventInstant, eventTime, rangeOf } from "./calendar-time";
 import { REQUESTS_AT_ONCE } from "./gmail";
-import { safeEnd } from "./bounds";
+import { boundedList, safeEnd } from "./bounds";
 import { htmlToText } from "./html";
 
 export const DEFAULT_EVENT_LIMIT = 25;
@@ -95,17 +95,6 @@ export const shortJson = (text: string, limit: number, marker = "…"): string =
     else high = middle - 1;
   }
   return text.slice(0, safeEnd(text, low)) + marker;
-};
-const boundedList = <A>(items: readonly A[], limit: number): { kept: A[]; left: number } => {
-  let size = 2;
-  const kept: A[] = [];
-  for (const item of items) {
-    const extra = JSON.stringify(item).length + (kept.length ? 1 : 0);
-    if (size + extra > limit) break;
-    kept.push(item);
-    size += extra;
-  }
-  return { kept, left: items.length - kept.length };
 };
 const responseOf = (attendee: typeof Attendee.Type) =>
   attendee.responseStatus === undefined || attendee.responseStatus === "needsAction"
