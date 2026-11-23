@@ -102,7 +102,7 @@ const threadStart = (send: Send, conversation: string, thread: string) =>
       conversationRefused(conversation),
     );
     const first = page.messages?.[0];
-    if (!first) return yield* Effect.fail(new ViewUnavailable());
+    if (!first || first.threadReply) return yield* Effect.fail(new ViewUnavailable());
     const message = chatMessage(first);
     return [
       {
