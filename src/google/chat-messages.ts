@@ -65,17 +65,16 @@ export interface ChatMessage {
   readonly text_cut?: true;
 }
 
-const withText = (message: ChatMessage, text: string, limit: number): ChatMessage => {
-  const cut = shortJson(text, limit);
-  const { text_cut: _, ...rest } = message;
-  return { ...rest, text: cut, ...(cut === text ? {} : { text_cut: true }) };
+const withText = (message: ChatMessage, limit: number): ChatMessage => {
+  const text = shortJson(message.text, limit);
+  return text === message.text ? message : { ...message, text, text_cut: true };
 };
 
-export const chatMessage = (item: typeof GoogleMessage.Type, textLimit = Infinity): ChatMessage => {
+export const chatMessage = (item: typeof GoogleMessage.Type): ChatMessage => {
   const { sender } = item;
   const name = sender.displayName ? shortJson(sender.displayName, MAX_SENDER_NAME) : undefined;
   const email = normalizeEmail(sender.email);
-  const message: ChatMessage = {
+  return {
     message: item.name,
     conversation: item.name.slice(0, item.name.indexOf("/messages/")),
     thread: item.thread.name,
@@ -85,9 +84,8 @@ export const chatMessage = (item: typeof GoogleMessage.Type, textLimit = Infinit
         ? { user: sender.name, app: true, ...(name ? { name } : {}) }
         : { user: sender.name, ...(name ? { name } : {}), ...(email ? { email } : {}) },
     time: item.createTime,
-    text: "",
+    text: item.text ?? "",
   };
-  return withText(message, item.text ?? "", textLimit);
 };
 
 export const ThreadId = Schema.String.check(
@@ -128,7 +126,7 @@ export const readConversation = (send: Send, account: string, args: ReadArgs) =>
       MessageList,
       conversationRefused(args.conversation),
     );
-    const items = (page.messages ?? []).map((item) => chatMessage(item));
+    const items = (page.messages ?? []).map(chatMessage);
     if (!items.length && page.nextPageToken)
       return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
     if (args.thread !== undefined && args.page === undefined && !items.length)
@@ -153,7 +151,7 @@ export const readConversation = (send: Send, account: string, args: ReadArgs) =>
       const first = items[0]!;
       more = Boolean(page.nextPageToken) || items.length > 1;
       const others = size([{ ...first, text: "", text_cut: true }], more) - 2;
-      kept = [withText(first, first.text, MESSAGES_LIMIT - others)];
+      kept = [withText(first, MESSAGES_LIMIT - others)];
     }
     return result(kept, more);
   });
@@ -304,7 +302,9 @@ export const searchMessages = (send: Send, account: string, args: SearchArgs) =>
     const page = yield* decodeResponse(response, SearchList, searchRefused(args));
     return {
       account,
-      messages: (page.results ?? []).map((result) => chatMessage(result.message, MAX_SEARCH_TEXT)),
+      messages: (page.results ?? []).map((result) =>
+        withText(chatMessage(result.message), MAX_SEARCH_TEXT),
+      ),
       ...(page.nextPageToken ? { next_page: `${digest}.${page.nextPageToken}` } : {}),
     };
   });
