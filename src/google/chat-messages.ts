@@ -127,6 +127,8 @@ export const readConversation = (send: Send, account: string, args: ReadArgs) =>
       conversationRefused(args.conversation),
     );
     const items = (page.messages ?? []).map((item) => chatMessage(item));
+    if (!items.length && page.nextPageToken)
+      return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
     if (args.thread !== undefined && args.page === undefined && !items.length)
       return yield* Effect.fail(notFound("thread", args.thread));
     const base = { account, conversation: args.conversation };
