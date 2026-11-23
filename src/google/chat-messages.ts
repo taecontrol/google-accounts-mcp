@@ -251,7 +251,7 @@ export const SearchMessagesInput = SearchFields.check(
   }),
 );
 
-export const PAGE_EXPECTS = `the next_page of an earlier result with the same account, criteria, and limit, 1 to ${MAX_SEARCH_PAGE.toLocaleString("en-US")} characters: this next_page belongs to another search; send it with the criteria and limit that returned it`;
+export const PAGE_EXPECTS = `the complete next_page of an earlier result, 1 to ${MAX_SEARCH_PAGE.toLocaleString("en-US")} characters; a value copied from another search must be sent with the account, criteria, and limit that returned it`;
 const pageField = (expects: string) =>
   new ToolFailure({ code: "invalid_arguments", field: { name: "page", expects } });
 const searchRefused = (args: SearchArgs) => (status: number) => {
