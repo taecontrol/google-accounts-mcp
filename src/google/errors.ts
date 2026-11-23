@@ -12,6 +12,10 @@ const ErrorInfo = Schema.Struct({
   domain: Schema.Literal("googleapis.com"),
 });
 const LegacyError = Schema.Struct({ reason: Schema.Literal("accessNotConfigured") });
+const BadRequest = Schema.Struct({
+  "@type": Schema.Literal("type.googleapis.com/google.rpc.BadRequest"),
+  fieldViolations: Schema.Array(Schema.Struct({ field: Schema.String })),
+});
 const MAX_ERROR_BYTES = 16 * 1024;
 
 export async function errorText(response: Response): Promise<string | null> {
@@ -57,5 +61,14 @@ export async function apiNotEnabled(response: Response): Promise<boolean> {
     error !== null &&
     ((error.details ?? []).some(Schema.is(ErrorInfo)) ||
       (error.errors ?? []).some(Schema.is(LegacyError)))
+  );
+}
+
+export async function refusedField(response: Response, field: string): Promise<boolean> {
+  const error = await errorBody(response);
+  return (error?.details ?? []).some(
+    (detail) =>
+      Schema.is(BadRequest)(detail) &&
+      detail.fieldViolations.some((violation) => violation.field === field),
   );
 }

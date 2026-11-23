@@ -14,7 +14,7 @@ import {
   type SpaceInfo,
 } from "./chat";
 import { chatMessage, MessageList, ThreadId, threadIssue, type ChatMessage } from "./chat-messages";
-import { errorText } from "./errors";
+import { errorText, refusedField } from "./errors";
 import { getFrom } from "./get";
 
 const get = getFrom(CHAT_API);
@@ -158,6 +158,8 @@ const messageRefused = (response: Response, args: SendArgs) =>
     if (response.status === 429) return rateLimited("sent");
     if (response.status === 404 && args.thread !== undefined)
       return notFound("thread", args.thread);
+    if (response.status === 400 && (yield* Effect.promise(() => refusedField(response, "parent"))))
+      return notFound("conversation", args.conversation);
     if (response.status === 400)
       return new ToolFailure({
         code: "invalid_arguments",
