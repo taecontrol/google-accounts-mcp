@@ -241,7 +241,7 @@ it("requires a decision-issued Won to finish an approval at compile time", async
     at: NOW,
     claim: crypto.randomUUID(),
   };
-  // @ts-expect-error Only decideApproval can issue the private Won brand.
+  // @ts-expect-error -- Only decideApproval can issue the private Won brand.
   const write = finishApproval(ctx, handBuilt, NOW, "success", "success", null, null);
   expect(Effect.isEffect(write)).toBe(true);
 });
