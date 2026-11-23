@@ -3,9 +3,9 @@ import type { Send } from "../mcp/tools";
 import { ToolFailure } from "../mcp/failures";
 import { boundedList, shorten, unfold } from "./bounds";
 import { ZoneName } from "./calendar-time";
+import { getFrom } from "./get";
 
 export const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
-const unavailable = () => new ToolFailure({ code: "google_unavailable" });
 export const CalendarId = Schema.String.check(
   Schema.isBetweenLength(1, 254),
   // oxlint-disable-next-line no-control-regex -- IDs must not hold characters that break view lines.
@@ -13,29 +13,7 @@ export const CalendarId = Schema.String.check(
 );
 export const CALENDAR_ID_EXPECTS =
   "a calendar ID from list_calendars, 1 to 254 characters without line breaks or control characters";
-export const get = <A>(
-  send: Send,
-  path: string,
-  schema: Schema.Codec<A, unknown>,
-  refused: (status: number) => ToolFailure = unavailable,
-) =>
-  Effect.gen(function* () {
-    const response = yield* send(
-      (token, signal) =>
-        new Request(`${CALENDAR_API}/${path}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          redirect: "manual",
-          signal,
-        }),
-    );
-    if (!response.ok) return yield* Effect.fail(refused(response.status));
-    const text = yield* Effect.tryPromise({
-      try: () => response.text(),
-      catch: () => new ToolFailure({ code: "google_unavailable", unknown: true }),
-    });
-    const body = yield* Effect.try({ try: (): unknown => JSON.parse(text), catch: unavailable });
-    return yield* Schema.decodeUnknownEffect(schema)(body).pipe(Effect.mapError(unavailable));
-  });
+export const get = getFrom(CALENDAR_API);
 
 export interface CalendarContext {
   readonly calendars: readonly Calendar[];

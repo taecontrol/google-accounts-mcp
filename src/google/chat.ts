@@ -1,31 +1,13 @@
 import { Effect, Schema } from "effect";
 import type { Send } from "../mcp/tools";
-import { ToolFailure } from "../mcp/failures";
 import { isoSeconds } from "../approvals/model";
 import { normalizeEmail } from "../email";
 import { boundedList } from "./bounds";
+import { getFrom } from "./get";
 import { REQUESTS_AT_ONCE } from "./gmail";
 
 export const CHAT_API = "https://chat.googleapis.com/v1";
-const unavailable = () => new ToolFailure({ code: "google_unavailable" });
-const get = <A>(send: Send, path: string, schema: Schema.Codec<A, unknown>) =>
-  Effect.gen(function* () {
-    const response = yield* send(
-      (token, signal) =>
-        new Request(`${CHAT_API}/${path}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          redirect: "manual",
-          signal,
-        }),
-    );
-    if (!response.ok) return yield* Effect.fail(unavailable());
-    const text = yield* Effect.tryPromise({
-      try: () => response.text(),
-      catch: () => new ToolFailure({ code: "google_unavailable", unknown: true }),
-    });
-    const body = yield* Effect.try({ try: (): unknown => JSON.parse(text), catch: unavailable });
-    return yield* Schema.decodeUnknownEffect(schema)(body).pipe(Effect.mapError(unavailable));
-  });
+const get = getFrom(CHAT_API);
 
 const SpaceName = Schema.String.check(Schema.isPattern(/^spaces\/[A-Za-z0-9_-]+$/));
 const Timestamp = Schema.String.check(Schema.makeFilter((time) => !Number.isNaN(Date.parse(time))));
