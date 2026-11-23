@@ -78,6 +78,8 @@ export default defineConfig({
   lint: {
     options: { typeAware: true, typeCheck: true },
     ignorePatterns: ["worker-configuration.d.ts", "dist/**"],
+    jsPlugins: ["./lint/comments.ts"],
+    rules: { "repo/no-comments": "error" },
   },
   fmt: {
     ignorePatterns: ["worker-configuration.d.ts", "dist/**", "test/fixtures/cimd/*.json"],
