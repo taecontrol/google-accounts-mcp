@@ -67,7 +67,10 @@ const readSpaces = (send: Send) =>
     const spaces: Space[] = [];
     let next: string | undefined;
     for (let page = 0; page < MAX_SPACE_PAGES; page++) {
-      const params = new URLSearchParams({ pageSize: String(SPACE_PAGE_SIZE) });
+      const params = new URLSearchParams({
+        pageSize: String(SPACE_PAGE_SIZE),
+        fields: "nextPageToken,spaces(name,spaceType,displayName,lastActiveTime,singleUserBotDm)",
+      });
       if (next !== undefined) params.set("pageToken", next);
       const result = yield* get(send, `spaces?${params}`, SpaceList);
       spaces.push(...(result.spaces ?? []));
