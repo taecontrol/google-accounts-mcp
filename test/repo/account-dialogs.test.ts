@@ -463,9 +463,9 @@ it.each([390, 1280])(
         has: page.getByRole("button", { name: "Actions for Personal", exact: true }),
       });
       expect(await personal.innerText()).toContain("Gmail");
-      expect(
-        await personal.getByText("Not connected", { exact: true }).getAttribute("class"),
-      ).toContain("text-muted-foreground");
+      expect(await personal.getByText("Not connected", { exact: true }).count()).toBe(2);
+      for (const text of await personal.getByText("Not connected", { exact: true }).all())
+        expect(await text.getAttribute("class")).toContain("text-muted-foreground");
       expect(await personal.getByRole("button", { name: "Reconnect", exact: true }).count()).toBe(
         0,
       );
