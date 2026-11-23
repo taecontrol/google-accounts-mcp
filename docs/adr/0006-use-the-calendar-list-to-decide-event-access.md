@@ -9,7 +9,7 @@ Google Calendar can return a 403 for a rate or quota limit as well as an access 
 
 ## Decision
 
-Use the account's calendar list to establish membership and access for events. Read up to eight pages of 250 entries. Apply the read and write role checks to that list, and keep later event errors distinct from the list's evidence.
+Use the account's calendar list to establish membership and access for events. Read up to eight pages of 250 entries. Leave `showHidden` and `showDeleted` unset so Google excludes hidden and deleted entries. Apply the read and write role checks to the returned entries.
 
 ## Consequences
 

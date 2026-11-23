@@ -5,11 +5,11 @@ Status: Accepted
 
 ## Context
 
-The Worker depends on native request, stream, D1, and KV behavior. Running its tests in Node would replace that runtime behavior with substitutes. Workerd cannot launch Chromium, and some of its storage and module-loading behavior needs explicit handling in tests.
+Some Worker integration tests check how the Worker's rendered HTML behaves in a browser. Playwright launches Chromium from Node for those checks.
 
 ## Decision
 
-Run Worker integration tests in workerd and keep native bindings wherever a test exercises them. Send rendered HTML to a test-only Miniflare service implemented in Node when a test needs Chromium.
+Run Worker integration tests in workerd. Send rendered HTML to a test-only Miniflare service in Node when a test needs Chromium.
 
 ## Consequences
 
@@ -18,4 +18,4 @@ Run Worker integration tests in workerd and keep native bindings wherever a test
 - Open D1 and both KV bindings before resetting storage. Workerd resets storage through live instances, so an idle-evicted instance can leave its data, including the migration table, behind. [Workerd storage reset](https://github.com/cloudflare/workerd/blob/v1.20261023.1/src/workerd/server/server/actor.rs#L230)
 - Model KV expiry by deleting the key while retaining the browser cookie. Local KV uses real time even when the test changes the Worker's clock.
 - Assert `redirect: "manual"` on outgoing OAuth POST requests. MSW can reject a redirect for a POST body before following it, so observing that it was never followed is insufficient.
-- Cap the CI job at 15 minutes. A stuck workerd runner can prevent Vitest from reporting its own timeouts.
+- Cap the CI job at 15 minutes, well above its expected duration. A stuck workerd runner can prevent Vitest from reporting its timeouts. GitHub's default cap would let the job run for six hours.

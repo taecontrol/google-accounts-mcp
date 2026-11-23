@@ -9,9 +9,9 @@ On a first deploy, interactive Wrangler can offer to name or reuse a D1 database
 
 ## Decision
 
-Run Wrangler's deploy step with stdin closed to keep resource provisioning predictable. After applying migrations, ask D1 whether any remain. Stop if they do, even when the apply command succeeded. Check the deployed hostname before reporting success.
+Run Wrangler's deploy step with stdin connected to `/dev/null` to keep resource provisioning predictable. After applying migrations, ask D1 whether any remain. Stop if they do, even when the apply command succeeded. Check the deployed hostname before reporting success.
 
-Keep server settings out of child process environments. Give the Vite build empty values so it can run without warnings or writing real settings to its output. Pass new settings to Wrangler through a temporary file readable only by the current user. Use JSON because Wrangler expands dollar-prefixed references in dotenv files. Handle ordinary interrupt signals in the wrapper long enough to remove the file after Wrangler exits.
+Keep server settings out of child process environments. Give the Vite build empty values so it can run without warnings or writing real settings to its output. Pass new settings to Wrangler through a temporary file readable only by the current user. Use JSON because Wrangler expands dollar-prefixed references in dotenv files. Ctrl-C reaches the running Wrangler child and stops it. The wrapper ignores `SIGINT`, `SIGTERM`, and `SIGHUP` so it can remove the temporary file after Wrangler exits.
 
 ## Consequences
 

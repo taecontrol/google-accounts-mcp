@@ -9,7 +9,7 @@ Gmail can move mail into or out of the trash or spam through changes to system l
 
 ## Decision
 
-Keep `change_labels` from adding or removing `TRASH` or `SPAM`, and from adding `INBOX`, which can also take mail out of the trash or spam. Keep trash and restore behind the permissions for `trash_messages` and `restore_messages`.
+Keep `change_labels` from adding or removing `TRASH` or `SPAM`, and from adding `INBOX`, which can also take mail out of the trash or spam. The tool also refuses `SENT` and `DRAFT` because Gmail sets them itself. Keep trash and restore behind the permissions for `trash_messages` and `restore_messages`.
 
 ## Consequences
 

@@ -9,7 +9,7 @@ Google may apply a write before its response is lost or becomes unreadable. If t
 
 ## Decision
 
-Once a write has been sent, report it as refused only when Google explicitly refuses the operation. Gmail changes use 4xx responses. Calendar event creation recognizes 400, 403, 404, and 429 as refusals. A 409 can mean that an event with the chosen ID already exists. Redirects, 5xx responses, lost responses, and unusable success bodies leave the outcome unconfirmed.
+Once a write has been sent, report it as refused only when Google explicitly refuses the operation. The Gmail helpers pass 4xx responses to each operation to classify. A 404 from the send request for a staged draft becomes `outcome_unknown`. Calendar event creation recognizes 400, 403, 404, and 429 as refusals. A 409 can mean that an event with the chosen ID already exists. Redirects, 5xx responses, lost responses, and unusable success bodies leave the outcome unconfirmed.
 
 ## Consequences
 
