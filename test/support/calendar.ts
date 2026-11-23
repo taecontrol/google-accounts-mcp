@@ -5,7 +5,6 @@ import { setTool } from "./uploads";
 import type { AccountRow } from "./accounts";
 import { testEnv } from "./worker";
 
-// Google's documented calendarList and OAuth contracts, independent of production constants.
 export const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
   "https://www.googleapis.com/auth/calendar.events",
@@ -37,7 +36,6 @@ export interface CalendarEvents {
   delete?: Record<string, EventAnswer>;
   instances?: Record<string, EventAnswer>;
 }
-/** Independent Google fixtures keyed by the calendar and event actually named in the URL. */
 export function eventsFake(answers: Record<string, CalendarEvents>) {
   const requests: EventRequest[] = [];
   network.use(
@@ -73,7 +71,6 @@ export function eventsFake(answers: Record<string, CalendarEvents>) {
   return requests;
 }
 
-/** Captures the actual POST body, including unlisted IDs, without calling Google. */
 type FreeBusyRequest = CalendarRequest & Pick<Request, "json">;
 export function freeBusyFake(
   answer: Response | ((request: FreeBusyRequest) => Response | Promise<Response>),
@@ -91,7 +88,6 @@ export function freeBusyFake(
 export interface CalendarPatchRequest extends CalendarRequest {
   readonly body: string;
 }
-/** Record the wire body, not a reconstructed subset of it. */
 export function patchEventsFake(
   ...answers: Array<Response | ((request: CalendarPatchRequest) => Response | Promise<Response>)>
 ) {
@@ -128,7 +124,6 @@ export const SECONDARY_CALENDAR = {
   accessRole: "reader",
   timeZone: "Asia/Tokyo",
 };
-// Observed API shape on 2026-11-14. An organizer has no attendee entry unless Google supplied one.
 export const eventFixture = (overrides: Record<string, unknown> = {}) => ({
   id: "e1",
   etag: '"version-1"',

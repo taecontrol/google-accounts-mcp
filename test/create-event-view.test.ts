@@ -429,7 +429,6 @@ it.each([{ every: "day" }, { every: "day", count: 1 }, { every: "day", until: "2
   },
 );
 
-// Each start can fall on another local date in some zone, so only the primary zone decides.
 it.each([
   { start: "2026-11-17T01:00:00Z", repeat: { every: "week", weekdays: ["tuesday"] } },
   { start: "2026-11-17T06:00:00Z", repeat: { every: "day", until: "2026-11-16" } },

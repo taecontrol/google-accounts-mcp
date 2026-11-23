@@ -427,7 +427,6 @@ it("treats a stale If-Match as a known failure with safe retry advice", async ()
 
 it("accepts the exact text and guest limits, counting description encoding before Google", async () => {
   const { f, sent } = await setup();
-  // Plain text stays unwrapped; quotes, tabs and backslashes cost two bytes each in JSON.
   const description = '"\t\\' + "x".repeat(7994);
   const title = "t".repeat(1000);
   const location = "l".repeat(1000);

@@ -246,7 +246,6 @@ it("reports connection read failures as unavailable before any write", async () 
   await seedConnection();
   const browser = await ownerBrowser();
   const before = await dump();
-  // A zero-row UPDATE is followed by an outcome read; only that read fails.
   const response = await browser.post(
     `/connections/${crypto.randomUUID()}/revoke`,
     {},

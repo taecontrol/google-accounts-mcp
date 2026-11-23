@@ -236,7 +236,6 @@ it.each(clients)(
   },
 );
 
-// Scope handling does not depend on the client, so one client stands for all three.
 for (const scope of [undefined, "mcp offline_access"]) {
   it(`keeps exactly the requested ${scope ?? "empty"} scope across refreshes`, async () => {
     const mcp = await new McpClient(codeClient).connect(undefined, scope);
@@ -281,7 +280,6 @@ describe("token request body limits", () => {
         {
           pull(controller) {
             if (sent === bytes.byteLength) return controller.close();
-            // One byte beyond the boundary is enough to detect overflow. Do not drain it.
             const end =
               sent < 16 * 1024
                 ? Math.min(sent + 1024, 16 * 1024)

@@ -4,8 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
-// The deployer's command against a local D1, through the same `wrangler d1 execute` it uses
-// remotely. Each wrangler call takes seconds, so the tests make as few as they can.
 const TIMEOUT = 120_000;
 const OWNER = "alex.personal@example.com";
 const OWNER_TABLES = [
@@ -83,8 +81,6 @@ it(
     expect(shown).toContain("State: pinned, generation 3");
     expect(declined.stdout).toContain("Nothing changed.");
 
-    // Every reset run raises the generation, so generation 4 at the end also proves the declined
-    // run ran none of the reset.
     const confirmed = ownerReset(local, "reset\n");
     expect(confirmed.status, confirmed.stderr).toBe(0);
     expect(confirmed.stdout).toMatch(/next owner request for OWNER_EMAIL becomes the owner/i);
@@ -97,7 +93,6 @@ it(
     expect(owner).toEqual([{ state: "unpinned", generation: 4, email: null }]);
     expect(tables.flat()).toEqual(OWNER_TABLES.map((name) => ({ name, rows: 0 })));
 
-    // --yes skips the question, here on a deploy with no owner.
     const unattended = ownerReset([...local, "--yes"]);
     expect(unattended.status, unattended.stderr).toBe(0);
     expect(unattended.stdout).toContain("Stored owner: no owner");

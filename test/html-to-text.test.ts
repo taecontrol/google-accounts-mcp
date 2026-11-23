@@ -1,7 +1,6 @@
 import { expect, it, vi } from "vite-plus/test";
 import { htmlToText } from "../src/google/html";
 
-// This boundary uses workerd's HTMLRewriter, including its handling of broken markup and chunks.
 it.each([
   ["tags and comments", "<div>Hello <b>reader</b><!-- secret --></div>", "Hello reader"],
   [
@@ -120,7 +119,6 @@ it.each([
 
 it("decodes an entity even when HTMLRewriter splits its text node into chunks", async () => {
   const OriginalResponse = Response;
-  // Split the real input stream inside an entity, independently of the producer's chunk size.
   vi.stubGlobal(
     "Response",
     class extends OriginalResponse {
@@ -157,8 +155,6 @@ it("converts 2 MB of table rows with links within twenty seconds", async () => {
   const count = Math.ceil((2 * 1024 * 1024) / row.length);
   const html = `<table>${row.repeat(count)}</table>`;
   const text = await htmlToText(html);
-  // Yield a task so synchronous parser callbacks cannot bypass the elapsed test timeout
-  // by resolving the conversion promise before the timeout callback can run.
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   const expected = Array(count).fill("Item (https://example.com/item) $15.00").join("\n");
   expect(text === expected, "Every table row is converted in order").toBe(true);
@@ -166,7 +162,6 @@ it("converts 2 MB of table rows with links within twenty seconds", async () => {
 
 it.each([
   [4000, 10000],
-  // This smaller input gets its notice only through the converter's cut flag.
   [500, 1100],
 ])(
   "bounds expanded quote prefixes while converting %i nested quotes and %i lines",

@@ -1,4 +1,3 @@
-/** Bounds on fields and text supplied by a mail's sender, before page fitting. */
 export const MAX_REPLY_HEADER = 500;
 export const PAGE_BODY_BYTES = 2_000_000;
 export const MAX_TEXT = 1_000_000;
@@ -10,7 +9,6 @@ export const BODY_BYTES_LEFT_OUT =
 const TEXT_LEFT_OUT =
   "[The rest of this message was left out: it is longer than 1,000,000 characters.]";
 
-/** Offsets count UTF-16 units, but a cut must never fall between the two halves of a character. */
 export const safeEnd = (text: string, end: number): number =>
   end > 0 &&
   end < text.length &&
@@ -22,18 +20,16 @@ export const safeEnd = (text: string, end: number): number =>
 export const shorten = (text: string, limit: number): string =>
   text.length > limit ? text.slice(0, safeEnd(text, limit - 1)) + "…" : text;
 
-/** Callers retain at most MAX_TEXT + 1 characters, enough to detect an overflow. */
 export const boundedText = (text: string, cut = false): string => {
   if (!cut && text.length <= MAX_TEXT) return text;
   const end = safeEnd(text, MAX_TEXT - TEXT_LEFT_OUT.length - 1);
   return text.slice(0, end) + "\n" + TEXT_LEFT_OUT;
 };
 
-/** Keep complete addresses in order, reserving space for the omitted-address count. */
 export const boundedRecipients = (addresses: string[]): string[] => {
   if (JSON.stringify(addresses).length <= 4_000) return addresses;
   const kept: string[] = [];
-  let size = 2; // JSON array brackets.
+  let size = 2;
   for (const address of addresses) {
     const extra = JSON.stringify(address).length + (kept.length ? 1 : 0);
     const marker = `… and ${addresses.length - kept.length - 1} more`;
@@ -45,7 +41,6 @@ export const boundedRecipients = (addresses: string[]): string[] => {
   return kept;
 };
 
-/** Keep a prefix of whole items within the JSON array's character budget. */
 export const boundedList = <A>(items: readonly A[], limit: number): { kept: A[]; left: number } => {
   let size = 2;
   const kept: A[] = [];
@@ -58,7 +53,6 @@ export const boundedList = <A>(items: readonly A[], limit: number): { kept: A[];
   return { kept, left: items.length - kept.length };
 };
 
-/** Inline flags must be set before measuring the attachments' JSON. */
 export const boundedAttachments = <A>(
   attachments: A[],
 ): {

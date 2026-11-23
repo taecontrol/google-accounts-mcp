@@ -8,7 +8,6 @@ import { google } from "./support/google";
 import { setTool } from "./support/uploads";
 import { textOf } from "./support/worker";
 
-// Documented Google error shapes. Values are made up; this has not been observed live.
 const errorInfo = {
   "@type": "type.googleapis.com/google.rpc.ErrorInfo",
   reason: "SERVICE_DISABLED",
@@ -42,7 +41,6 @@ it.each(["ErrorInfo", "legacy"] as const)(
     await setTool(f, "respond_to_event", "allow");
     await setTool(f, "list_labels", "allow", f.northwind);
     calendarFake(disabled(marker), disabled(marker));
-    // Deliberately names Calendar in the body of a Gmail refusal: the use owns the API name.
     google.labelAnswers.push(() => disabled(marker));
     for (const [tool, account, api] of [
       ["list_labels", f.northwind.email, "Gmail API"],

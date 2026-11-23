@@ -1,9 +1,6 @@
 import { expect, it } from "vite-plus/test";
 import { childEnv, deploy, type Io, type Run } from "../../scripts/deploy.ts";
 
-// The deploy command against a fake wrangler, build, terminal, and network. Each test reads the
-// ordered record of what the command did.
-
 const HOST = "mcp.example.com";
 const ALL = [
   "OWNER_EMAIL",
@@ -22,7 +19,6 @@ const VALID: Record<string, string> = {
 };
 const GENERATED_KEY = "c".repeat(64);
 const NOT_FOUND = `✘ [ERROR] Worker "google-accounts-mcp" not found.\n\n  If this is a new Worker, run \`wrangler deploy\` first to create it.`;
-// What the server answers on each path the deploy checks (seen on a local `vp dev`).
 const SERVER: Record<string, number> = {
   "/mcp": 401,
   "/.well-known/oauth-authorization-server": 200,
@@ -120,15 +116,12 @@ it("deploys a new Worker with every setting, then migrates the database it creat
     ...MIGRATE,
   ]);
   expect(run.secretsFiles).toEqual([{ ...VALID, TOKEN_KEY: GENERATED_KEY }]);
-  // The value from the environment is not asked for; only the client secret is typed hidden.
   expect(run.asked).toEqual([
     { question: "ACCESS_ISSUER: ", hidden: false },
     { question: "ACCESS_AUDIENCE: ", hidden: false },
     { question: "GOOGLE_CLIENT_ID: ", hidden: false },
     { question: "GOOGLE_CLIENT_SECRET: ", hidden: true },
   ]);
-  // Unattended, wrangler creates the database under the name the migrations look for, and
-  // leaves wrangler.jsonc as it is.
   expect(run.modes.get(`wrangler deploy --domain ${HOST} --secrets-file /tmp/secrets.json`)).toBe(
     "unattended",
   );
@@ -204,7 +197,6 @@ it("deploys nothing when the build or the migrations of an existing Worker fail"
     expect(await deploy([HOST], run.io)).toBe(false);
     expect(run.steps.some((step) => step.startsWith("wrangler deploy"))).toBe(false);
   }
-  // Declining wrangler's question exits with 0 but leaves migrations pending.
   const declined = fake({ pendingAfterApply: true });
   expect(await deploy([HOST], declined.io)).toBe(false);
   expect(declined.logs).toContain("Some migrations were not applied.");
@@ -266,7 +258,6 @@ it("keeps the server's settings out of the build's and wrangler's environment", 
   const wrangler = childEnv(env, "wrangler");
   expect(Object.keys(wrangler).filter((name) => ALL.includes(name))).toEqual([]);
   expect(wrangler).toMatchObject(kept);
-  // Empty, so the build neither copies them nor warns that they are missing.
   const build = childEnv(env, "vp");
   expect(ALL.map((name) => build[name])).toEqual(ALL.map(() => ""));
   expect(build).toMatchObject(kept);

@@ -46,7 +46,6 @@ it.each(sendCases)("a denied $name cannot reach the sending request", async ({ n
         if (!work && sql.startsWith("INSERT INTO once")) work = setSend(f, name, "deny");
       },
     );
-    // Hold the SELECT in the final batch until the owner's write has completed.
     const guarded = observeStatements(db, async (sql) => {
       if (sql.includes(" AS ask")) await work;
     });

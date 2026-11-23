@@ -9,7 +9,6 @@ import type { AccountTool } from "../mcp/tools";
 
 export type Setting = "deny" | "ask" | "allow";
 
-/** SQL expressions come from callers, never request text. Accounts are aliased as a. */
 export const permittedWhere = ({
   connection,
   tool,
@@ -25,8 +24,6 @@ export const permittedWhere = ({
   ${tool ? `AND p.tool = ${tool}` : ""} AND a.state = 'live'
   AND ${activeWhere({ now, ownerEmail })})`;
 
-// No row is deny. Both writes use the same live-account/active-connection guard;
-// rows of a removed account or ended connection can never grant access again.
 export const setPermission = (
   db: D1Database,
   owner: Owner,
@@ -109,7 +106,6 @@ export const decodePermissions = (
     ]),
   );
 
-/** The tool names granted to a connection, as stored. The caller keeps the ones the server has. */
 export const readListedTools = (
   db: D1Database,
   owner: Owner,

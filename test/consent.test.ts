@@ -58,8 +58,6 @@ describe("owner consent", () => {
     expect(keys).toHaveLength(1);
     expect(keys[0]!.expiration).toBeGreaterThanOrEqual(before + 600);
     expect(keys[0]!.expiration).toBeLessThanOrEqual(after + 600);
-    // Local KV uses real time, not the Worker's fake clock. Remove the transaction
-    // to model KV expiry while retaining the cookie a queued request can still carry.
     await env.OAUTH_KV.delete(keys[0]!.name);
     await expired(await mcp.consent());
     expect(await rows()).toEqual([]);
@@ -184,7 +182,6 @@ describe("owner consent", () => {
         );
         await mcp.approve("Work laptop");
         await mcp.keepTokens(await mcp.exchange());
-        // A queued double click still carries the original binding cookie.
         for (const [origin, jar] of cookies) mcp.browser.cookies.set(origin, jar);
         response = await mcp.browser.post("/authorize", fields);
       } else if (kind === "no cookie" || kind === "another browser") {

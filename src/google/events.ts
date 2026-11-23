@@ -80,13 +80,11 @@ const EventList = Schema.Struct({
   nextPageToken: Schema.optionalKey(
     Schema.String.check(
       Schema.isBetweenLength(1, MAX_EVENT_PAGE),
-      // Printable ASCII without quotes or backslashes has the same length in JSON.
       Schema.makeFilter((token) => !/[^\x20-\x21\x23-\x5b\x5d-\x7e]/u.test(token)),
     ),
   ),
 });
 
-/** JSON characters, including quotes and escaping, with no split surrogate pair at the cut. */
 export const shortJson = (text: string, limit: number, marker = "…"): string => {
   if (JSON.stringify(text).length <= limit) return text;
   let low = 0;
@@ -203,7 +201,6 @@ const listPage = (
 };
 const inRange = (event: LiveEvent, zone: string, range: { from: number; to: number }) =>
   eventInstant(event.end, zone) > range.from && eventInstant(event.start, zone) < range.to;
-/** The initial page and a size-cut re-request use exactly the same filtering and mapping. */
 const searchEvent = (
   item: typeof GoogleEvent.Type,
   account: string,
@@ -293,7 +290,6 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
           ),
         0,
       );
-    // Reserve every envelope before any event. An unusually long group of tokens can fill it.
     for (let i = 0; i < result.calendars.length; i++) {
       if (reservedSize() <= LIMIT) break;
       stop(result.calendars.length - i - 1, true);
@@ -311,7 +307,6 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
           continue;
         }
         entry.events!.push(event);
-        // Reserve the complete Google token, including its JSON quotes.
         const maxTokenSize = MAX_EVENT_PAGE + 2;
         const tokenReserve =
           entry.next_page === undefined
@@ -343,8 +338,6 @@ export const searchEvents = (send: Send, input: SearchEventsInput) =>
               }),
               ...(page.nextPageToken === undefined ? {} : { next_page: page.nextPageToken }),
             };
-            // A changed calendar can grow between requests. Never mix a token with a prefix
-            // from a different answer, or cut the replacement page away from its own token.
             if (JSON.stringify(result).length > LIMIT) stop(index, true);
           }
         }
@@ -381,7 +374,6 @@ export const findEvent = (
   );
 };
 
-/** The view needs only the mapped title and start, plus the event's own zone when supplied. */
 export const eventView = (send: Send, calendar: Calendar, event: string, context: EventContext) =>
   findEvent(send, calendar, event, context).pipe(
     Effect.map((found) => {

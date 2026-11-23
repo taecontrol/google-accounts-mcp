@@ -14,7 +14,6 @@ export const OUTCOME_WORDS = [
   "success",
 ] as const;
 
-/** Only checked IDs, outcomes, and positions enter the store. */
 export function parseActivityQuery(params: URLSearchParams): ActivityQuery {
   const connection = parseConnectionId(params.get("connection"));
   const account = parseAccountId(params.get("account"));

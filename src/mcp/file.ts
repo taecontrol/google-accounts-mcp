@@ -13,7 +13,6 @@ export class WithFile {
 export type Reader = { client: string | null } | "later";
 export type Takes = (type: string) => boolean;
 type Form = "resource" | "image" | "text";
-// The same policy controls the pre-download check, collection and MCP rendering.
 const forms: ReadonlyArray<{ form: Form; takes: (reader: Reader, type: string) => boolean }> = [
   { form: "resource", takes: (reader) => reader === "later" || reader.client === "claude-code" },
   {
@@ -32,10 +31,7 @@ const textOf = (file: FileData): string => {
   let utf8: string | undefined;
   try {
     utf8 = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
-  } catch {
-    // Invalid UTF-8 may still decode in the declared charset.
-  }
-  // ISO-2022-JP escapes and UTF-16 NULs can be valid UTF-8 without being its intended text.
+  } catch {}
   if (
     utf8 !== undefined &&
     (file.charset === null || (!utf8.includes("\u0000") && !utf8.includes("\u001b")))
@@ -44,9 +40,7 @@ const textOf = (file: FileData): string => {
   if (file.charset !== null) {
     try {
       return new TextDecoder(file.charset, { fatal: true }).decode(file.bytes);
-    } catch {
-      // An unknown charset or invalid text in it leaves the file unreadable.
-    }
+    } catch {}
   }
   throw notReadable({ ...file, size: file.bytes.byteLength });
 };

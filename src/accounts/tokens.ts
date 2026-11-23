@@ -27,39 +27,12 @@ interface Access {
   reloaded: boolean;
 }
 
-/**
- * The caller records the call and reads its allowed credential in one atomic D1 batch.
- * Both statements require the pinned owner's generation and address and an active
- * connection. The credential lookup also requires a live account with permission.
- * A changed owner reads nothing.
- * Pass that owner in deps. A fresh token causes no D1 read here: the verified snapshot
- * is used as is, so permission changes take effect on the next call.
- *
- * build may run twice. Each call must create a fresh Request and body, with the caller's
- * cancellation signal. This function sets no deadline for the service request. After a refresh,
- * even a 401 is returned as the final Response; the caller must handle its status.
- *
- * NeedsReconnect means Google revoked access or stored ciphertext is damaged.
- * BlockedByAdmin means Google blocked the app. GoogleUnavailable covers token endpoint failures,
- * including refused OAuth clients. AccountGone means a reload found no live row. Unavailable
- * covers local failures: D1/crypto service failures or a second lost write race may be retried;
- * wrong keys, unsupported token formats and unreadable rows need configuration or data repair.
- * Do not retry Unavailable automatically without knowing its cause. RequestLost means fetch
- * rejected and the request may have taken effect; do not blindly resend. A throwing build is
- * a caller defect, not RequestLost.
- */
 export const withGoogle = (
   deps: Deps,
   account: Credential,
   build: (accessToken: string) => Request,
 ): Effect.Effect<Response, TokenError> => googleSession(deps, account)(build);
 
-/**
- * One call's requests to Google for one account. withGoogle's contract holds for each request.
- * The first request acquires the access token and later requests reuse it, so a call with
- * several requests refreshes an expired token once. Send the first request alone: requests
- * that start together each acquire a token.
- */
 export const googleSession = (
   deps: Deps,
   account: Credential,

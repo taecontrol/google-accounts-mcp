@@ -71,8 +71,6 @@ export const accountWideStatus = (account: AccountView) =>
   SERVICES.map((service) => account.services[service].status).find(
     (status) => status.kind !== "ready" && status.kind !== "missing_access",
   );
-// The accounts table's STRICT types and CHECK constraints already rule out a version below 1
-// and a token that does not match the health; this decodes the row and checks the rest.
 const CredentialRow = Schema.Struct({
   id: Schema.String,
   email: Schema.String,

@@ -162,11 +162,9 @@ it.each([
     const html = await (await f.mcp.browser.get(`/approvals/${id}`)).text();
     const heading = textOf(/<h1[^>]*>([\s\S]*?)<\/h1>/.exec(html)![1]!);
     expect(heading).toBe(headline);
-    // bdi is inline; the HTML helper inserts spaces at its boundaries.
     const text = textOf(html).replace(/\s+([.,])/g, "$1");
     expect(text).toContain(detail);
     expect(text).toContain("a Workspace account");
-    // A decided request offers no decision.
     expect(html).not.toContain(">Approve</button>");
     expect(html).not.toContain(">Reject</button>");
     if (state === "succeeded") expect(text).toContain("This page does not show the result.");

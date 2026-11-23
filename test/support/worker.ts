@@ -11,11 +11,6 @@ export function freshAccessIssuer(): void {
   issuer = `https://test-${crypto.randomUUID()}.cloudflareaccess.com`;
 }
 
-/**
- * The environment the Worker's fetch receives. Tests change it between requests (a new
- * OWNER_EMAIL, a missing secret, a broken DB) without touching the shared bindings.
- * A value of `undefined` removes the setting, as if it were never set.
- */
 export function testEnv(overrides: { [K in keyof Env]?: Env[K] | undefined } = {}): Env {
   const base: Record<string, unknown> = {
     DB: env.DB,
@@ -35,7 +30,6 @@ export function testEnv(overrides: { [K in keyof Env]?: Env[K] | undefined } = {
   return base as unknown as Env;
 }
 
-/** Calls the Worker module's default export, as Cloudflare would. */
 export async function callWorker(
   request: Request,
   workerEnv: Env = testEnv(),
@@ -53,7 +47,6 @@ export async function callWorker(
   return response;
 }
 
-/** The redirect target as a path when it stays on this deploy, otherwise the full URL. */
 export function location(response: Response): string | null {
   const raw = response.headers.get("Location");
   if (raw === null) return null;
@@ -61,14 +54,12 @@ export function location(response: Response): string | null {
   return url.origin === ORIGIN ? `${url.pathname}${url.search}` : url.href;
 }
 
-/** The visible text of an HTML page: no tags, no comments, entities decoded, spaces collapsed. */
 export function textOf(html: string): string {
   return decodeEntities(
     html
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
       .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
       .replace(/<!--[\s\S]*?-->/g, "")
-      // Inline formatting does not add visible whitespace around punctuation.
       .replace(/<\/?(?:span|strong|em|code)\b[^>]*>/gi, "")
       .replace(/<[^>]+>/g, " "),
   )
@@ -95,7 +86,6 @@ export interface HtmlForm {
   readonly buttons: string[];
 }
 
-/** Every <form> on the page with its action, method, hidden and named inputs, and button labels. */
 export function formsOf(html: string): HtmlForm[] {
   const forms: HtmlForm[] = [];
   for (const match of html.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)) {

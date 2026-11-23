@@ -8,10 +8,8 @@ import { shorten } from "./bounds";
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
-/** Gmail answers 404 or 400 for an ID the account does not have; any other refusal is unavailable. */
 export const notFoundOr = (kind: Missing, id: string) => (status: number) =>
   status === 404 || status === 400 ? notFound(kind, id) : unavailable();
-/** One GET as the account. Any status outside 200 to 299 goes to refused, with its status. */
 export const get = <A>(
   send: Send,
   path: string,
@@ -39,19 +37,13 @@ export const get = <A>(
     return yield* Schema.decodeUnknownEffect(schema)(body).pipe(Effect.mapError(unavailable));
   });
 
-/**
- * A thread, message, or draft ID as a tool accepts it: 1 to 64 URL-safe characters. Effect
- * publishes a pattern in the tool's JSON Schema only for a regular expression with the u flag.
- */
 export const GmailId = Schema.String.check(
   Schema.isBetweenLength(1, 64),
   Schema.isPattern(/^[A-Za-z0-9_-]+$/u),
 );
 
-/** Shared answer shape for attachments.get, including read_thread's deferred body parts. */
 export const AttachmentBytes = Schema.Struct({ data: Schema.String });
 
-/** One change as the account. Only a 4xx response confirms that Google refused it. */
 export const change = <A>(
   send: Send,
   method: "POST" | "DELETE",
@@ -77,7 +69,6 @@ export const change = <A>(
     return yield* changed(response, schema, refused);
   });
 
-/** A byte upload uses the same refusal and uncertainty rules as a JSON change. */
 export const upload = <A>(
   send: Send,
   path: string,
@@ -116,17 +107,8 @@ const changed = <A>(
     return yield* Schema.decodeUnknownEffect(schema)(parsed).pipe(Effect.mapError(uncertain));
   });
 
-/**
- * The most threads or messages that one call which changes mail may name. Each item costs one
- * Gmail request when the call runs and one when the approval page shows it; at five requests at
- * a time, 100 items stay well inside Gmail's per-user rate and the call deadlines (CALL_DEADLINE, RUN_DEADLINE).
- */
 export const MAX_ITEMS = 100;
 
-/**
- * Send the first item alone so a session without a token acquires it once, and a failure other
- * than not_found stops the call after one request. Keep every item's outcome.
- */
 export const changeEach = <A>(
   kind: Missing,
   ids: readonly string[],
@@ -171,8 +153,6 @@ const Labels = Schema.Struct({
 export const listLabels = (send: Send) =>
   get(send, "labels", Labels).pipe(Effect.map((parsed) => parsed.labels ?? []));
 
-// Shapes observed on a real account on 2026-11-11 (issue #23). A list with no result has
-// no threads key. A thread's messages come oldest first, and internalDate is milliseconds.
 const ThreadList = Schema.Struct({
   threads: Schema.optionalKey(
     Schema.Array(Schema.Struct({ id: Schema.String, snippet: Schema.String })),
@@ -228,7 +208,6 @@ export interface MessageSummary {
   subject: string;
   date: number;
 }
-/** One message as a view shows it, with bounded headers. */
 export const messageSummary = (
   send: Send,
   message: string,
@@ -248,7 +227,6 @@ export const messageSummary = (
       date: Number(value.internalDate),
     })),
   );
-/** Cloudflare allows a Worker six connections at once for one request; five leave one free. */
 export const REQUESTS_AT_ONCE = 5;
 export const searchThreads = (
   send: Send,
@@ -257,7 +235,6 @@ export const searchThreads = (
   Effect.gen(function* () {
     const params = new URLSearchParams({ q: input.query, maxResults: String(input.limit) });
     if (input.page !== undefined) params.set("pageToken", input.page);
-    // This request goes alone, so an expired token is refreshed once before the threads.
     const list = yield* get(send, `threads?${params}`, ThreadList, (status) =>
       status === 400 && input.page !== undefined
         ? new ToolFailure({

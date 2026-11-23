@@ -15,8 +15,6 @@ import {
 } from "./support/permissions";
 import { ORIGIN } from "./support/worker";
 
-// Approval flow through the Worker's public interfaces only: the owner's
-// page actions, the MCP endpoint, and the approval page with its two actions.
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 const HOUR = 60 * 60 * 1000;
 const labels = LABELS_RESPONSE.labels.map(({ id, name, type }) => ({ id, name, type }));
@@ -111,7 +109,6 @@ it("runs the call once when the owner approves, and get_approval returns its res
   expect((await decide(f.mcp.browser, approval, "approve", { digest })).state.kind).toBe(
     "succeeded",
   );
-  // A second Approve, as from a second device, shows the same state and runs nothing.
   expect((await decide(f.mcp.browser, approval, "approve", { digest })).state.kind).toBe(
     "succeeded",
   );
@@ -150,7 +147,6 @@ it("runs nothing for an Approve that arrives at expires_at", async () => {
   const page = await pageProps(await f.mcp.browser.get(`/approvals/${approval}`));
   const before = googleTraffic().length;
   vi.spyOn(Date, "now").mockReturnValue(NOW + HOUR);
-  // The owner's sign-in and the client's access token also last one hour; renew both.
   await f.mcp.browser.authenticate();
   await f.mcp.keepTokens(await f.mcp.refresh());
   const decided = await decide(f.mcp.browser, approval, "approve", {
@@ -221,7 +217,6 @@ it("lets only the signed-in owner decide", async () => {
   for (const browser of [stranger, other])
     for (const action of ["approve", "reject"] as const)
       expect((await browser.post(`/approvals/${approval}/${action}`, { digest })).status).toBe(403);
-  // A cross-site or origin-less request from the owner's own browser is refused too.
   for (const action of ["approve", "reject"] as const)
     for (const origin of [null, "https://evil.example"])
       expect(

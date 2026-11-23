@@ -236,7 +236,7 @@ it("uses the read statement to withhold results after one hour and when any used
   await f.mcp.browser.authenticate();
   await f.mcp.keepTokens(await f.mcp.refresh());
   expect(await get(f, id)).toEqual({ status: "success" });
-  expect((await row(id))!.result).not.toBeNull(); // SQL withholds even before the cleanup job.
+  expect((await row(id))!.result).not.toBeNull();
 });
 it("checks every used account in the decision batch", async () => {
   const f = await fixture();
@@ -308,7 +308,6 @@ it.each(["page", "get_approval"])(
     if (reader === "page") expect((await page(f, id)).state.kind).toBe("unknown");
     else expect(await get(f, id)).toEqual({ status: "unknown" });
     expect(await row(id)).toMatchObject({ outcome: "unknown" });
-    // Restore time to prove the outcome guard checks the stored state, not only the clock.
     vi.spyOn(Date, "now").mockReturnValue(NOW + 1000);
     release.resolve();
     expect((await decided(await running)).state.kind).toBe("unknown");
@@ -321,7 +320,6 @@ it("limits the outcome batch to thirty seconds even without a settling read", as
   await setting(f, "ask");
   const id = await ask(f);
   const winningClaim = observeDecisions();
-  // Keep the genuine Won even though the route cannot confirm the outcome write.
   const db = observeStatements(env.DB, (sql) => {
     if (sql.startsWith("UPDATE approvals SET outcome = ?5")) throw new Error("lost");
   });
@@ -456,7 +454,6 @@ it("stores no result when the connection expires during an approved run without 
   expect(await row(id)).toMatchObject({ outcome: "success", result: null });
   expect((await callRows())[0]!.outcome).toBe("success");
   expect((await toolCall(f.mcp, "get_approval", { approval: id })).status).toBe(401);
-  // Even if the connection becomes usable again, the result was never retained.
   await env.DB.prepare("UPDATE connections SET expires_at = ? WHERE id = ?")
     .bind(NOW + 3_600_000, f.connection.id)
     .run();

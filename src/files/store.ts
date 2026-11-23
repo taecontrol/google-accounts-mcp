@@ -21,7 +21,6 @@ export const FileRef = Schema.Struct({
 export type FileRef = typeof FileRef.Type;
 const encoder = new TextEncoder();
 
-/** Each file has its own key, so deleting its sealed reference makes the bytes impossible to decrypt. */
 export const putFile = (kv: KVNamespace, file: FileData, expires: number) =>
   Effect.tryPromise({
     try: async (): Promise<FileRef> => {
@@ -50,7 +49,6 @@ export const putFile = (kv: KVNamespace, file: FileData, expires: number) =>
     catch: () => new Unavailable(),
   });
 
-/** A miss, an unavailable location and a damaged value all mean the file is not ready. */
 export const getFile = (kv: KVNamespace, ref: FileRef): Effect.Effect<FileData | null> =>
   Effect.promise(async () => {
     try {

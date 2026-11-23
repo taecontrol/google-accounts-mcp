@@ -288,7 +288,6 @@ it("checks deny before stored results and scopes the identity to the connection"
   const f = await draftFixture();
   await answer(await draftCall(f));
   await setDraft(f, "deny");
-  // Another allowed tool keeps the account visible, so the denial is tool_not_allowed.
   await permission(f);
   await expectError(await draftCall(f), "tool_not_allowed", /has not allowed create_draft/);
   const other = await new McpClient().connect("Other connection");
@@ -328,7 +327,6 @@ it("returns the same waiting approval even at the limit of twenty", async () => 
 
 it("ends a waiting approval on deny and runs directly after allow", async () => {
   const f = await draftFixture("ask");
-  // Keep the account visible after denying create_draft, so the refusal is tool_not_allowed.
   await permission(f);
   const pending = await answer(await draftCall(f));
   expect(pending.status).toBe("pending");
@@ -627,7 +625,6 @@ it("derives stable, keyed identities and compares defaults deeply without normal
   expect(await identityOf(key, { ...call, args: { body: "é" } })).not.toBe(
     await identityOf(key, { ...call, args: { body: "e\u0301" } }),
   );
-  // Independent HKDF/HMAC vector, with an empty HKDF salt and the canonical JSON string.
   expect(
     await identityOf(key, {
       ...call,

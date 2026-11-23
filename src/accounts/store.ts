@@ -45,7 +45,6 @@ export const loadCredential = (db: D1Database, owner: Owner, id: AccountId) =>
       return credential ? Effect.succeed(credential) : Effect.fail(new Unavailable());
     }),
   );
-// Lists expose only key prefixes, never token ciphertext.
 const viewColumns = `a.id, a.name, a.email, a.hd, a.health, a.scopes,
   substr(a.refresh_token,1,20) AS refresh_key, substr(a.access_token,1,20) AS access_key`;
 interface ViewRow {
@@ -306,7 +305,6 @@ export const removeAccount = (db: D1Database, owner: Owner, id: AccountId, now: 
     ),
   );
 
-// Only reconnect advances version. Concurrent refreshes of Google's non-rotating token can both win.
 const tokenWrite = (
   db: D1Database,
   account: Credential,

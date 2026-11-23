@@ -7,7 +7,6 @@ import type { TokenKey } from "../config";
 import { decodeArgs, TOOLS, type DecodedArgs, type Send, type Sources } from "../mcp/tools";
 import type { Approval, ApprovalPageProps, ApprovalRequest } from "./model";
 
-// Property order is explicit, including each value in the order the owner reads it.
 export const viewDigest = async (request: ApprovalRequest) => {
   const canonical = JSON.stringify({
     connection: {
@@ -116,9 +115,7 @@ export async function approvalView(
           files = opened.files;
         }
       }
-    } catch {
-      /* A view that cannot be built must never offer Approve. */
-    }
+    } catch {}
   }
   let state: ApprovalPageProps["state"];
   switch (row.state) {

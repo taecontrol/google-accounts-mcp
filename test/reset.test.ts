@@ -15,12 +15,10 @@ async function readForPlan() {
   return { state: row.state, generation: row.generation };
 }
 
-/** The reset's statements sent in one call, as `wrangler d1 execute --command` sends them. */
 async function runAll(statements: ReadonlyArray<string>) {
   return env.DB.batch(statements.map((sql) => env.DB.prepare(sql)));
 }
 
-/** The same statements one at a time, as if remote D1 did not run the call atomically. */
 async function runEach(statements: ReadonlyArray<string>) {
   const results = [];
   for (const sql of statements) results.push(await env.DB.prepare(sql).all());
@@ -152,7 +150,6 @@ describe("a reset that is interrupted, repeated, raced, or delayed", () => {
     await pinnedOwner(1);
     const old = resetPlan(await readForPlan());
     await runEach(old.statements.slice(0, 1));
-    // Someone else finishes that reset, a new owner signs in at generation 2, and a newer reset begins.
     await runAll(resetPlan(await readForPlan()).statements);
     const newOwner = new Browser();
     await newOwner.authenticate();
@@ -217,7 +214,6 @@ it("deletes the previous owner's rows only under its own state and generation", 
   ]);
   for (const table of OWNER_TABLES) expect(await tableRows(table), table).not.toEqual([]);
 
-  // The first run stops right after it begins.
   const plan = resetPlan(await readForPlan());
   await runEach(plan.statements.slice(0, 1));
 
@@ -227,7 +223,6 @@ it("deletes the previous owner's rows only under its own state and generation", 
   for (const table of OWNER_TABLES) expect(await tableRows(table), table).toEqual([]);
   expect(await ownerRow()).toEqual(unpinnedAt(3));
 
-  // The first run's cleanup arrives late: after a new owner pinned, and during a newer reset.
   await pinnedOwner(3);
   await seedConnection({ generation: 3 });
   const repinned = await dump();

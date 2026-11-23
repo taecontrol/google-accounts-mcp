@@ -309,7 +309,6 @@ it.each(["tool", "connection", "account"])(
       expect(out.content[0]).toMatchObject({ type: "text" });
       expect((out.content[0] as { text: string }).text).not.toContain("menu.pdf");
     }
-    // Purging references never deletes KV values; nobody can collect them through this approval.
     expect((await env.FILES_KV.list()).keys.map((k) => k.name)).toEqual([payload.file!.name]);
   },
 );
@@ -432,7 +431,6 @@ it("opens file references only when their persisted schema is valid and keeps or
     { ...payload.file, charset: 2 },
     { ...payload.file, name: "token:unrelated" },
   ]) {
-    // Model corrupted persisted data at the sealing boundary; production only builds FileRef.
     const invalid = { ...payload, file } as unknown as Parameters<typeof sealResult>[2];
     expect(await openResult(key, id, await sealResult(key, id, invalid))).toEqual({
       result: payload.result,

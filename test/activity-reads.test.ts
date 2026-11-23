@@ -88,8 +88,6 @@ it("bounds every request's reads on 1,000,000 records, including a full load of 
       bound: 78,
     },
   ];
-  // The two lean lists, including their owner guards, read 7 and 5 rows for this fixture.
-  // The request's owner gate reads one row and its pin/check reads three.
   const listRows = 7 + 5;
   const ownerRows = 1 + 3;
   for (const sample of cases) {
@@ -104,7 +102,6 @@ it("bounds every request's reads on 1,000,000 records, including a full load of 
       props.load.records.map((r) => r.id),
       sample.name,
     ).toEqual(sample.ids);
-    // Read the IDs back from the times in the actual HTML, whose fixture time is NOW - ID minutes.
     const shown = [
       ...new Set(
         [...html.matchAll(/<time dateTime="([^"]+)"/g)].map(

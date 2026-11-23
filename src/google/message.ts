@@ -103,7 +103,6 @@ export const addresses = (value: string): string[] => {
   if (value.slice(start).trim()) result.push(value.slice(start).trim());
   return result;
 };
-/** One listing rule for read_thread and position lookup. Only multipart parts are containers. */
 export const attachmentParts = (raw: RawMessage): RawPart[] => {
   const parts: RawPart[] = [];
   const collect = (part: RawPart) => {
@@ -129,7 +128,6 @@ export const attachmentFields = (part: RawPart): Attachment & { contentId: strin
 });
 export const attachmentPart = (raw: RawMessage, attachment: string): RawPart | null =>
   attachmentParts(raw).find((part) => (part.partId || "0") === attachment) ?? null;
-/** MIME selection stays pure. Bytes are decoded only after the page grants their cost. */
 const messageBody = (raw: RawMessage) => {
   const html: BodyPart[] = [];
   const sources = new Map<RawPart, BodyPart>();
@@ -175,7 +173,6 @@ const messageBody = (raw: RawMessage) => {
         readableHtml ?? alternatives.find((bodies) => bodies.some((body) => body.kind === "html"));
       const plains = alternatives.filter(hasPlain);
       let chosen: Body[] = html ?? [];
-      // A plain part can turn out blank only after its bytes have been read within the budget.
       for (const preferred of plains.reverse())
         chosen = chosen.length ? [{ kind: "alternative", preferred, fallback: chosen }] : preferred;
       if (plains.length || readableHtml) return chosen;
@@ -188,7 +185,6 @@ const messageBody = (raw: RawMessage) => {
   };
   return { body: select(raw.payload), html, sources };
 };
-/** Leaf parts not represented by the selected body, its alternatives, or the file list. */
 export const otherParts = (raw: RawMessage): RawPart[] => {
   const { body, sources } = messageBody(raw);
   const selected = new Set<BodyPart>();

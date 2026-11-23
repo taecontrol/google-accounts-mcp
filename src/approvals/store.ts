@@ -123,7 +123,6 @@ export interface ApprovalContext {
   db: D1Database;
   owner: Owner;
 }
-// All SQL expressions here are supplied by code. The approval table keeps its full name.
 const ownerGuard = (generation: string, email: string) =>
   `approvals.generation = ${generation} AND EXISTS (SELECT 1 FROM owner o WHERE o.id = 1 AND o.state = 'pinned' AND o.generation = approvals.generation AND o.email = ${email})`;
 const usable = (connection: string, generation: string, uses: string, now: string, email: string) =>
@@ -134,7 +133,6 @@ const usable = (connection: string, generation: string, uses: string, now: strin
 const rowUsable = (now: string, email: string) =>
   usable("approvals.connection_id", "approvals.generation", "approvals.uses", now, email);
 
-/** Guard every tool with create against the owner's current settings before creating or sending. */
 export const stillApproved = (ctx: ApprovalContext, won: Won): Effect.Effect<void, ToolFailure> =>
   Effect.tryPromise({
     try: () =>
@@ -241,7 +239,6 @@ export const createApproval = (
           ? [
               rowStatement(ctx.db, input.identity),
               waitingStatement(ctx, input.identity, at),
-              // A repeat is answered only while the call is still permitted (#28 rule 7).
               ctx.db
                 .prepare(`SELECT 1 AS ok WHERE ${usable("?1", "?2", "?3", "?4", "?5")}`)
                 .bind(
@@ -279,7 +276,6 @@ export const createApproval = (
     catch: () => new WriteUncertain(),
   });
 
-// Audit writes match both identifiers; a reset can reuse numeric call IDs.
 const audit = (
   db: D1Database,
   where: string,
@@ -346,7 +342,6 @@ export const readApproval = (
     catch: () => new WriteUncertain(),
   });
 
-/** A view acquires a credential only while this waiting approval is still usable. */
 export const viewCredential = (
   ctx: ApprovalContext,
   id: ApprovalId,
@@ -455,7 +450,6 @@ export const finishApproval = (
   }).pipe(Effect.asVoid);
 
 type GuardCommon = { generation: string; ownerEmail: string; now: string };
-/** Placeholder expressions are supplied by stores, never by request data. */
 export function changeGuard(
   ...[kind, p]:
     | ["connection", GuardCommon & { connection: string }]
@@ -471,7 +465,6 @@ export function changeGuard(
       return `EXISTS (SELECT 1 FROM accounts a JOIN connections c ON c.id = ${p.connection} WHERE a.id = ${p.account} AND a.state = 'live' AND a.generation = ${p.generation} AND c.generation = ${p.generation} AND ${activeWhere(p)})`;
   }
 }
-/** Prepend to the owner's change; every statement binds its own values. */
 export const endApprovals = (db: D1Database, owner: Owner, target: Target, now: number) => {
   const common = { generation: "?1", ownerEmail: "?2", now: "?3" };
   const values: (string | number)[] = [owner.generation, owner.email, now];

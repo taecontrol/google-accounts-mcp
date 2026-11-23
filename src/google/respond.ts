@@ -15,7 +15,6 @@ export const WHOLE_SERIES =
 const invalidEvent = (expects: string) =>
   new ToolFailure({ code: "invalid_arguments", field: { name: "event", expects } });
 
-/** The view and the write resolve the same invitation and refuse the same unsafe targets. */
 export const invitation = (send: Send, input: { account: string; event: string }) =>
   Effect.gen(function* () {
     const { calendars } = yield* readCalendarList(send);
@@ -27,7 +26,6 @@ export const invitation = (send: Send, input: { account: string; event: string }
           said: "No primary calendar ID is available in this account's Google Calendar list.",
         }),
       );
-    // Reading in UTC needs no primary zone. Only the approval view formats the event's times.
     const event = yield* findEvent(send, calendar, input.event, {
       account: input.account,
       zone: "UTC",
@@ -78,17 +76,12 @@ export interface RespondResult {
   readonly event: string;
   readonly my_response: typeof EventResponse.Type;
 }
-/**
- * Writes the answer for an invitation that this run read; its etag ties the write to that read.
- * Only the confirmed channel reaches it: runChange checks the setting just before the write.
- */
 export const answerInvitation = (
   sending: Sending,
   { calendar, event, mine }: Invitation,
   input: RespondInput,
 ): Effect.Effect<RespondResult, ToolFailure> =>
   Effect.gen(function* () {
-    // Google always gives an etag. Without one the write could not be tied to this read.
     const etag = event.etag;
     if (etag === undefined)
       return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
@@ -120,7 +113,6 @@ export const answerInvitation = (
       return yield* Effect.fail(
         new ToolFailure({
           code: "google_unavailable",
-          // As with other writes, redirects and server errors cannot confirm the outcome.
           ...(response.status < 400 || response.status >= 500 ? { unknown: true } : {}),
           ...(response.status === 412
             ? {
@@ -141,13 +133,11 @@ export const answerInvitation = (
     return { account: input.account, event: input.event, my_response: own[0]!.responseStatus };
   });
 
-/** What the approval page shows of an answer, built from one read of the invitation. */
 export const invitationValues = (
   { calendar, event, mine, organizer }: Invitation,
   args: { response: typeof EventResponse.Type; note?: string },
 ) =>
   Effect.gen(function* () {
-    // The view needs the primary calendar's zone; the answer itself does not.
     const zone = calendar.time_zone;
     if (zone === undefined || !Schema.is(ZoneName)(zone))
       return yield* Effect.fail(new ViewUnavailable());
@@ -191,7 +181,6 @@ export const invitationValues = (
       from: "agent",
     });
     if (args.note !== undefined) values.push({ name: "Note", text: args.note, from: "agent" });
-    // Google erases an earlier note on every answer, so the owner always sees the one that goes.
     if (mine.comment)
       values.push({
         name: args.note === undefined ? "Note removed" : "Earlier note, replaced",
@@ -200,15 +189,12 @@ export const invitationValues = (
       });
     return values;
   });
-/** One read supplies the approved page's values and the write, as update_event and delete_event do. */
 export const respondPlan = (
   send: Send,
   input: RespondInput,
 ): Effect.Effect<ChangePlan<RespondResult>, ToolFailure> =>
   Effect.gen(function* () {
     const found = yield* invitation(send, input);
-    // The answer needs no zone. Without one the page cannot be built, and an empty list never
-    // equals an approved page, which always shows the event, so only an allowed call writes.
     const values = yield* invitationValues(found, input).pipe(
       Effect.catch(() => Effect.succeed<ViewValue[]>([])),
     );

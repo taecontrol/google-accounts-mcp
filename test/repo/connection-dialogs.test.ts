@@ -11,8 +11,6 @@ let origin: string;
 let server: ReturnType<typeof createServer>;
 
 beforeAll(async () => {
-  // Bundle the real page and its styles. Worker tests own authorization and D1 effects;
-  // this browser test owns the controls that choose an action and its submitted fields.
   const bundle = await build({
     configFile: false,
     logLevel: "silent",
@@ -65,7 +63,6 @@ it.each([390, 1280])(
   async (width) => {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     try {
-      // Each answer the dialog cannot confirm keeps it open with its message.
       const answers = [
         [200, { outcome: "already_ended" }, "Work laptop already ended. Nothing changed."],
         [
@@ -152,7 +149,6 @@ it.each(["consent", "rename"])(
         exact: true,
       });
       await field.fill("");
-      // Use Chromium's native text insertion, which enforces maxlength for emoji too.
       await page.keyboard.insertText("😀".repeat(100));
       expect(await field.inputValue()).toBe("😀".repeat(100));
       expect(await field.getAttribute("required")).not.toBeNull();

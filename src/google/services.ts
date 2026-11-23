@@ -24,6 +24,5 @@ export const parseServices = (value: unknown): readonly Service[] | null => {
 };
 export const scopesOf = (services: readonly Service[]): string[] =>
   services.flatMap((service) => serviceInfo[service].scopes);
-/** Keep only access the owner chose, even if Google returns an earlier, wider grant. */
 export const chosenScopes = (granted: readonly string[], services: readonly Service[]): string[] =>
   scopesOf(services).filter((scope) => granted.includes(scope));

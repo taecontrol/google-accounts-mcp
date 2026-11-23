@@ -11,7 +11,6 @@ it("resets D1 and KV whose instances have been evicted, including the migration 
   ).run();
   await env.OAUTH_KV.put("isolation-probe", "old state");
   await env.FILES_KV.put("file:isolation-probe", "old state");
-  // Keep the backing storage but remove its live instances, as idle eviction does.
   await abortAllDurableObjects();
   await resetBindings();
   const table = await env.DB.prepare(

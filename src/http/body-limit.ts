@@ -1,7 +1,5 @@
-// Page actions and public OAuth forms share one byte limit.
 export const MAX_BODY_BYTES = 16 * 1024;
 
-/** Buffer at most the limit, cancel on overflow, and preserve the original bytes. */
 export async function limitRequestBody(request: Request): Promise<Request | Response> {
   if (!request.body) return request;
   const reader = request.body.getReader();

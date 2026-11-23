@@ -5,10 +5,6 @@ import { renderPage } from "../src/pages/render";
 import type { TestEnv } from "./env";
 import { ORIGIN } from "./support/worker";
 
-// Each page state hydrates once in Chromium, with no errors and no horizontal overflow, at phone
-// and desktop widths. Every waiting tool shares one approval layout, so three views stand for the
-// rest: the most values, the longest labels and lines, and both kinds of note. Add a view only when
-// it brings a structure this layout does not cover.
 const pages = [
   "approval-waiting-long-names",
   "approval-cannot-show",

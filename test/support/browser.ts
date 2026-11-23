@@ -9,7 +9,6 @@ export interface RequestOptions {
   readonly env?: Env;
 }
 
-/** A browser behind fake Access, with host-only cookies kept separately for each origin. */
 export class Browser {
   assertion?: string;
   private readonly cookieExpiries = new Map<string, number>();

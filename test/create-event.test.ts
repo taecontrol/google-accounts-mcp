@@ -136,7 +136,6 @@ it.each(["cancelled", "404", "410", "201", "500", "unreadable", "abort"])(
       );
       expect((await onceRows())[0]!.state).toBe("unknown");
     } else {
-      // A failed read proves nothing, so the agent tries again before it bothers the owner.
       const error = await createEventCall(f);
       await expectError(
         error,

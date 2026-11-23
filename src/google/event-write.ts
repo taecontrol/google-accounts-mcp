@@ -10,7 +10,6 @@ export const MAX_TITLE = 1_000;
 export const MAX_LOCATION = 1_000;
 export const MAX_DESCRIPTION = 8_000;
 export const MAX_GUESTS = 50;
-/** The only statuses after which Google created nothing; every other answer is uncertain. */
 export const NOT_CREATED: readonly number[] = [400, 403, 404, 429];
 export const DESCRIPTION_EXPECTS =
   "plain text of at most 8,000 UTF-8 bytes after HTML encoding, counting each line break, tab, quote, and backslash as 2, without other control characters";
@@ -18,7 +17,6 @@ const noControls = Schema.isPattern(/^[^\p{Cc}]*$/u);
 export const Title = Schema.String.check(Schema.isBetweenLength(1, MAX_TITLE), noControls);
 export const Location = Schema.String.check(Schema.isMaxLength(MAX_LOCATION), noControls);
 
-/** This is the sole encoding of agent text into Google's HTML-capable description. */
 const descriptionForGoogle = (text: string): string =>
   /[<>&]/.test(text)
     ? `<span>${text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br>")}</span>`
@@ -31,10 +29,6 @@ export const Description = Schema.String.check(
   Schema.makeFilter((text) => !/\p{Cc}/u.test(text.replaceAll("\n", "").replaceAll("\t", ""))),
   Schema.makeFilter((text) => descriptionSize(text) <= MAX_DESCRIPTION),
 );
-/**
- * Refuse any conversion that would make the invitation differ from the approved text. Text sent
- * unchanged needs no check: it holds no "<", so read_event returns it as it is.
- */
 export const checkedDescription = (text: string): Effect.Effect<string, ToolFailure> =>
   descriptionForGoogle(text) === text
     ? Effect.succeed(text)
@@ -121,7 +115,6 @@ export const eventPoints = (
         field: { name: "end", expects: "after start in the call's time zone" },
       }),
     );
-  // Google accepts the canonical spelling; the view keeps the caller's.
   const timeZone = canonicalZone(zone) ?? zone;
   return Result.succeed(
     allDay
@@ -163,7 +156,6 @@ const GoogleWrittenEvent = Schema.Struct({
   ),
 });
 const uncertain = () => new ToolFailure({ code: "google_unavailable", unknown: true });
-/** Both an insert answer and a recovery GET carry the same Google event shape. */
 export const readWrittenEvent = (
   response: Response,
   meet: boolean,
@@ -249,7 +241,6 @@ export const writeEvent = (
     const meet = typeof r.body === "object" && r.body !== null && "conferenceData" in r.body;
     return yield* readWrittenEvent(response, meet);
   });
-/** An all-day end is exclusive, so the page names the last day the event covers. */
 export const timeValues = (start: string, end: string, zone: string): ViewValue[] =>
   parseTime(start).kind === "date"
     ? [

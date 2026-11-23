@@ -47,7 +47,6 @@ import type { FramePage } from "./page";
 type Props = Extract<FramePage, { _tag: "Activity" }>;
 type OutcomeKey = ActivityRecord["outcome"];
 type Tone = "wait" | "bad" | "note" | "quiet";
-/** The filter's order: what waits, then what went wrong, then what needs a look, then the rest. */
 const OUTCOMES: ReadonlyArray<{
   key: OutcomeKey;
   label: string;
@@ -342,7 +341,6 @@ function Filters({
   );
 }
 
-/** Below the list so that changing a filter never moves the top of the list. */
 function EndedNotice({ query, load }: Pick<Props, "query" | "load">) {
   const filter = query.filter;
   const connection =
@@ -379,7 +377,6 @@ function Choice(props: {
           size="sm"
           aria-label={`${props.label}: ${props.current}`}
           className={cn(
-            // Like a name in a record, only a long name shortens; a short one keeps its width.
             props.current.length > LONG_NAME ? "min-w-0 flex-1 basis-0 md:max-w-64" : "shrink-0",
             !props.selected && "text-muted-foreground",
           )}
@@ -450,7 +447,6 @@ function OutcomeMark({ record }: { readonly record: ActivityRecord }) {
   );
 }
 
-/** A name only shortens when it is long; shorter names keep their full width and wrap instead. */
 const LONG_NAME = 24;
 
 function Name({
@@ -544,7 +540,6 @@ function Record({ record: r }: { readonly record: ActivityRecord }) {
     <Collapsible>
       <div className="flex items-stretch gap-2 text-sm md:gap-3">
         {waiting && (
-          // The whole outcome cell, the full height of the record, is the way to the approval.
           <Button
             asChild
             variant="ghost"

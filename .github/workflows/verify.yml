@@ -15,8 +15,6 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    # Vitest's timeouts run inside the workerd runner, so a frozen runner may never report
-    # them. Cap the job well above its expected length, not GitHub's 6 h default.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.0

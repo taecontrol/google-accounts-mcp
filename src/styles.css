@@ -67,7 +67,6 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  /* Amber, for problems the owner can fix by trying again: Tailwind's amber-50 and amber-950. */
   --warning: oklch(0.987 0.022 95.277);
   --warning-foreground: oklch(0.279 0.077 45.635);
   --border: oklch(0.922 0 0);

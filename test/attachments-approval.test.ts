@@ -448,7 +448,6 @@ it.each(["allow", "ask"] as const)(
     const shown = pending ? await digest(f, pending) : null;
     const raw = serveAttachment({ ...filePart(), body: { size: 1, attachmentId: "held-file" } });
     if (pending) {
-      // Keep the view unchanged and hold only the run's attachment bytes.
       serveAttachment();
       const original = google.messageAnswers.get(MESSAGE)!;
       let reads = 0;

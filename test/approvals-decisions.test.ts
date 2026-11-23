@@ -197,7 +197,6 @@ it("concurrent Approve and Reject count one decision and agree after Reject wins
   const rejection = await decided(await post(f, id, "reject"));
   release.resolve();
   const approval = await decided(await first);
-  // A stale digest must return the current persisted decision, not revive a waiting view.
   expect(rejection.state.kind).toBe("rejected");
   expect(approval.state.kind).toBe("rejected");
   expect(google.labelRequests).toEqual([]);

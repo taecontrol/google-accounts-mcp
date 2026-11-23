@@ -33,7 +33,6 @@ export async function accessJwks(rotated = false, alg = "RS256") {
   return { keys: [{ ...jwk, kid: rotated ? ROTATED_KEY_ID : KEY_ID, alg, use: "sig" }] };
 }
 
-/** A 256-byte modulus whose top byte is 0x01: 2041 bits, one byte from looking like 2048. */
 async function shortJwks() {
   const [key] = (await accessJwks()).keys;
   if (!key?.n) throw new Error("the test key has no modulus");
@@ -104,7 +103,6 @@ const bytes = (value: ArrayBuffer) =>
     .replace(/=+$/, "");
 const encode = (value: unknown) => bytes(new TextEncoder().encode(JSON.stringify(value)).buffer);
 
-/** Real signatures from test-only keys. Undefined claims are omitted, including required claims. */
 export async function signAccessJwt(
   overrides: Claims = {},
   header: { alg?: string; kid?: string; foreign?: boolean } = {},

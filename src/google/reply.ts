@@ -63,7 +63,6 @@ export const replyPlan = (
       else {
         if (source("From").length > MAX_REPLY_HEADER || value("Reply-To").length > MAX_REPLY_HEADER)
           throw recipientsFailure();
-        // A self-sent message is answered to its recipients, even when it has Reply-To.
         const from = parseAddressList(value("From"));
         const self =
           from?.length === 1 && from[0]!.address.toLowerCase() === input.account.toLowerCase();
@@ -81,7 +80,6 @@ export const replyPlan = (
         to = unique(to);
         cc = unique(cc);
         if (!to.length) throw recipientsFailure();
-        // Count the header as written, including encoded names and continuation lines.
         let size = 0;
         for (const line of envelopeLines({ to, cc, bcc: [], subject: "", body: "" })) {
           size = line.startsWith(" ") ? size + 2 + line.length : line.length;

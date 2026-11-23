@@ -48,7 +48,6 @@ export const deleteMessages = (send: Send, input: Input) =>
     ).pipe(Effect.map(() => id)),
   ).pipe(Effect.map((changes) => result(input.account, changes)));
 
-/** The first metadata read goes alone; later reads run at most five at a time, in input order. */
 export const messageValues = (
   send: Send,
   messages: readonly string[],

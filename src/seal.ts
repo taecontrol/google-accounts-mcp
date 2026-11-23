@@ -2,7 +2,6 @@ import type { TokenKey } from "./config";
 export type Sealed = string & { readonly __sealed: unique symbol };
 const encoder = new TextEncoder();
 const imported = new Map<string, CryptoKey>();
-// Spreading a large array into one call overflows the stack, so convert in chunks.
 const encode = (bytes: Uint8Array) => {
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000)
@@ -76,7 +75,6 @@ export async function open(key: TokenKey, context: string, sealed: Sealed): Prom
       ),
     };
   } catch (error) {
-    // With the envelope, nonce, key and tag size validated, OperationError means authentication failed.
     return {
       ok: false,
       reason:

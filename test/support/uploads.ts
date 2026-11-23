@@ -118,7 +118,6 @@ export const fileOf = (part: Mime) => ({
   type: part.headers["Content-Type"],
   bytes: part.data,
 });
-/** Compare the whole outgoing envelope and every MIME leaf with independent arguments. */
 export const expectMail = (expected: {
   headers?: Record<string, string | undefined>;
   text?: string;
@@ -165,7 +164,6 @@ export const expectMail = (expected: {
 };
 export { filePart, serveAttachment };
 
-/** Observe real KV reads; optionally make a read look temporarily unavailable. */
 export const watchedFiles = (misses = 0) => {
   const reads: string[] = [];
   const files = new Proxy(env.FILES_KV, {

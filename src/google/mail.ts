@@ -50,7 +50,6 @@ export const parseAddressList = (value: string): Mailbox[] | null => {
   }
   return result;
 };
-/** Human-readable mailbox, before the MIME representation of a display name. */
 export const mailboxText = (mailbox: Mailbox): string => {
   if (!mailbox.name) return mailbox.address;
   const quoted = Array.from(mailbox.name).some((c) => c.charCodeAt(0) <= 0x7f && !safeName.test(c));
@@ -70,7 +69,6 @@ const encodedWords = (text: string): string => {
   const words: string[] = [];
   let word = "";
   let size = 0;
-  // 45 UTF-8 bytes become 60 base64 characters, plus the 12-character wrapper.
   for (const character of text) {
     const bytes = utf8.encode(character).length;
     if (size + bytes > 45) {
@@ -91,7 +89,6 @@ const headerText = (text: string, prefix: number, name = false) =>
   (!name || safeName.test(text))
     ? text
     : encodedWords(text);
-/** Every token must fit on a continuation line; folding never splits an encoded word. */
 const fold = (label: string | null, value: string): string[] => {
   const lines: string[] = [];
   let line = label === null ? "" : `${label}:`;
@@ -115,7 +112,6 @@ export const envelopeLines = (mail: Outgoing): string[] => {
   ] as const) {
     if (!recipients.length) continue;
     const values = recipients.map((mailbox, index) => {
-      // The branded type is not a substitute for validation at the final header gate.
       const addressLine =
         1 +
         mailbox.address.length +
@@ -133,7 +129,6 @@ export const envelopeLines = (mail: Outgoing): string[] => {
         ? `${headerText(mailbox.name, label.length + mailbox.address.length + 5, true)} <${mailbox.address}>`
         : mailbox.address;
     });
-    // Fold between recipients first, and within encoded display names only when necessary.
     let line = `${label}:`;
     for (let i = 0; i < values.length; i++) {
       const value = values[i]! + (i < values.length - 1 ? "," : "");
@@ -184,7 +179,6 @@ const encodeFilename = (text: string) =>
     /[!'()*]/g,
     (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
   );
-/** Keep the encoded header within 900 ASCII characters, preserving a short extension. */
 const boundedFilename = (value: string): string => {
   const name = value.toWellFormed();
   const dot = name.lastIndexOf(".");
@@ -200,7 +194,6 @@ const boundedFilename = (value: string): string => {
   }
   return kept + extension;
 };
-/** The file metadata the recipient gets, shared by composition and its approval view. */
 export const fileFields = (file: Pick<FilePart, "filename" | "type">) => ({
   filename: boundedFilename(file.filename),
   type:
@@ -211,7 +204,6 @@ export const fileFields = (file: Pick<FilePart, "filename" | "type">) => ({
       : "application/octet-stream",
 });
 
-/** Encode in multiples of 57 bytes, so chunks end on both a base64 and a MIME line boundary. */
 export const mixedMessage = (mail: Outgoing, files: ReadonlyArray<FilePart>): Blob => {
   const boundary = `mixed-${crypto.randomUUID()}`;
   const text = textPart(mail.body);

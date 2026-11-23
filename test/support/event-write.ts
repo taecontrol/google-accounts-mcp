@@ -28,7 +28,6 @@ export const primaryList = () => repeatCalendars(PRIMARY_CALENDAR);
 
 type Event = Record<string, unknown>;
 type Insert = { request: CalendarRequest; body: Event; bodyText: string; calendar: string };
-/** Calendar stores the caller-chosen ID before it can lose the insert's answer. */
 export function eventWriter() {
   const inserts: Insert[] = [];
   const reads: CalendarRequest[] = [];

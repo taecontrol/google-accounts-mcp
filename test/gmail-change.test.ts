@@ -13,7 +13,6 @@ const reply =
     return Effect.succeed(response);
   };
 
-// Production sends a JSON body only with POST; DELETE carries no body.
 it.each([
   { method: "POST", body: { addLabelIds: ["STARRED"] } },
   { method: "DELETE", body: undefined },

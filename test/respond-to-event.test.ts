@@ -467,7 +467,6 @@ it("sends no answer when the setting turns deny after the call's checks", async 
   const patches = patchEventsFake(() => Response.json({ attendees: [] }));
   let checks = 0;
   const db = observeStatements(env.DB, async (sql) => {
-    // The second permission read is Confirm's check just before the write.
     if (/AS ask\s+FROM accounts a/.test(sql) && ++checks === 2)
       await setTool(f, "respond_to_event", "deny");
   });

@@ -73,7 +73,6 @@ const eventResult = (event: WrittenEvent, calendar: string): typeof CreatedEvent
   ...(event.meetStatus === undefined ? {} : { meet_status: event.meetStatus }),
   ...(event.status === "cancelled" ? { cancelled: true as const } : {}),
 });
-/** One calendar-list snapshot supplies both the approved values and the request. */
 export const createEventPlan = (args: CreateEventArgs, ctx: CalendarContext) =>
   Effect.gen(function* () {
     const calendar = yield* Effect.fromResult(writableCalendar(ctx, args.calendar));

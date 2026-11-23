@@ -2,7 +2,6 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vite-plus/test";
 import { dump, readRecordingDb, writeRecordingDb } from "./support/db";
 
-// A recorder that misses no-op writes would let the unchanged-dump assertions hide them again.
 describe("D1 write observation", () => {
   it("records every prepared write execution method and batch even when no rows change", async () => {
     const { db, writes } = writeRecordingDb();

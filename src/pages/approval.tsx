@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 import { PRODUCT } from "../pages/page";
 import type { ApprovalPageProps, ApprovalRequest, ApprovalState } from "../approvals/model";
 
-// Characters that draw nothing or change the reading direction. Line breaks and tabs stay.
 const isHidden = (character: string) =>
   character !== "\n" &&
   character !== "\t" &&
@@ -18,7 +17,6 @@ const isHidden = (character: string) =>
   );
 const hasHidden = (text: string) => Array.from(text).some(isHidden);
 
-/** Plain text, with every hidden character replaced by a marked token such as `U+202E`. */
 function Visible({ text }: { readonly text: string }) {
   const parts: Array<{ readonly hidden: boolean; readonly text: string }> = [];
   for (const character of text) {
@@ -34,7 +32,6 @@ function Visible({ text }: { readonly text: string }) {
     <>
       {parts.map((part, i) =>
         part.hidden ? (
-          // The inline text token of the registry, so no hand-made chip stands in for it.
           <Badge
             key={i}
             variant="destructive"
@@ -51,10 +48,6 @@ function Visible({ text }: { readonly text: string }) {
   );
 }
 
-/**
- * A value inside one of the page's sentences. It is a plain inline element, not a Badge, because
- * a Badge cannot wrap and a long name has to.
- */
 function Value({
   children,
   className,
@@ -74,7 +67,6 @@ function Value({
   );
 }
 
-/** A value of the call, or a message of the tool, quoted as written. */
 function Quoted({ label, text }: { readonly label: string; readonly text: string }) {
   return (
     <figure className="flex flex-col gap-1.5">
@@ -98,7 +90,6 @@ const SOURCES = {
 } as const;
 type Values = ApprovalRequest["values"];
 const mixed = (values: Values) => new Set(values.map((value) => value.from)).size > 1;
-/** Introduce where the shaded values were read, without guessing who wrote a draft. */
 const whose = (values: Values) => {
   const sources = [
     ...(values.some((value) => value.from === "gmail") ? ["Gmail"] : []),
@@ -244,7 +235,6 @@ function WaitingView({
               ? "Waiting for your approval"
               : "Waiting, but it cannot be approved"}
         </p>
-        {/* The page's joining words recede. The connection, the tool, and the account carry the ink. */}
         <h1 className="text-2xl/10 tracking-tight text-pretty text-muted-foreground">
           <Value className="px-1.5 font-semibold">{connection.name}</Value> wants to{" "}
           {state.shown ? (
@@ -321,7 +311,6 @@ function WaitingView({
         </Alert>
       )}
       <div className="flex flex-col gap-4">
-        {/* Fixed heights and widths, so a busy label moves nothing. */}
         <div className="flex flex-col gap-3 sm:flex-row">
           {state.shown && (
             <Button
@@ -351,7 +340,6 @@ function WaitingView({
             Reject
           </Button>
         </div>
-        {/* Every note is laid out in the same cell, so the longest one reserves the space. */}
         <div className="grid text-sm text-muted-foreground" aria-live="polite">
           {(["idle", "approving", "rejecting"] as const).map((key) => (
             <p
@@ -535,7 +523,6 @@ function DecidedView({
           </Button>
         )}
       </div>
-      {/* The request recedes: smaller, muted, and in the past tense. */}
       <section className="flex flex-col gap-2 text-sm/6 text-muted-foreground">
         <h2 className="font-medium">The request</h2>
         <p>

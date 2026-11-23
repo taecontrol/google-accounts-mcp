@@ -11,7 +11,6 @@ import {
   writeFailingDb,
   writeRecordingDb,
 } from "./support/db";
-// Registers the owner write route that probeEveryRoute posts to.
 import "./support/page-app";
 import { callWorker, ORIGIN, OWNER_EMAIL, testEnv, textOf } from "./support/worker";
 

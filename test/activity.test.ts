@@ -8,7 +8,6 @@ import { NOW, seedConnection } from "./support/connections";
 import { dump, setOwner, statementFailingDb } from "./support/db";
 import { OWNER_EMAIL, testEnv, textOf } from "./support/worker";
 
-// Make the real menu links observable during SSR, as pages.test.ts does for the owner menu.
 vi.hoisted(() => vi.resetModules());
 vi.mock("../src/components/ui/dropdown-menu", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/components/ui/dropdown-menu")>();
@@ -61,7 +60,6 @@ it("walks 56 records by ID in loads of 25 and reaches the oldest without skips o
     const html = await response.text();
     const props = activityProps(html);
     expect(props.load.records.map((r) => r.id)).toEqual(expected);
-    // Arrival times run in the opposite order; assert the actual rendered rows too.
     const visible = [
       ...new Set(
         [...html.matchAll(/<time dateTime="([^"]+)"/g)].map(
@@ -169,7 +167,6 @@ it("shows stored times in UTC, other accounts, absent accounts/tools, and every 
   });
   expect(props.load.accounts.find((a) => a.id === removed.id)?.removedOn).toBe("Nov 8");
   expect(await dump()).toEqual(before);
-  // Today follows the UTC date even on a host in another time zone; old years remain visible.
   vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2030, 10, 10, 0, 1));
   await f.browser.authenticate();
   await record(f.connection.id, f.account.id, { at: Date.UTC(2030, 10, 9, 23, 59) });
@@ -257,7 +254,6 @@ it("links only pending records, keeps expired pending links and reads each appro
       ),
     );
   }
-  // An approval of a different connection must never be attached to this record.
   const other = await seedConnection();
   const call = await record(f.connection.id, f.account.id, { outcome: "pending" });
   await approval(call, other.id);

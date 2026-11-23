@@ -59,7 +59,6 @@ it("binds each origin's metadata, consent, code and tokens to that origin", asyn
   await other.connect("Other origin");
   await other.keepTokens(await other.refresh());
   expect((await other.call()).status).toBe(200);
-  // A later consent at the first origin must not reuse the second provider's helpers.
   const again = await new McpClient().connect("First origin again");
   expect((await again.call()).status).toBe(200);
   expect(await rows()).toHaveLength(3);

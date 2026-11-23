@@ -5,7 +5,6 @@ import { AccountsPage } from "./accounts";
 import { ConnectionsPage } from "./connections";
 import { ConnectionPage } from "./connection";
 import type { HydratedPage } from "./page";
-// SSR and hydration must select the same component for every hydrated page.
 export const hydratedElement = (page: HydratedPage) => {
   switch (page._tag) {
     case "Activity":

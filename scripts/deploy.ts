@@ -8,11 +8,6 @@ import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { CONFIG_CHECKS, CONFIG_NAMES, type ConfigName } from "../src/config.ts";
 
-// Builds and deploys this checkout to the deployer's Cloudflare account, on their own hostname.
-// A new Worker is deployed first and migrated second, because wrangler creates the D1 database
-// on the first deploy. An existing Worker is migrated first: CODING_STANDARDS.md requires each
-// migration to work with the Worker that is already running.
-
 const WHERE: Record<ConfigName, string> = {
   OWNER_EMAIL: "The email address you sign in to Cloudflare Access with.",
   ACCESS_ISSUER:
@@ -33,30 +28,19 @@ export interface Run {
   readonly stdout: string;
   readonly stderr: string;
 }
-/**
- * How a binary runs: on the terminal, with its output collected, or showing its output while it
- * cannot ask questions. The deploy runs unattended: when wrangler can ask, its first deploy offers
- * to name the database or reuse another one, which the migrations would then not find by its
- * default name, and it writes the new resource IDs into the committed wrangler.jsonc.
- */
 export type Mode = "terminal" | "capture" | "unattended";
 export interface Io {
   readonly env: Readonly<Record<string, string | undefined>>;
-  /** Whether a person can answer questions on the terminal. */
   readonly interactive: boolean;
   log(line: string): void;
   ask(question: string, hidden: boolean): Promise<string>;
-  /** Runs a binary of this checkout, with the environment that `childEnv` returns. */
   exec(bin: "vp" | "wrangler", args: string[], mode?: Mode): Promise<Run>;
-  /** Writes the values to a file only this user can read, and removes it after `use` ends. */
   withSecretsFile<T>(values: Record<string, string>, use: (path: string) => Promise<T>): Promise<T>;
-  /** The status of a GET, without following redirects; 0 when the request fails. */
   status(url: string): Promise<number>;
   sleep(ms: number): Promise<void>;
   randomKey(): string;
 }
 
-/** Deploys to the hostname in `args`; returns whether the server answered as expected. */
 export async function deploy(args: readonly string[], io: Io): Promise<boolean> {
   const [host, ...rest] = args;
   if (host === undefined || rest.length > 0 || !HOSTNAME.test(host)) {
@@ -130,7 +114,6 @@ function secretNames(stdout: string): string[] | null {
   }
 }
 
-/** Gathers each missing setting from the environment, a generated key, or the deployer. */
 async function collectSecrets(
   missing: readonly ConfigName[],
   io: Io,
@@ -169,11 +152,6 @@ async function collectSecrets(
   return values;
 }
 
-/**
- * The environment of a binary the command runs, without the server's settings: the Vite build
- * copies them from the environment into a `.dev.vars` file under `dist/`. The build gets them
- * empty instead of absent, so it does not warn that they are missing.
- */
 export function childEnv(
   env: Readonly<Record<string, string | undefined>>,
   bin: "vp" | "wrangler",
@@ -186,14 +164,12 @@ export function childEnv(
   return child;
 }
 
-/** Applies the pending migrations, then confirms that none is left. */
 async function migrate(io: Io): Promise<boolean> {
   const migrations = ["d1", "migrations", "DB", "--remote"];
   if ((await io.exec("wrangler", migrations.toSpliced(2, 0, "apply"))).code !== 0) {
     io.log("The migrations failed.");
     return false;
   }
-  // Declining wrangler's question also exits with 0, so ask D1 what is still pending.
   const left = await io.exec("wrangler", migrations.toSpliced(2, 0, "list"), "capture");
   if (left.code !== 0 || !left.stdout.includes("No migrations to apply")) {
     io.log("Some migrations were not applied.");
@@ -202,9 +178,7 @@ async function migrate(io: Io): Promise<boolean> {
   return true;
 }
 
-/** Waits for the hostname to answer like this server, so a missing setup step shows here. */
 async function checkServer(host: string, io: Io): Promise<boolean> {
-  // Each path the Bypass application covers, with what the server answers there.
   const exactly = (expected: number) => ({
     label: String(expected),
     ok: (s: number) => s === expected,
@@ -275,8 +249,6 @@ const nodeIo: Io = {
           : mode === "capture"
             ? ["ignore", "pipe", "pipe"]
             : ["ignore", "inherit", "inherit"];
-      // worker-configuration.d.ts types the settings into ProcessEnv for the Worker; the
-      // children of this command must not get them.
       const env = childEnv(process.env, name) as NodeJS.ProcessEnv;
       const options: SpawnOptions = { stdio, env };
       const child = spawn(bin(name), args, options);
@@ -289,12 +261,10 @@ const nodeIo: Io = {
     }),
   async withSecretsFile(values, use) {
     const dir = await mkdtemp(join(tmpdir(), "google-accounts-mcp-"));
-    // Ctrl-C reaches the child, which stops; keep this process alive to remove the file after it.
     const stay = () => {};
     const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
     for (const signal of signals) process.on(signal, stay);
     try {
-      // JSON, not dotenv: wrangler expands $VAR in a dotenv file.
       const path = join(dir, "secrets.json");
       await writeFile(path, JSON.stringify(values), { mode: 0o600 });
       return await use(path);

@@ -25,7 +25,6 @@ export function createMcpServer(ctx: CallContext): Server {
         name: tool.name,
         description: tool.description,
         annotations: tool.annotations,
-        // Effect's empty struct is not an object JSON Schema. Keep the existing contract.
         inputSchema:
           tool.kind === "plain"
             ? (tool.inputSchema ?? { type: "object", properties: {} })
@@ -39,7 +38,6 @@ export function createMcpServer(ctx: CallContext): Server {
     };
   });
   server.setRequestHandler("tools/call", (request, extra) => {
-    // SDK 2.3.0 types the envelope as {}; older requests can carry unvalidated metadata.
     const envelope: { [CLIENT_INFO_META_KEY]?: { name?: unknown } } | undefined =
       extra.mcpReq.envelope;
     const stated = envelope?.[CLIENT_INFO_META_KEY]?.name;

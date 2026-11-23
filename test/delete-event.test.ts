@@ -38,7 +38,6 @@ it.each(tools)(
     });
     let checks = 0;
     const db = observeStatements(env.DB, async (sql) => {
-      // The second permission read is Confirm's check after the plan, just before the write.
       if (/AS ask\s+FROM accounts a/.test(sql) && ++checks === 2) {
         expect(sent.map((request) => request.method)).toEqual(["GET"]);
         await setTool(f, tool, "deny");
@@ -166,7 +165,7 @@ it.each(
       new Response("not JSON"),
       Response.json(eventFixture({ etag: undefined })),
       Response.json(eventFixture({ attendees: [{ displayName: "Missing email" }] })),
-      Response.json(eventFixture({ start: { date: "2026-11-20" } })), // The end is timed.
+      Response.json(eventFixture({ start: { date: "2026-11-20" } })),
     ].map((response) => ({ tool, response })),
   ),
 )("$tool fails closed on an unavailable or malformed read %#", async ({ tool, response }) => {

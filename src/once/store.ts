@@ -15,7 +15,6 @@ export type Repeat =
   | { kind: "done"; result: unknown; at: number }
   | { kind: "running" }
   | { kind: "unknown"; key: string; at: number; until: number; checked?: Check };
-/** What a recovery read learned: nothing yet, the event is missing, or the read failed. */
 export type Check = "missing" | "failed";
 export type Entered = { kind: "run"; claim: Claim } | Repeat;
 type OnceContext = { db: D1Database };
@@ -26,7 +25,6 @@ const Row = Schema.Struct({
   request_key: Schema.String,
   result: Schema.NullOr(Schema.String),
 });
-/** Decode the row selected in either a take or an approval's atomic batch. */
 const decodeRepeat = (raw: unknown, now: number): Repeat | null => {
   if (raw === undefined) return null;
   const row = Schema.decodeUnknownSync(Row)(raw);
@@ -41,7 +39,6 @@ const decodeRepeat = (raw: unknown, now: number): Repeat | null => {
 };
 export const decodeRow = (result: D1Result, now: number): Repeat | null =>
   decodeRepeat(result.results[0], now);
-/** Placeholders are supplied by code, never by a request. */
 export const liveRowWhere = (identity: string, now: string) =>
   `EXISTS (SELECT 1 FROM once WHERE identity = ${identity} AND expires_at > ${now})`;
 export const rowStatement = (db: D1Database, identity: Identity) =>
@@ -112,7 +109,6 @@ export const release = (ctx: OnceContext, claim: Claim): Effect.Effect<void, Una
     catch: () => new Unavailable(),
   });
 
-/** A read may confirm only the event chosen by this row, even if its original run is stale. */
 export const confirm = (
   ctx: OnceContext,
   identity: Identity,

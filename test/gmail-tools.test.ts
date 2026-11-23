@@ -99,7 +99,6 @@ it("makes hidden, removed, unknown and non-address refusals byte-identical excep
     const response = await toolCall(f.mcp, "list_labels", { account });
     const bytes = await response.clone().text();
     await expectError(response, "account_not_available", refusedMessage(account));
-    // Replace the input's JSON-within-JSON escaped bytes, without parsing or reserializing the response.
     const echoed = JSON.stringify(JSON.stringify(account).slice(1, -1)).slice(1, -1);
     bodies.push(bytes.replaceAll(echoed, "INPUT"));
   }
@@ -234,13 +233,11 @@ it("reports a token endpoint failure as Google unavailable", async () => {
   expect((await callRows())[0]).toMatchObject({ outcome: "failed", reason: "google_unavailable" });
 });
 
-// Every status but 401 takes the same branch; 401 first retries with a refreshed token.
 it.each([401, 403])("reports Gmail HTTP %s as Google unavailable", async (status) => {
   const f = await fixture();
   await permission(f);
   const answer = () => HttpResponse.json({ error: "PRIVATE_GOOGLE_BODY" }, { status });
   google.labelAnswers.push(answer);
-  // withGoogle refreshes once after a 401; its final Gmail response must fail too.
   if (status === 401) google.labelAnswers.push(answer);
   await expectError(
     await toolCall(f.mcp, "list_labels", { account: PERSONAL }),

@@ -50,7 +50,6 @@ describe("ninety days without refreshing", () => {
         await expectOAuthError(await mcp.refresh(), "invalid_grant");
         await mcp.browser.authenticate();
         const page = textOf(await (await mcp.browser.get("/connections")).text());
-        // Nov 9, 2030 + 90 days is Feb 7, 2031, the current fake-clock year.
         expect(page).toContain("Expired Feb 7");
         expect((await onlyConnection()).expires_at).toBe(NOW + 90 * DAY);
       }
@@ -95,7 +94,6 @@ it.each(clients)(
     serveAttachment();
     await new McpClient().connect("Other laptop");
     const other = (await rows()).find((row) => row.id !== f.connection.id)!;
-    // A forged identity names the other connection and the client that receives any file.
     const download = () =>
       f.mcp.call(
         "tools/call",
@@ -193,8 +191,6 @@ it.each(["before grant save", "token put"])(
     const mcp = new McpClient();
     await mcp.authorize();
     await mcp.approve();
-    // Arm every-operation failure only once redeem committed the row. Earlier reads of the
-    // existing grant must succeed to reach the failure window immediately before saveGrant.
     const afterInsert = new Proxy(env.OAUTH_KV, {
       get(target, key) {
         const value: unknown = Reflect.get(target, key);

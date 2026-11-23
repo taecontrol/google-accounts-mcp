@@ -84,7 +84,6 @@ export const approve = async (f: Fixture, id: string, workerEnv = testEnv()) =>
 export const get = (f: Fixture, id: string, workerEnv = testEnv()) =>
   toolCall(f.mcp, "get_approval", { approval: id }, workerEnv).then(answer);
 
-/** Observe the store's actual return value; never manufacture a winning claim from SQL. */
 export function observeDecisions() {
   const wins = new Map<string, Won>();
   const original = store.decideApproval;

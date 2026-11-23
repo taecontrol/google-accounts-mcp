@@ -30,7 +30,6 @@ export interface AccountRow {
   access_token: string | null;
   access_expires_at: number | null;
 }
-/** Independent AES-GCM fixture encoder, so the token tests don't depend on production encryption. */
 export async function fixtureSeal(
   context: string,
   value: string,
