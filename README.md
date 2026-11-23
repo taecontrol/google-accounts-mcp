@@ -2,7 +2,7 @@
 
 An MCP (Model Context Protocol) server that lets your AI agents use several Google accounts at once, both gmail.com accounts and Google Workspace accounts from any organization. The official Google connectors allow one account per client. With this server, one connection from Claude, Claude Code, or ChatGPT can reach every account you allow.
 
-You run it as a Cloudflare Worker on your own Cloudflare account, on the Workers Paid plan, with your own Google Cloud OAuth client. Agent clients connect to `https://<your host>/mcp`. It supports Gmail and Google Calendar, and can list each Workspace account's Google Chat conversations. Other Chat tools are planned in the [issues](../../issues).
+You run it as a Cloudflare Worker on your own Cloudflare account, on the Workers Paid plan, with your own Google Cloud OAuth client. Agent clients connect to `https://<your host>/mcp`. It supports Gmail and Google Calendar, and can list, read, and search each Workspace account's Google Chat conversations. Sending Chat messages is planned in the [issues](../../issues).
 
 ## What you control
 
