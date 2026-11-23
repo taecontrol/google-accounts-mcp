@@ -405,7 +405,7 @@ function ServiceDialog({
   const descriptions: Record<Service, string> = {
     gmail: "Read, draft, send, and organize mail.",
     calendar: "See calendars and events, create and change events, and answer invitations.",
-    chat: "Read and send messages in direct messages, group conversations, and spaces. Works only with Google Workspace accounts.",
+    chat: "List direct messages, group conversations, and spaces. Google also asks for access to read and send messages, which later versions will use. Works only with Google Workspace accounts.",
   };
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && close()}>
