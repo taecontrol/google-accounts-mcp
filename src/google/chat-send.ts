@@ -146,7 +146,7 @@ export const sendNotes = (args: SendArgs): ViewNote[] => [
     ? [{ text: "This message mentions everyone in the conversation.", warning: true }]
     : []),
   {
-    text: "People in the conversation get the message and its notification as soon as it is sent. Deleting it later in Chat does not take the notification back.",
+    text: "People in the conversation can see the message as soon as it is sent. They may receive a notification. Deleting the message later cannot take back a notification they already received.",
     warning: true,
   },
 ];

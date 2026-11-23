@@ -5,7 +5,7 @@ Status: Accepted
 
 ## Context
 
-A Chat message notifies people the moment Google accepts it, and deleting it later does not take the notification back. The response to the create request can be lost after Google applied it, and a Worker can stop between the request and its record. The same-call design (#28) already keeps one row per identical call and never resends on its own. ADR-0007 keeps a write unconfirmed unless Google explicitly refuses it. Google's create request accepts a caller-chosen ID, `client-…`, and a `requestId`. In a spike on 2026-11-23 (#101), a repeated request with the same ID returned the same message, the conversation held one copy, and a read by the `client-…` ID returned the message Google had named.
+People in a Chat conversation can see a message the moment Google accepts it, and they may receive a notification. Deleting the message later cannot take back a notification they already received. The response to the create request can be lost after Google applied it, and a Worker can stop between the request and its record. The same-call design (#28) already keeps one row per identical call and never resends on its own. ADR-0007 keeps a write unconfirmed unless Google explicitly refuses it. Google's create request accepts a caller-chosen ID, `client-…`, and a `requestId`. In a spike on 2026-11-23 (#101), a repeated request with the same ID returned the same message, the conversation held one copy, and a read by the `client-…` ID returned the message Google had named.
 
 ## Decision
 
