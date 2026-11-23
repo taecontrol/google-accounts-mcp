@@ -110,7 +110,7 @@ export const listConversations = (send: Send, account: string) =>
           : Effect.succeed(undefined)
         ).pipe(
           Effect.map((other): Conversation => {
-            const name = space.displayName || (other && "email" in other ? other.name : undefined);
+            const name = other && "email" in other ? other.name : space.displayName;
             return {
               conversation: space.name,
               kind: kinds[space.spaceType],
