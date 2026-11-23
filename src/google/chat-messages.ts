@@ -27,7 +27,6 @@ export const MAX_SENDER_NAME = 200;
 export const MAX_WORDS = 200;
 export const MAX_SENDER = 254;
 export const MAX_SEARCH_PAGE = 2_000;
-const MAX_TIME = "0000-00-00T00:00:00.000000000Z".length;
 
 const GoogleMessage = Schema.Struct({
   name: Schema.String.check(Schema.isPattern(/^spaces\/[A-Za-z0-9_-]+\/messages\/[^/]+$/)),
@@ -131,23 +130,24 @@ export const readConversation = (send: Send, account: string, args: ReadArgs) =>
       return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
     if (args.thread !== undefined && args.page === undefined && !items.length)
       return yield* Effect.fail(notFound("thread", args.thread));
-    const base = { account, conversation: args.conversation };
-    const room =
-      MESSAGES_LIMIT -
-      JSON.stringify({ ...base, messages: [], next_page: "0".repeat(MAX_TIME) }).length +
-      2;
-    let { kept } = boundedList(items, room);
+    const result = (messages: ChatMessage[], more: boolean) => ({
+      account,
+      conversation: args.conversation,
+      messages,
+      ...(more && messages.length ? { next_page: messages.at(-1)!.time } : {}),
+    });
+    const size = (messages: ChatMessage[], more: boolean) =>
+      JSON.stringify(result(messages, more)).length;
+    let { kept } = boundedList(items, MESSAGES_LIMIT - size([], false) + 2);
+    let more = Boolean(page.nextPageToken) || kept.length < items.length;
+    while (more && kept.length && size(kept, true) > MESSAGES_LIMIT) kept.pop();
     if (!kept.length && items.length) {
       const first = items[0]!;
-      const others = JSON.stringify({ ...first, text: "", text_cut: true }).length - 2;
-      kept = [withText(first, first.text, room - 2 - others)];
+      more = Boolean(page.nextPageToken) || items.length > 1;
+      const others = size([{ ...first, text: "", text_cut: true }], more) - 2;
+      kept = [withText(first, first.text, MESSAGES_LIMIT - others)];
     }
-    const more = Boolean(page.nextPageToken) || kept.length < items.length;
-    return {
-      ...base,
-      messages: kept,
-      ...(more && kept.length ? { next_page: kept.at(-1)!.time } : {}),
-    };
+    return result(kept, more);
   });
 
 const INSTANT =
