@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Effect, Schema } from "effect";
 import type { Send } from "../mcp/tools";
 import type { ViewValue } from "../approvals/model";
@@ -189,7 +190,7 @@ const senderOf = (raw: string): string | null => {
 };
 const Instant = Schema.String.check(Schema.makeFilter((text) => utcOf(text) !== null));
 const CRITERIA = ["text", "from", "conversation", "after", "before", "unread", "mentions_me"];
-export const SearchMessagesInput = Schema.Struct({
+const SearchFields = Schema.Struct({
   account: Schema.String,
   text: Schema.optionalKey(
     Schema.String.check(
@@ -207,7 +208,41 @@ export const SearchMessagesInput = Schema.Struct({
     Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_SEARCH_LIMIT })),
   ),
   page: Schema.optionalKey(Schema.String.check(Schema.isBetweenLength(1, MAX_SEARCH_PAGE))),
-}).check(
+});
+type SearchArgs = typeof SearchFields.Type;
+
+const criteriaOf = (args: SearchArgs) => ({
+  words: args.text?.split(/\s+/).filter(Boolean) ?? [],
+  from: args.from === undefined ? undefined : senderOf(args.from)!,
+  conversation: args.conversation,
+  after: args.after === undefined ? undefined : utcOf(args.after)!,
+  before: args.before === undefined ? undefined : utcOf(args.before)!,
+  unread: args.unread === true,
+  mentions: args.mentions_me === true,
+  limit: args.limit ?? DEFAULT_SEARCH_LIMIT,
+});
+type Criteria = ReturnType<typeof criteriaOf>;
+const filterOf = (criteria: Criteria) =>
+  [
+    ...(criteria.words.length ? [criteria.words.map((word) => `"${word}"`).join(" ")] : []),
+    ...(criteria.from === undefined ? [] : [`sender.name = "users/${criteria.from}"`]),
+    ...(criteria.conversation === undefined ? [] : [`space.name = ${criteria.conversation}`]),
+    ...(criteria.after === undefined ? [] : [`create_time >= "${criteria.after}"`]),
+    ...(criteria.before === undefined ? [] : [`create_time < "${criteria.before}"`]),
+    ...(criteria.unread ? ["is_unread()"] : []),
+    ...(criteria.mentions ? ["annotations.user_mentions.user.name:users/me"] : []),
+  ].join(" AND ");
+const digestOf = (account: string, criteria: Criteria) =>
+  createHash("sha256")
+    .update(JSON.stringify([account, filterOf(criteria), criteria.limit]))
+    .digest("hex")
+    .slice(0, 16);
+const tokenIn = (page: string, digest: string) =>
+  page.length > digest.length + 1 && page.startsWith(`${digest}.`)
+    ? page.slice(digest.length + 1)
+    : undefined;
+
+export const SearchMessagesInput = SearchFields.check(
   Schema.makeFilter((args) => {
     if (!CRITERIA.some((key) => args[key as keyof typeof args] !== undefined))
       return { path: ["text"], issue: "a search needs at least one criterion" };
@@ -220,41 +255,8 @@ export const SearchMessagesInput = Schema.Struct({
     return true;
   }),
 );
-type SearchArgs = typeof SearchMessagesInput.Type;
 
-const criteriaOf = (args: SearchArgs) => ({
-  words: args.text?.split(/\s+/).filter(Boolean) ?? [],
-  from: args.from === undefined ? undefined : senderOf(args.from)!,
-  conversation: args.conversation,
-  after: args.after === undefined ? undefined : utcOf(args.after)!,
-  before: args.before === undefined ? undefined : utcOf(args.before)!,
-  unread: args.unread === true,
-  mentions: args.mentions_me === true,
-  limit: args.limit ?? DEFAULT_SEARCH_LIMIT,
-});
-const filterOf = (criteria: ReturnType<typeof criteriaOf>) =>
-  [
-    ...(criteria.words.length ? [criteria.words.map((word) => `"${word}"`).join(" ")] : []),
-    ...(criteria.from === undefined ? [] : [`sender.name = "users/${criteria.from}"`]),
-    ...(criteria.conversation === undefined ? [] : [`space.name = ${criteria.conversation}`]),
-    ...(criteria.after === undefined ? [] : [`create_time >= "${criteria.after}"`]),
-    ...(criteria.before === undefined ? [] : [`create_time < "${criteria.before}"`]),
-    ...(criteria.unread ? ["is_unread()"] : []),
-    ...(criteria.mentions ? ["annotations.user_mentions.user.name:users/me"] : []),
-  ].join(" AND ");
-const digestOf = async (account: string, filter: string, limit: number) =>
-  Array.from(
-    new Uint8Array(
-      await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(JSON.stringify([account, filter, limit])),
-      ),
-    ),
-    (byte) => byte.toString(16).padStart(2, "0"),
-  )
-    .join("")
-    .slice(0, 16);
-
+const PAGE_EXPECTS = `the next_page of an earlier result with the same account, criteria, and limit: this next_page belongs to another search; send it with the criteria and limit that returned it`;
 const pageField = (expects: string) =>
   new ToolFailure({ code: "invalid_arguments", field: { name: "page", expects } });
 const searchRefused = (args: SearchArgs) => (status: number) => {
@@ -278,21 +280,13 @@ const searchRefused = (args: SearchArgs) => (status: number) => {
 export const searchMessages = (send: Send, account: string, args: SearchArgs) =>
   Effect.gen(function* () {
     const criteria = criteriaOf(args);
-    const filter = filterOf(criteria);
-    const digest = yield* Effect.promise(() => digestOf(account, filter, criteria.limit));
-    let token: string | undefined;
-    if (args.page !== undefined) {
-      if (!args.page.startsWith(`${digest}.`) || args.page.length === digest.length + 1)
-        return yield* Effect.fail(
-          pageField(
-            "the next_page of an earlier result with the same account, criteria, and limit: this next_page belongs to another search; send it with the criteria and limit that returned it",
-          ),
-        );
-      token = args.page.slice(digest.length + 1);
-    }
+    const digest = digestOf(account, criteria);
+    const token = args.page === undefined ? undefined : tokenIn(args.page, digest);
+    if (args.page !== undefined && token === undefined)
+      return yield* Effect.fail(pageField(PAGE_EXPECTS));
     if (criteria.conversation !== undefined) yield* readSpace(send, criteria.conversation);
     const body = JSON.stringify({
-      filter,
+      filter: filterOf(criteria),
       pageSize: criteria.limit,
       ...(token === undefined ? {} : { pageToken: token }),
     });
