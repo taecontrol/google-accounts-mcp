@@ -353,11 +353,15 @@ it.each([200, 503])(
 it.each([
   { url: "https://gmail.googleapis.com/gmail/v1/users/me/drafts/send", channel: "ordinary" },
   { url: "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send", channel: "late" },
+  {
+    url: "https://chat.googleapis.com/v1/spaces/AAAA/messages?messageId=client-0123456789abcdef0123456789abcdef",
+    channel: "ordinary",
+  },
 ])("refuses $url through the $channel request function", async ({ url, channel }) => {
   const f = await sendFixture();
   let writes = 0;
   network.use(
-    http.post(url, () => {
+    http.post(url.split("?")[0]!, () => {
       writes++;
       return sent();
     }),
@@ -730,9 +734,14 @@ it("keeps an approved failure before the once claim unknown without send recover
   expect((await callRows())[0]!.outcome).toBeNull();
 });
 
-it.each(["PATCH", "DELETE"])(
-  "refuses a Calendar %s through a run tool's plain send",
-  async (method) => {
+it.each([
+  { method: "PATCH", url: "https://www.googleapis.com/calendar/v3/calendars/test/events/e1" },
+  { method: "DELETE", url: "https://www.googleapis.com/calendar/v3/calendars/test/events/e1" },
+  { method: "POST", url: "https://chat.googleapis.com/v1/spaces:setup" },
+  { method: "POST", url: "https://chat.googleapis.com/v1/spaces/-/messages:search", reads: true },
+])(
+  "a $method to $url through a run tool's plain send reaches Google only when it reads ($reads)",
+  async ({ method, url, reads = false }) => {
     const f = await sendFixture();
     await permission(f);
     const ctx = await context(f);
@@ -743,11 +752,11 @@ it.each(["PATCH", "DELETE"])(
       ctx.config.tokenKey,
       "gmail",
     );
-    let writes = 0;
-    const url = "https://www.googleapis.com/calendar/v3/calendars/test/events/e1";
+    let arrived = 0;
     network.use(
-      http.all(url, () => {
-        writes++;
+      http.all(/^https:\/\/(?:www|chat)\.googleapis\.com\//, ({ request }) => {
+        if (request.url !== url) return;
+        arrived++;
         return new Response(null, { status: 204 });
       }),
     );
@@ -755,16 +764,16 @@ it.each(["PATCH", "DELETE"])(
       ...tool,
       run: (send) => send((_token, signal) => new Request(url, { method, signal })),
     };
-    await expect(
-      executeAccount(
-        ctx,
-        bypass,
-        { own: allowed, others: new Map() },
-        { account: PERSONAL },
-        Date.now() + CALL_DEADLINE,
-        Effect.void,
-      ),
-    ).rejects.toMatchObject({ code: "google_unavailable" });
-    expect(writes).toBe(0);
+    const run = executeAccount(
+      ctx,
+      bypass,
+      { own: allowed, others: new Map() },
+      { account: PERSONAL },
+      Date.now() + CALL_DEADLINE,
+      Effect.void,
+    );
+    if (reads) await expect(run).resolves.toMatchObject({ kind: "ran" });
+    else await expect(run).rejects.toMatchObject({ code: "google_unavailable" });
+    expect(arrived).toBe(reads ? 1 : 0);
   },
 );
