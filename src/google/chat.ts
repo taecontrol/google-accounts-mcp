@@ -1,0 +1,151 @@
+import { Effect, Schema } from "effect";
+import type { Send } from "../mcp/tools";
+import { normalizeEmail } from "../email";
+import { boundedList } from "./bounds";
+import { getFrom } from "./get";
+import { REQUESTS_AT_ONCE } from "./gmail";
+
+export const CHAT_API = "https://chat.googleapis.com/v1";
+const get = getFrom(CHAT_API);
+
+const SpaceName = Schema.String.check(Schema.isPattern(/^spaces\/[A-Za-z0-9_-]+$/));
+const Timestamp = Schema.String.check(
+  Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/),
+  Schema.makeFilter((time) => !Number.isNaN(Date.parse(time))),
+);
+const SpaceList = Schema.Struct({
+  spaces: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        name: SpaceName,
+        spaceType: Schema.Literals(["DIRECT_MESSAGE", "GROUP_CHAT", "SPACE"]),
+        displayName: Schema.optionalKey(Schema.String),
+        singleUserBotDm: Schema.optionalKey(Schema.Boolean),
+        lastActiveTime: Schema.optionalKey(Timestamp),
+      }),
+    ),
+  ),
+  nextPageToken: Schema.optionalKey(Schema.String),
+});
+const MemberList = Schema.Struct({
+  memberships: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        member: Schema.optionalKey(
+          Schema.Struct({
+            type: Schema.optionalKey(Schema.String),
+            displayName: Schema.optionalKey(Schema.String),
+            email: Schema.optionalKey(Schema.String),
+          }),
+        ),
+      }),
+    ),
+  ),
+});
+type Space = NonNullable<(typeof SpaceList.Type)["spaces"]>[number];
+type With = { readonly name?: string; readonly email: string } | { readonly app: true };
+export interface Conversation {
+  readonly conversation: string;
+  readonly kind: "direct_message" | "group" | "space";
+  readonly name?: string;
+  readonly last_active?: string;
+  readonly with?: With;
+}
+
+export const MAX_SPACE_PAGES = 5;
+export const SPACE_PAGE_SIZE = 1000;
+export const MAX_CONVERSATIONS = 50;
+export const MAX_CONVERSATIONS_CHARACTERS = 30_000;
+const kinds = {
+  DIRECT_MESSAGE: "direct_message",
+  GROUP_CHAT: "group",
+  SPACE: "space",
+} as const;
+
+const readSpaces = (send: Send) =>
+  Effect.gen(function* () {
+    const spaces: Space[] = [];
+    let next: string | undefined;
+    for (let page = 0; page < MAX_SPACE_PAGES; page++) {
+      const params = new URLSearchParams({
+        pageSize: String(SPACE_PAGE_SIZE),
+        fields: "nextPageToken,spaces(name,spaceType,displayName,lastActiveTime,singleUserBotDm)",
+      });
+      if (next !== undefined) params.set("pageToken", next);
+      const result = yield* get(send, `spaces?${params}`, SpaceList);
+      spaces.push(...(result.spaces ?? []));
+      next = result.nextPageToken || undefined;
+      if (next === undefined) break;
+    }
+    return { spaces, capped: next !== undefined };
+  });
+
+const otherMember = (send: Send, space: string, account: string) =>
+  get(send, `${space}/members`, MemberList).pipe(
+    Effect.map((list): With | undefined => {
+      for (const { member } of list.memberships ?? []) {
+        if (member?.type === "BOT") return { app: true };
+        const email = normalizeEmail(member?.email);
+        if (member?.type === "HUMAN" && email && email !== account)
+          return { ...(member.displayName ? { name: member.displayName } : {}), email };
+      }
+      return undefined;
+    }),
+  );
+
+const activeAt = (space: Space) =>
+  space.lastActiveTime?.replace(
+    /(?:\.(\d+))?Z$/,
+    (_, fraction: string | undefined = "") => `.${fraction.padEnd(9, "0")}Z`,
+  ) ?? "";
+const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+export const listConversations = (send: Send, account: string) =>
+  Effect.gen(function* () {
+    const read = yield* readSpaces(send);
+    const recent = read.spaces
+      .sort((a, b) => compare(activeAt(b), activeAt(a)) || compare(a.name, b.name))
+      .slice(0, MAX_CONVERSATIONS);
+    const entries = yield* Effect.forEach(
+      recent,
+      (space) =>
+        (space.spaceType !== "DIRECT_MESSAGE"
+          ? Effect.succeed(undefined)
+          : space.singleUserBotDm
+            ? Effect.succeed<With>({ app: true })
+            : otherMember(send, space.name, account)
+        ).pipe(
+          Effect.map((other): Conversation => {
+            const name = other && "email" in other ? other.name : space.displayName;
+            return {
+              conversation: space.name,
+              kind: kinds[space.spaceType],
+              ...(name ? { name } : {}),
+              ...(space.lastActiveTime === undefined ? {} : { last_active: space.lastActiveTime }),
+              ...(other ? { with: other } : {}),
+            };
+          }),
+        ),
+      { concurrency: REQUESTS_AT_ONCE },
+    );
+    const { kept: conversations } = boundedList(entries, MAX_CONVERSATIONS_CHARACTERS);
+    const omitted = read.spaces.length - conversations.length;
+    const notes = [
+      ...(omitted
+        ? [
+            `This result holds the ${conversations.length} most recent of the conversations the server read; omitted counts the ones it left out. A left-out conversation's ID still identifies the same conversation.`,
+          ]
+        : []),
+      ...(read.capped
+        ? [
+            `This account has more conversations than the server read: it stopped after ${MAX_SPACE_PAGES} pages, and the pages it did not read may hold more recent conversations.`,
+          ]
+        : []),
+    ];
+    return {
+      account,
+      conversations,
+      ...(omitted ? { omitted } : {}),
+      ...(notes.length ? { note: notes.join(" ") } : {}),
+    };
+  });

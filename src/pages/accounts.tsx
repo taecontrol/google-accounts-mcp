@@ -405,10 +405,11 @@ function ServiceDialog({
   const descriptions: Record<Service, string> = {
     gmail: "Read, draft, send, and organize mail.",
     calendar: "See calendars and events, create and change events, and answer invitations.",
+    chat: "List direct messages, group conversations, and spaces. Google also asks for access to read and send messages, which later versions will use. Works only with Google Workspace accounts.",
   };
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && close()}>
-      <DialogContent>
+      <DialogContent className="max-h-11/12 overflow-y-auto">
         <form
           className="flex flex-col gap-6"
           onSubmit={(event) => {
@@ -449,8 +450,9 @@ function ServiceDialog({
             ))}
           </div>
           <p className="text-sm text-muted-foreground">
-            A Workspace organization can block Calendar for apps it doesn't trust. If Google shows a
-            page saying this app is blocked, connect again without Calendar.
+            A Workspace organization can block Calendar or Chat for apps it doesn't trust. If Google
+            shows a page saying this app is blocked, connect again with only the services your
+            organization allows.
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={busy} onClick={close}>

@@ -2,13 +2,13 @@
 
 An MCP (Model Context Protocol) server that lets your AI agents use several Google accounts at once, both gmail.com accounts and Google Workspace accounts from any organization. The official Google connectors allow one account per client. With this server, one connection from Claude, Claude Code, or ChatGPT can reach every account you allow.
 
-You run it as a Cloudflare Worker on your own Cloudflare account, on the Workers Paid plan, with your own Google Cloud OAuth client. Agent clients connect to `https://<your host>/mcp`. It supports Gmail and can list each account's Google calendars. Other Calendar tools are planned in the [issues](../../issues).
+You run it as a Cloudflare Worker on your own Cloudflare account, on the Workers Paid plan, with your own Google Cloud OAuth client. Agent clients connect to `https://<your host>/mcp`. It supports Gmail and Google Calendar, and can list each Workspace account's Google Chat conversations. Other Chat tools are planned in the [issues](../../issues).
 
 ## What you control
 
 You sign in to the server's pages through Cloudflare Access.
 
-- **Accounts** (`/accounts`). You connect each Google account here and choose Gmail, Calendar, or both. Reconnect an account to change its services.
+- **Accounts** (`/accounts`). You connect each Google account here and choose any of Gmail, Calendar, and Chat. Chat works only with Google Workspace accounts. Reconnect an account to change its services.
 - **Connections** (`/connections`). Each time an agent client signs in to the server, it becomes a new connection. For each account, you set each of its tools to Not allowed, Ask first, or Allowed. A new connection starts with every tool set to Not allowed, and it sees only the tools you set to Ask first or Allowed.
 - **Approvals** (`/approvals/:id`). With Ask first, the agent gets a link to an approval page instead of a result. The tool runs only after you approve it there, and the agent then collects the result with `get_approval`. An approval expires after one hour.
 - **Activity** (`/activity`). The server records every tool call, with the connection that made it, the account, the outcome, and the reason for each refusal or failure.
@@ -21,11 +21,14 @@ You deploy from a copy of this repository on your own computer. You need Node.js
 
 Set up these first, with your hostname in place of `<host>`:
 
-- **A Google Cloud OAuth client.** Enable the Gmail API and the Google Calendar API in your Google Cloud project, and create a web application client. Register `https://<host>/google/callback` as a redirect URI. The server asks only for the scopes of the services you choose for each account:
+- **A Google Cloud OAuth client.** Enable the Gmail API, the Google Calendar API, and the Google Chat API in your Google Cloud project, and create a web application client. Register `https://<host>/google/callback` as a redirect URI. The server asks only for the scopes of the services you choose for each account:
   - Gmail: `gmail.readonly`, `gmail.compose`, `gmail.send`, `gmail.modify`, and `https://mail.google.com/`.
   - Calendar: `calendar.calendarlist.readonly`, `calendar.events`, and `calendar.events.freebusy`.
+  - Chat: `chat.spaces.readonly`, `chat.messages.readonly`, `chat.messages.create`, `chat.users.readstate.readonly`, `chat.memberships.readonly`, and `chat.spaces.create`.
 
-  Except for `https://mail.google.com/`, each scope starts with `https://www.googleapis.com/auth/`. The admin of a Workspace organization can block your client for that organization's accounts, or block Calendar alone. You can connect the account with Gmail only.
+  Except for `https://mail.google.com/`, each scope starts with `https://www.googleapis.com/auth/`. The admin of a Workspace organization can block your client for that organization's accounts, or block Calendar or Chat alone. You can then connect the account without the blocked service.
+
+  For Chat, also save a Chat app configuration. Open the Google Chat API's Configuration page in the Google Cloud console, enter an app name, an avatar URL, and a description, and choose who can see the app. Reading Chat works without the configuration. Sending Chat messages, which is planned, needs it.
 
 - **Two Cloudflare Access self-hosted applications** on `<host>`, both with managed OAuth turned off:
   1. One for the whole hostname, with an Allow policy for your email address only.
@@ -57,7 +60,7 @@ To update, get the new version of the repository and run `pnpm run deploy <host>
 
 To change a setting, run `pnpm exec wrangler secret put <NAME>`. To change the owner, set the new `OWNER_EMAIL` this way, which applies it to all traffic at once. Never use a gradual deployment for it, because an older version would still accept the old owner. The server refuses every request until you run `pnpm owner:reset`, which asks for confirmation before it clears the stored owner. The new owner then signs in.
 
-If you already run this server, enable the Google Calendar API in its Google Cloud project. Then reconnect each account that needs Calendar access, with Calendar selected. Existing accounts keep Gmail access; they gain no Calendar access until you reconnect them.
+If you already run this server, enable the Google Calendar API and the Google Chat API in its Google Cloud project, and save the Chat app configuration. Then reconnect each account that needs Calendar or Chat, with that service checked. Existing accounts keep the services they have; they gain no other service until you reconnect them.
 
 ## Before you use it
 

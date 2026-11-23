@@ -119,12 +119,16 @@ it.each([390, 1280])(
   15000,
 );
 
-it.each([390, 1280])(
-  "navigates Connect and Reconnect to the returned URL and keeps not-found errors on the page at %s px",
-  async (width) => {
-    for (const action of ["Connect a Google account", "Reconnect"]) {
-      for (const outcome of ["ok", "not_found"]) {
-        const page = await browser.newPage({ viewport: { width, height: 900 } });
+it.each([
+  { width: 390, height: 900, actions: ["Connect a Google account", "Reconnect"] },
+  { width: 1280, height: 900, actions: ["Connect a Google account", "Reconnect"] },
+  { width: 667, height: 375, actions: ["Connect a Google account"] },
+])(
+  "navigates Connect and Reconnect to the returned URL and keeps not-found errors on the page at $width × $height px",
+  async ({ width, height, actions }) => {
+    for (const action of actions) {
+      for (const outcome of height < 900 ? ["ok"] : ["ok", "not_found"]) {
+        const page = await browser.newPage({ viewport: { width, height } });
         page.setDefaultTimeout(2000);
         try {
           const destination = `https://google.example/authorize?flow=${encodeURIComponent(action)}`;
@@ -163,7 +167,7 @@ it.each([390, 1280])(
             action === "Reconnect" ? "Reconnect Projects" : "Connect a Google account",
           );
           expect(await dialog.innerText()).toContain(
-            "A Workspace organization can block Calendar for apps it doesn't trust.",
+            "A Workspace organization can block Calendar or Chat for apps it doesn't trust.",
           );
           const gmail = dialog.getByRole("checkbox", { name: "Gmail", exact: true });
           const calendar = dialog.getByRole("checkbox", { name: "Calendar", exact: true });
@@ -175,12 +179,21 @@ it.each([390, 1280])(
           else {
             await gmail.check();
             await calendar.check();
+            await dialog.getByRole("checkbox", { name: "Chat", exact: true }).check();
           }
           expect(await proceed.isEnabled()).toBe(true);
           expect(
             await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
           ).toBe(true);
-          await proceed.click();
+          await dialog.hover();
+          await page.mouse.wheel(0, 1000);
+          const bottom = async () => {
+            const box = (await proceed.boundingBox())!;
+            return box.y + box.height;
+          };
+          await expect.poll(bottom).toBeLessThanOrEqual(height);
+          const box = (await proceed.boundingBox())!;
+          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
           if (outcome === "ok") {
             await page.waitForURL(destination);
             expect(navigations).toEqual([destination]);
@@ -199,7 +212,7 @@ it.each([390, 1280])(
                 action === "Reconnect"
                   ? "/accounts/22222222-2222-4222-8222-222222222222/reconnect"
                   : "/accounts/connect",
-              services: action === "Reconnect" ? ["calendar"] : ["gmail", "calendar"],
+              services: action === "Reconnect" ? ["calendar"] : ["gmail", "calendar", "chat"],
             },
           ]);
         } finally {
@@ -463,9 +476,9 @@ it.each([390, 1280])(
         has: page.getByRole("button", { name: "Actions for Personal", exact: true }),
       });
       expect(await personal.innerText()).toContain("Gmail");
-      expect(
-        await personal.getByText("Not connected", { exact: true }).getAttribute("class"),
-      ).toContain("text-muted-foreground");
+      expect(await personal.getByText("Not connected", { exact: true }).count()).toBe(2);
+      for (const text of await personal.getByText("Not connected", { exact: true }).all())
+        expect(await text.getAttribute("class")).toContain("text-muted-foreground");
       expect(await personal.getByRole("button", { name: "Reconnect", exact: true }).count()).toBe(
         0,
       );

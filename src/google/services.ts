@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-export const SERVICES = ["gmail", "calendar"] as const;
+export const SERVICES = ["gmail", "calendar", "chat"] as const;
 export type Service = (typeof SERVICES)[number];
 export const GMAIL_SCOPES = ["gmail.readonly", "gmail.compose", "gmail.send", "gmail.modify"]
   .map((scope) => `https://www.googleapis.com/auth/${scope}`)
@@ -10,9 +10,18 @@ export const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/calendar.events.freebusy",
 ];
+export const CHAT_SCOPES = [
+  "chat.spaces.readonly",
+  "chat.messages.readonly",
+  "chat.messages.create",
+  "chat.users.readstate.readonly",
+  "chat.memberships.readonly",
+  "chat.spaces.create",
+].map((scope) => `https://www.googleapis.com/auth/${scope}`);
 export const serviceInfo = {
   gmail: { name: "Gmail", api: "Gmail API", scopes: GMAIL_SCOPES },
   calendar: { name: "Calendar", api: "Google Calendar API", scopes: CALENDAR_SCOPES },
+  chat: { name: "Chat", api: "Google Chat API", scopes: CHAT_SCOPES },
 } satisfies Record<Service, { name: string; api: string; scopes: readonly string[] }>;
 export const ChosenServices = Schema.Array(Schema.Literals(SERVICES)).check(
   Schema.isMinLength(1),

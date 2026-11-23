@@ -93,6 +93,13 @@ import {
   availabilityRange,
   checkAvailability,
 } from "../google/availability";
+import {
+  listConversations,
+  MAX_CONVERSATIONS,
+  MAX_CONVERSATIONS_CHARACTERS,
+  MAX_SPACE_PAGES,
+  SPACE_PAGE_SIZE,
+} from "../google/chat";
 import { EventResponse, invitation, invitationValues, respondPlan } from "../google/respond";
 import { Created, createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
@@ -579,7 +586,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     label: "List accounts",
     annotations: { readOnlyHint: true },
     description:
-      "Lists the Google accounts this connection can use, as a JSON array. Each entry has account (its email address), name, and services, with gmail and/or calendar and each service's status and optional message. Only services with at least one tool set to ask or allow on that account appear. An empty array means the owner has not given this connection access to any account.",
+      "Lists the Google accounts this connection can use, as a JSON array. Each entry has account (its email address), name, and services, with any of gmail, calendar, and chat, and each service's status and optional message. Only services with at least one tool set to ask or allow on that account appear. An empty array means the owner has not given this connection access to any account.",
     run: (ctx) =>
       listVisibleAccounts(ctx).pipe(
         Effect.map((accounts) =>
@@ -1666,6 +1673,20 @@ export const TOOLS: ReadonlyArray<Tool> = [
     },
     run: (send, account, args, _takes, approval) =>
       runChange(deletePlan(send, { ...args, account: account.email }), approval),
+  }),
+  accountTool({
+    name: "list_conversations",
+    annotations: { readOnlyHint: true },
+    group: "See conversations and messages",
+    irreversible: false,
+    label: "List conversations",
+    permissionDescription:
+      "See this account's most recent Google Chat conversations: their names, kinds, when each was last active, and who each direct message is with.",
+    description: `Lists the most recent Google Chat conversations of one Google Workspace account: direct messages, group conversations, and spaces. \`account\` is the address of an account that list_accounts returns with chat. The result has account and conversations, most recent first. Each conversation has conversation (its ID, such as spaces/AAAA), kind (direct_message, group, or space), name (the space's name in Google, or for a direct message with a person, that person's name; omitted when Google gives none, as for an unnamed group conversation), and last_active (when the conversation was last active, in UTC as Google gives it, YYYY-MM-DDTHH:MM:SSZ with up to nine fractional second digits, such as 2026-11-22T10:30:00.123456Z; omitted when Google gives none). For a direct message with a person, \`with\` contains the other person's email and their name when available. If Google does not supply a usable email distinct from the account's address, the tool omits \`with\` for that person. For an identified Chat app, \`with\` is \`{ app: true }\`. Google lists a direct message or group conversation only after its first message. The server reads at most ${MAX_SPACE_PAGES} pages of up to ${SPACE_PAGE_SIZE.toLocaleString("en-US")} conversations. The result holds at most ${MAX_CONVERSATIONS} conversations and ${MAX_CONVERSATIONS_CHARACTERS.toLocaleString("en-US")} characters in the serialized conversations array, cutting the oldest first. When conversations are left out, omitted counts those read but left out, and note explains the cut. A left-out conversation's ID still identifies the same conversation. When the page cap is reached, note says that the account has more conversations than the server read, and that the unread pages may hold more recent ones. When the owner sets this tool to ask, it returns a pending approval with a link instead of conversations; get_approval returns the conversations after the owner approves.`,
+    input: Schema.Struct({ account: Schema.String }),
+    expects: { account: "a string" },
+    view: { action: "list the conversations", joiner: "of", values: () => Effect.succeed([]) },
+    run: (send, account) => listConversations(send, account.email),
   }),
   {
     kind: "plain",

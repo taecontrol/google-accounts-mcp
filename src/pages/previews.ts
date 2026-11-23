@@ -12,10 +12,12 @@ const servicePreview = (
   calendar = 0,
   health: "ready" | "needs_reconnect" | "blocked_by_admin" = "ready",
   readable = true,
+  chat = 0,
 ): AccountView["services"] => {
   const scopes = [
     ...serviceInfo.gmail.scopes.slice(0, gmail),
     ...serviceInfo.calendar.scopes.slice(0, calendar),
+    ...serviceInfo.chat.scopes.slice(0, chat),
   ];
   return Object.fromEntries(
     SERVICES.map((service) => [service, accountStatus(health, scopes, service, readable)]),
@@ -83,7 +85,7 @@ const permissionAccounts: ReadonlyArray<import("../accounts/model").AccountView>
     name: "Northwind",
     email: "alex@northwind.example",
     workspace: true,
-    services: servicePreview(5, 1),
+    services: servicePreview(5, 1, "ready", true, 6),
   },
   {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-000000000003" as import("../accounts/model").AccountId,
@@ -1172,7 +1174,7 @@ export const previews: Readonly<Record<string, Page>> = {
         name: "Research and operations shared inbox",
         email: "research@harbor.example",
         workspace: true,
-        services: servicePreview(5, 1),
+        services: servicePreview(5, 1, "ready", true, 4),
       },
       {
         id: "55555555-5555-4555-8555-555555555555" as import("../accounts/model").AccountId,
