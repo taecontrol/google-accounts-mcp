@@ -231,8 +231,9 @@ const missingMessage = ({ kind, id }: NonNullable<ToolFailure["missing"]>, email
     ids.length === 1
       ? `No ${kind} "${ids[0]}"`
       : `None of the ${kind}s ${ids.map((id) => `"${id}"`).join(", ")}`;
-  const unseen = kind === "conversation" ? ", or the account cannot see it" : "";
-  return `${subject} exists in ${email}${unseen}. A ${kind} ID works only in the account that returned it.`;
+  if (kind === "conversation")
+    return `${subject} exists in ${email}, or the account cannot see it.`;
+  return `${subject} exists in ${email}. A ${kind} ID works only in the account that returned it.`;
 };
 const fieldMessage = (field: NonNullable<ToolFailure["field"]>) =>
   `The ${field.name} field must be ${field.expects}.`;
