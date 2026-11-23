@@ -88,7 +88,7 @@ const senderText = (from: ChatMessage["from"]) =>
     : from.name && from.email
       ? `${from.name} <${from.email}>`
       : (from.email ?? from.name ?? from.user);
-const threadStart = (send: Send, conversation: string, thread: string) =>
+const threadValues = (send: Send, conversation: string, thread: string) =>
   Effect.gen(function* () {
     const query = new URLSearchParams({
       filter: `thread.name = ${thread}`,
@@ -105,6 +105,7 @@ const threadStart = (send: Send, conversation: string, thread: string) =>
     if (!first || first.threadReply) return yield* Effect.fail(new ViewUnavailable());
     const message = chatMessage(first);
     return [
+      { name: "Reply in thread", text: thread, from: "agent" },
       {
         name:
           "app" in message.from
@@ -122,20 +123,18 @@ export const sendValues = (send: Send, args: SendArgs) =>
   Effect.gen(function* () {
     const space = yield* readSpace(send, args.conversation);
     if (args.thread !== undefined) yield* threaded(space);
-    const conversation = yield* spaceValues(
-      send,
-      args.conversation,
-      normalizeEmail(args.account)!,
-      space,
+    const [conversation, thread] = yield* Effect.all(
+      [
+        spaceValues(send, args.conversation, normalizeEmail(args.account)!, space),
+        args.thread === undefined
+          ? Effect.succeed([])
+          : threadValues(send, args.conversation, args.thread),
+      ],
+      { concurrency: "unbounded" },
     );
     return [
       ...conversation,
-      ...(args.thread === undefined
-        ? []
-        : [
-            { name: "Reply in thread", text: args.thread, from: "agent" as const },
-            ...(yield* threadStart(send, args.conversation, args.thread)),
-          ]),
+      ...thread,
       ...duplicateValue(args.duplicate),
       { name: "Text", text: args.text, from: "agent" },
     ] satisfies ViewValue[];
