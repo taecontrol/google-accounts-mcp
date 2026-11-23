@@ -4,6 +4,7 @@ import type { Send } from "../mcp/tools";
 import type { ViewValue } from "../approvals/model";
 import { normalizeEmail } from "../email";
 import { notFound, ToolFailure } from "../mcp/failures";
+import { googleInstant } from "./availability";
 import { boundedList, shortJson } from "./bounds";
 import { decodeResponse, getFrom } from "./get";
 import {
@@ -11,7 +12,6 @@ import {
   ConversationId,
   conversationRefused,
   conversationValues,
-  fullPrecision,
   readSpace,
   Timestamp,
 } from "./chat";
@@ -151,38 +151,21 @@ export const readConversation = (send: Send, account: string, args: ReadArgs) =>
   });
 
 const INSTANT =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,9})?)?(?:Z|([+-])(\d{2}):(\d{2}))$/;
-export const utcOf = (text: string): string | null => {
+  /^(\d{4})(-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2})$/;
+const instantOf = (text: string) => {
   const match = INSTANT.exec(text);
-  if (!match) return null;
-  const [, year, month, day, hour, minute, second = "00", fraction = ""] = match;
-  const sign = match[8] === "-" ? -1 : 1;
-  const [offsetHours, offsetMinutes] = [Number(match[9] ?? 0), Number(match[10] ?? 0)];
-  const parts = [year, month, day, hour, minute, second].map(Number) as [
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-  ];
-  const local = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5]));
-  if (
-    parts[0] < 2000 ||
-    parts[0] > 2999 ||
-    offsetHours > 23 ||
-    offsetMinutes > 59 ||
-    local.getUTCFullYear() !== parts[0] ||
-    local.getUTCMonth() !== parts[1] - 1 ||
-    local.getUTCDate() !== parts[2] ||
-    local.getUTCHours() !== parts[3] ||
-    local.getUTCMinutes() !== parts[4] ||
-    local.getUTCSeconds() !== parts[5]
-  )
-    return null;
-  const utc = local.getTime() - sign * (offsetHours * 60 + offsetMinutes) * 60_000;
-  return `${new Date(utc).toISOString().slice(0, 19)}${fraction}Z`;
+  if (!match || Number(match[1]) < 2000 || Number(match[1]) > 2999) return null;
+  const [, year, rest, second = "00", fraction = "", zone] = match;
+  const at = googleInstant(`${year}${rest}:${second}${zone}`, "down");
+  if (at === null) return null;
+  const utc =
+    zone === "Z"
+      ? text
+      : `${new Date(at).toISOString().slice(0, 19)}${fraction ? `.${fraction}` : ""}Z`;
+  return { utc, at, nanos: fraction.padEnd(9, "0") };
 };
+type Instant = NonNullable<ReturnType<typeof instantOf>>;
+const isBefore = (a: Instant, b: Instant) => a.at < b.at || (a.at === b.at && a.nanos < b.nanos);
 
 const senderOf = (raw: string): string | null => {
   const email = raw.toLowerCase();
@@ -190,7 +173,7 @@ const senderOf = (raw: string): string | null => {
     ? email
     : null;
 };
-const Instant = Schema.String.check(Schema.makeFilter((text) => utcOf(text) !== null));
+const InstantText = Schema.String.check(Schema.makeFilter((text) => instantOf(text) !== null));
 const CRITERIA = ["text", "from", "conversation", "after", "before", "unread", "mentions_me"];
 const SearchFields = Schema.Struct({
   account: Schema.String,
@@ -202,8 +185,8 @@ const SearchFields = Schema.Struct({
   ),
   from: Schema.optionalKey(Schema.String.check(Schema.makeFilter((raw) => senderOf(raw) !== null))),
   conversation: Schema.optionalKey(ConversationId),
-  after: Schema.optionalKey(Instant),
-  before: Schema.optionalKey(Instant),
+  after: Schema.optionalKey(InstantText),
+  before: Schema.optionalKey(InstantText),
   unread: Schema.optionalKey(Schema.Literal(true)),
   mentions_me: Schema.optionalKey(Schema.Literal(true)),
   limit: Schema.optionalKey(
@@ -217,8 +200,8 @@ const criteriaOf = (args: SearchArgs) => ({
   words: args.text?.split(/\s+/).filter(Boolean) ?? [],
   from: args.from === undefined ? undefined : senderOf(args.from)!,
   conversation: args.conversation,
-  after: args.after === undefined ? undefined : utcOf(args.after)!,
-  before: args.before === undefined ? undefined : utcOf(args.before)!,
+  after: args.after === undefined ? undefined : instantOf(args.after)!,
+  before: args.before === undefined ? undefined : instantOf(args.before)!,
   unread: args.unread === true,
   mentions: args.mentions_me === true,
   limit: args.limit ?? DEFAULT_SEARCH_LIMIT,
@@ -229,8 +212,8 @@ const filterOf = (criteria: Criteria) =>
     ...(criteria.words.length ? [criteria.words.map((word) => `"${word}"`).join(" ")] : []),
     ...(criteria.from === undefined ? [] : [`sender.name = "users/${criteria.from}"`]),
     ...(criteria.conversation === undefined ? [] : [`space.name = ${criteria.conversation}`]),
-    ...(criteria.after === undefined ? [] : [`create_time >= "${criteria.after}"`]),
-    ...(criteria.before === undefined ? [] : [`create_time < "${criteria.before}"`]),
+    ...(criteria.after === undefined ? [] : [`create_time >= "${criteria.after.utc}"`]),
+    ...(criteria.before === undefined ? [] : [`create_time < "${criteria.before.utc}"`]),
     ...(criteria.unread ? ["is_unread()"] : []),
     ...(criteria.mentions ? ["annotations.user_mentions.user.name:users/me"] : []),
   ].join(" AND ");
@@ -251,7 +234,7 @@ export const SearchMessagesInput = SearchFields.check(
     if (
       args.after !== undefined &&
       args.before !== undefined &&
-      fullPrecision(utcOf(args.after)!) >= fullPrecision(utcOf(args.before)!)
+      !isBefore(instantOf(args.after)!, instantOf(args.before)!)
     )
       return { path: ["before"], issue: "must be later than after" };
     const account = normalizeEmail(args.account);
@@ -341,8 +324,8 @@ export const searchValues = (send: Send, args: SearchArgs) =>
       ...(criteria.conversation === undefined
         ? []
         : yield* conversationValues(send, criteria.conversation, normalizeEmail(args.account)!)),
-      ...(criteria.after === undefined ? [] : [agent("After", criteria.after)]),
-      ...(criteria.before === undefined ? [] : [agent("Before", criteria.before)]),
+      ...(criteria.after === undefined ? [] : [agent("After", criteria.after.utc)]),
+      ...(criteria.before === undefined ? [] : [agent("Before", criteria.before.utc)]),
       ...(criteria.unread ? [agent("Only unread", "Yes")] : []),
       ...(criteria.mentions ? [agent("Only messages that mention this account", "Yes")] : []),
       agent("Limit", String(criteria.limit)),

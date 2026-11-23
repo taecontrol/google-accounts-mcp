@@ -3,6 +3,7 @@ import type { Send } from "../mcp/tools";
 import type { ViewValue } from "../approvals/model";
 import { normalizeEmail } from "../email";
 import { notFound, ToolFailure, ViewUnavailable } from "../mcp/failures";
+import { googleInstant } from "./availability";
 import { boundedList } from "./bounds";
 import { getFrom } from "./get";
 import { REQUESTS_AT_ONCE } from "./gmail";
@@ -18,7 +19,7 @@ export const CONVERSATION_EXPECTS =
   "a conversation ID such as spaces/AAAA: spaces/ and 1 to 100 letters, digits, hyphens, or underscores";
 export const Timestamp = Schema.String.check(
   Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/),
-  Schema.makeFilter((time) => !Number.isNaN(Date.parse(time))),
+  Schema.makeFilter((time) => googleInstant(time, "down") !== null),
 );
 const SpaceList = Schema.Struct({
   spaces: Schema.optionalKey(
