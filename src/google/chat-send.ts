@@ -91,7 +91,7 @@ const senderText = (from: ChatMessage["from"]) =>
 const threadStart = (send: Send, conversation: string, thread: string) =>
   Effect.gen(function* () {
     const query = new URLSearchParams({
-      filter: `thread.name = "${thread}"`,
+      filter: `thread.name = ${thread}`,
       orderBy: "createTime asc",
       pageSize: "1",
     });
