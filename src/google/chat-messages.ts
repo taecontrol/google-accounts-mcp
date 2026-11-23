@@ -164,10 +164,7 @@ const instantOf = (text: string) => {
   const [, year, rest, second = "00", fraction = "", zone] = match;
   const at = googleInstant(`${year}${rest}:${second}${zone}`, "down");
   if (at === null) return null;
-  const utc =
-    zone === "Z"
-      ? text
-      : `${new Date(at).toISOString().slice(0, 19)}${fraction ? `.${fraction}` : ""}Z`;
+  const utc = `${new Date(at).toISOString().slice(0, 19)}${fraction ? `.${fraction}` : ""}Z`;
   return { utc, at, nanos: fraction.padEnd(9, "0") };
 };
 type Instant = NonNullable<ReturnType<typeof instantOf>>;
