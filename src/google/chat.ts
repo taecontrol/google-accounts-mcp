@@ -127,12 +127,12 @@ export const listConversations = (send: Send, account: string) =>
     const notes = [
       ...(omitted
         ? [
-            `This result holds the ${conversations.length} most recent of the conversations the server read. A left-out conversation's ID still identifies the same conversation.`,
+            `This result holds the ${conversations.length} most recent of the conversations the server read; omitted counts the ones it left out. A left-out conversation's ID still identifies the same conversation.`,
           ]
         : []),
       ...(read.capped
         ? [
-            `This account has more conversations than the server read: it read only the first ${MAX_SPACE_PAGES} pages of ${SPACE_PAGE_SIZE.toLocaleString("en-US")}, so a more recent conversation may be missing, and omitted counts only conversations in those pages.`,
+            `This account has more conversations than the server read: it stopped after ${MAX_SPACE_PAGES} pages, and the pages it did not read may hold more recent conversations.`,
           ]
         : []),
     ];
