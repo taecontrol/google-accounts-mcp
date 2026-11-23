@@ -196,7 +196,7 @@ const others = (send: Send, conversation: string, account: string) =>
         if (line) people.push(line);
         else if (normalizeEmail(member.email) !== account) unnamed = true;
       }
-      return { people: people.sort(), app, more: unnamed || list.nextPageToken !== undefined };
+      return { people: people.sort(), app, more: unnamed || Boolean(list.nextPageToken) };
     }),
   );
 
