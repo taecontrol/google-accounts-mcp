@@ -22,7 +22,7 @@ const SpaceList = Schema.Struct({
       }),
     ),
   ),
-  nextPageToken: Schema.optionalKey(Schema.NonEmptyString),
+  nextPageToken: Schema.optionalKey(Schema.String),
 });
 const MemberList = Schema.Struct({
   memberships: Schema.optionalKey(
@@ -68,7 +68,7 @@ const readSpaces = (send: Send) =>
       if (next !== undefined) params.set("pageToken", next);
       const result = yield* get(send, `spaces?${params}`, SpaceList);
       spaces.push(...(result.spaces ?? []));
-      next = result.nextPageToken;
+      next = result.nextPageToken || undefined;
       if (next === undefined) break;
     }
     return { spaces, capped: next !== undefined };
