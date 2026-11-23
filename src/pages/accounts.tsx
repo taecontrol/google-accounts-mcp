@@ -450,8 +450,9 @@ function ServiceDialog({
             ))}
           </div>
           <p className="text-sm text-muted-foreground">
-            A Workspace organization can block Calendar for apps it doesn't trust. If Google shows a
-            page saying this app is blocked, connect again without Calendar.
+            A Workspace organization can block Calendar or Chat for apps it doesn't trust. If Google
+            shows a page saying this app is blocked, connect again with only the services your
+            organization allows.
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={busy} onClick={close}>

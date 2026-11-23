@@ -163,7 +163,7 @@ it.each([390, 1280])(
             action === "Reconnect" ? "Reconnect Projects" : "Connect a Google account",
           );
           expect(await dialog.innerText()).toContain(
-            "A Workspace organization can block Calendar for apps it doesn't trust.",
+            "A Workspace organization can block Calendar or Chat for apps it doesn't trust.",
           );
           const gmail = dialog.getByRole("checkbox", { name: "Gmail", exact: true });
           const calendar = dialog.getByRole("checkbox", { name: "Calendar", exact: true });
