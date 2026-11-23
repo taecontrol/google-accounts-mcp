@@ -41,6 +41,8 @@ const GoogleMessage = Schema.Struct({
   thread: Schema.Struct({ name: Schema.String }),
   threadReply: Schema.optionalKey(Schema.Boolean),
 });
+const MESSAGE_FIELDS =
+  "name,sender(name,type,displayName,email),createTime,text,thread(name),threadReply";
 const MessageList = Schema.Struct({
   messages: Schema.optionalKey(Schema.Array(GoogleMessage)),
   nextPageToken: Schema.optionalKey(Schema.String),
@@ -118,6 +120,7 @@ export const readConversation = (send: Send, account: string, args: ReadArgs) =>
       `pageSize=${args.limit ?? DEFAULT_READ_LIMIT}`,
       `orderBy=${encodeURIComponent("createTime desc")}`,
       ...(filter ? [`filter=${encodeURIComponent(filter)}`] : []),
+      `fields=${encodeURIComponent(`nextPageToken,messages(${MESSAGE_FIELDS})`)}`,
     ].join("&");
     const page = yield* get(
       send,
@@ -269,6 +272,7 @@ const searchRefused = (args: SearchArgs) => (status: number) => {
   });
 };
 
+const SEARCH_FIELDS = encodeURIComponent(`nextPageToken,results(message(${MESSAGE_FIELDS}))`);
 export const searchMessages = (send: Send, account: string, args: SearchArgs) =>
   Effect.gen(function* () {
     const criteria = criteriaOf(args);
@@ -284,7 +288,7 @@ export const searchMessages = (send: Send, account: string, args: SearchArgs) =>
     });
     const response = yield* send(
       (accessToken, signal) =>
-        new Request(`${CHAT_API}/spaces/-/messages:search`, {
+        new Request(`${CHAT_API}/spaces/-/messages:search?fields=${SEARCH_FIELDS}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
           body,
