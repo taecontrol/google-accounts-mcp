@@ -1554,7 +1554,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
       note: Schema.optionalKey(
         Schema.String.check(
           Schema.makeFilter((note) => {
-            // oxlint-disable-next-line typescript/no-misused-spread
+            // oxlint-disable-next-line typescript/no-misused-spread -- The contract counts code points, not grapheme clusters or UTF-16 code units.
             const length = [...note].length;
             return (
               length >= 1 &&

@@ -22,18 +22,22 @@ for (const [file, count] of baseline) {
   }
 }
 
-function isDirective({ type, value }: Comment): boolean {
-  if (/^\s*(?:oxlint|eslint)-disable(?:-next-line|-line)?(?=\s|$)/u.test(value)) return true;
-  if (type === "Line" && /^\/\s*<reference\s+[^<>]+\/>\s*$/u.test(value)) return true;
+const lintDisable = /^\s*(?:oxlint|eslint)-disable(?:-next-line|-line)?(?=\s|$)/u;
+const ruleName = /^(?:(?:@[\w-]+\/)?[\w-]+\/)?\w[\w-]*$/u;
+const fileStart = { line: 1, column: 0 };
 
-  const compilerText =
-    type === "Line"
-      ? value.replace(/^\//u, "")
-      : value
-          .split(/[\r\n\u2028\u2029]/u)
-          .at(-1)!
-          .replace(/^\s*[/*]*/u, "");
-  return /^\s*@ts-(?:expect-error|ignore)(?=\s|:|$)/u.test(compilerText);
+function isDirective({ type, value }: Comment, commentRule: string): boolean {
+  if (type !== "Line") return false;
+  if (/^\/\s*<reference\s+[^<>]+\/>\s*$/u.test(value)) return true;
+  if (/^\/?\s*@ts-expect-error(?=\s|:|$)/u.test(value)) return true;
+
+  const prefix = lintDisable.exec(value)?.[0];
+  if (!prefix) return false;
+  const [names = ""] = value.slice(prefix.length).split(/\s+--\s+/u, 1);
+  return names.split(",").every((name) => {
+    const rule = name.trim();
+    return ruleName.test(rule) && rule !== commentRule;
+  });
 }
 
 export default definePlugin({
@@ -47,19 +51,28 @@ export default definePlugin({
             const allowed = baseline.get(file) ?? 0;
             const comments = context.sourceCode
               .getAllComments()
-              .filter((comment) => !isDirective(comment));
+              .filter((comment) => !isDirective(comment, context.id));
             if (comments.length > allowed) {
               const message =
                 allowed === 0
                   ? "Remove this comment. Record decisions in docs/adr/."
                   : `Remove the added comments. This file has ${comments.length} comments and ${baselinePath} allows ${allowed}.`;
-              for (const comment of comments) context.report({ loc: comment.loc, message });
+              for (const comment of comments) {
+                if (lintDisable.test(comment.value)) {
+                  context.report({
+                    loc: fileStart,
+                    message: `Fix the lint directive on line ${comment.loc.start.line}. List the rules to disable in a line comment and keep ${context.id} enabled.`,
+                  });
+                } else {
+                  context.report({ loc: comment.loc, message });
+                }
+              }
             } else if (comments.length < allowed) {
               const message =
                 comments.length === 0
                   ? `Remove "${file}" from ${baselinePath}. No ordinary comments remain.`
                   : `Lower "${file}" in ${baselinePath} from ${allowed} to ${comments.length}.`;
-              context.report({ loc: { line: 1, column: 0 }, message });
+              context.report({ loc: fileStart, message });
             }
           },
         };
