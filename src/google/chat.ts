@@ -20,6 +20,7 @@ const SpaceList = Schema.Struct({
         name: SpaceName,
         spaceType: Schema.Literals(["DIRECT_MESSAGE", "GROUP_CHAT", "SPACE"]),
         displayName: Schema.optionalKey(Schema.String),
+        singleUserBotDm: Schema.optionalKey(Schema.Boolean),
         lastActiveTime: Schema.optionalKey(Timestamp),
       }),
     ),
@@ -105,9 +106,11 @@ export const listConversations = (send: Send, account: string) =>
     const entries = yield* Effect.forEach(
       recent,
       (space) =>
-        (space.spaceType === "DIRECT_MESSAGE"
-          ? otherMember(send, space.name, account)
-          : Effect.succeed(undefined)
+        (space.spaceType !== "DIRECT_MESSAGE"
+          ? Effect.succeed(undefined)
+          : space.singleUserBotDm
+            ? Effect.succeed<With>({ app: true })
+            : otherMember(send, space.name, account)
         ).pipe(
           Effect.map((other): Conversation => {
             const name = other && "email" in other ? other.name : space.displayName;
