@@ -14,7 +14,7 @@ const ErrorInfo = Schema.Struct({
 const LegacyError = Schema.Struct({ reason: Schema.Literal("accessNotConfigured") });
 const BadRequest = Schema.Struct({
   "@type": Schema.Literal("type.googleapis.com/google.rpc.BadRequest"),
-  fieldViolations: Schema.Array(Schema.Struct({ field: Schema.String })),
+  fieldViolations: Schema.Array(Schema.Struct({ field: Schema.optionalKey(Schema.String) })),
 });
 const MAX_ERROR_BYTES = 16 * 1024;
 
