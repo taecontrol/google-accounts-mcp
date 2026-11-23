@@ -127,7 +127,7 @@ export const listConversations = (send: Send, account: string) =>
     const notes = [
       ...(omitted
         ? [
-            `This result holds the ${conversations.length} most recent of the conversations the server read. A left-out conversation's ID still works in other tools.`,
+            `This result holds the ${conversations.length} most recent of the conversations the server read. A left-out conversation's ID still identifies the same conversation.`,
           ]
         : []),
       ...(read.capped
