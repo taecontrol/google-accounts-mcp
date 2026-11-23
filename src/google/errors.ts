@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-const DisabledError = Schema.Struct({
+const ErrorBody = Schema.Struct({
   error: Schema.Struct({
     details: Schema.optionalKey(Schema.Array(Schema.Unknown)),
     errors: Schema.optionalKey(Schema.Array(Schema.Unknown)),
@@ -39,18 +39,23 @@ export async function errorText(response: Response): Promise<string | null> {
   }
 }
 
+async function errorBody(response: Response) {
+  const text = await errorText(response);
+  if (text === null) return null;
+  try {
+    const parsed = Schema.decodeUnknownOption(ErrorBody)(JSON.parse(text));
+    return parsed._tag === "Some" ? parsed.value.error : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function apiNotEnabled(response: Response): Promise<boolean> {
   if (response.status !== 403) return false;
-  const text = await errorText(response);
-  if (text === null) return false;
-  try {
-    const parsed = Schema.decodeUnknownOption(DisabledError)(JSON.parse(text));
-    return (
-      parsed._tag === "Some" &&
-      ((parsed.value.error.details ?? []).some(Schema.is(ErrorInfo)) ||
-        (parsed.value.error.errors ?? []).some(Schema.is(LegacyError)))
-    );
-  } catch {
-    return false;
-  }
+  const error = await errorBody(response);
+  return (
+    error !== null &&
+    ((error.details ?? []).some(Schema.is(ErrorInfo)) ||
+      (error.errors ?? []).some(Schema.is(LegacyError)))
+  );
 }
