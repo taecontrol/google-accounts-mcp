@@ -2,6 +2,7 @@ import "./support/account-checks";
 import { env } from "cloudflare:workers";
 import { expect, it } from "vite-plus/test";
 import { CALENDAR_SCOPES } from "./support/calendar";
+import { CHAT_SCOPES } from "./support/chat";
 import { SCOPES, google } from "./support/google";
 import { accounts, finish, NOW, ownerBrowser, start } from "./support/accounts";
 import { dump, observeStatements } from "./support/db";
@@ -25,22 +26,22 @@ const chosen = async (
 const missing = (service: string) =>
   `This server has no ${service} access to ${PERSONAL}. Ask the owner to reconnect it at ${ORIGIN}/accounts with ${service} chosen and every box checked.`;
 
-it.each([["gmail"], ["calendar"], ["gmail", "calendar"]].map((services) => ({ services })))(
-  "asks only for the chosen services $services",
-  async ({ services }) => {
-    const browser = await ownerBrowser();
-    const url = await chosen(browser, services);
-    expect(url.searchParams.get("scope")!.split(" ").sort()).toEqual(
-      [
-        "openid",
-        "email",
-        ...(services.includes("gmail") ? SCOPES : []),
-        ...(services.includes("calendar") ? CALENDAR_SCOPES : []),
-      ].sort(),
-    );
-    expect(url.searchParams.has("include_granted_scopes")).toBe(false);
-  },
-);
+it.each(
+  [["gmail"], ["calendar"], ["chat"], ["gmail", "calendar"]].map((services) => ({ services })),
+)("asks only for the chosen services $services", async ({ services }) => {
+  const browser = await ownerBrowser();
+  const url = await chosen(browser, services);
+  expect(url.searchParams.get("scope")!.split(" ").sort()).toEqual(
+    [
+      "openid",
+      "email",
+      ...(services.includes("gmail") ? SCOPES : []),
+      ...(services.includes("calendar") ? CALENDAR_SCOPES : []),
+      ...(services.includes("chat") ? CHAT_SCOPES : []),
+    ].sort(),
+  );
+  expect(url.searchParams.has("include_granted_scopes")).toBe(false);
+});
 
 it.each(
   [[], ["unknown"], ["gmail", "unknown"], ["calendar", "calendar"]].map((services) => ({
@@ -225,30 +226,28 @@ it.each(["allow", "ask"] as const)(
   },
 );
 
-it.each(["gmail", "calendar"] as const)(
-  "refuses a waiting approval after a reconnect drops %s, even when Google returns its scopes",
-  async (dropped) => {
-    const f = await fixture({
-      sub: "personal",
-      scopes: JSON.stringify([...SCOPES, ...CALENDAR_SCOPES]),
-    });
-    const tool = dropped === "gmail" ? "list_labels" : "list_calendars";
+it.each([
+  { dropped: "Gmail", tool: "list_labels", kept: "calendar", stored: CALENDAR_SCOPES },
+  { dropped: "Calendar", tool: "list_calendars", kept: "gmail", stored: SCOPES },
+  { dropped: "Chat", tool: "list_conversations", kept: "gmail", stored: SCOPES },
+])(
+  "refuses a waiting approval after a reconnect drops $dropped, even when Google returns its scopes",
+  async ({ dropped, tool, kept, stored }) => {
+    const all = [...SCOPES, ...CALENDAR_SCOPES, ...CHAT_SCOPES];
+    const f = await fixture({ sub: "personal", scopes: JSON.stringify(all) });
     await setTool(f, tool, "ask");
     const pending = await answer(await toolCall(f.mcp, tool, { account: PERSONAL }));
     const id = pending.approval as string;
-    const kept = dropped === "gmail" ? "calendar" : "gmail";
     await finish(f.mcp.browser, await chosen(f.mcp.browser, [kept], f.personal.id), {
-      scope: ["openid", "email", ...SCOPES, ...CALENDAR_SCOPES].join(" "),
+      scope: ["openid", "email", ...all].join(" "),
     });
-    expect(JSON.parse((await accounts())[0]!.scopes)).toEqual(
-      kept === "gmail" ? SCOPES : CALENDAR_SCOPES,
-    );
+    expect(JSON.parse((await accounts())[0]!.scopes)).toEqual(stored);
     expect((await rows())[0]!.state).toBe("waiting");
     const before = googleTraffic().length;
     await approve(f, id);
     expect((await get(f, id)).error).toEqual({
       code: "account_missing_access",
-      message: missing(dropped === "gmail" ? "Gmail" : "Calendar"),
+      message: missing(dropped),
     });
     expect(googleTraffic()).toHaveLength(before);
     expect(google.events).not.toContain("revoke");
