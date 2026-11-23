@@ -94,12 +94,31 @@ import {
   checkAvailability,
 } from "../google/availability";
 import {
+  CONVERSATION_EXPECTS,
   listConversations,
   MAX_CONVERSATIONS,
   MAX_CONVERSATIONS_CHARACTERS,
   MAX_SPACE_PAGES,
   SPACE_PAGE_SIZE,
 } from "../google/chat";
+import {
+  DEFAULT_READ_LIMIT,
+  DEFAULT_SEARCH_LIMIT,
+  MAX_READ_LIMIT,
+  MAX_SEARCH_LIMIT,
+  MAX_SEARCH_PAGE,
+  MAX_SEARCH_TEXT,
+  MAX_SENDER,
+  MAX_SENDER_NAME,
+  MAX_WORDS,
+  MESSAGES_LIMIT,
+  ReadConversationInput,
+  readConversation,
+  readValues,
+  SearchMessagesInput,
+  searchMessages,
+  searchValues,
+} from "../google/chat-messages";
 import { EventResponse, invitation, invitationValues, respondPlan } from "../google/respond";
 import { Created, createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
@@ -405,6 +424,8 @@ const SearchEventsInput = Schema.Struct({
   }),
 );
 const zoneExpects = "UTC or an IANA zone name with a slash, such as America/Bogota";
+const instantExpects =
+  "an instant YYYY-MM-DDTHH:MM with optional seconds and up to nine fractional second digits, ending in Z or ±HH:MM, with a year from 2000 to 2999";
 const CheckAvailabilityInput = Schema.Struct({
   account: Schema.String,
   from: TimeText,
@@ -1687,6 +1708,60 @@ export const TOOLS: ReadonlyArray<Tool> = [
     expects: { account: "a string" },
     view: { action: "list the conversations", joiner: "of", values: () => Effect.succeed([]) },
     run: (send, account) => listConversations(send, account.email),
+  }),
+  accountTool({
+    name: "read_conversation",
+    annotations: { readOnlyHint: true },
+    group: "See conversations and messages",
+    irreversible: false,
+    label: "Read conversation",
+    permissionDescription:
+      "Read the messages of any conversation of this account: direct messages, group conversations, and spaces, with who wrote each one and when.",
+    description: `Reads the messages of one Google Chat conversation of one Google Workspace account, newest first: a direct message, a group conversation, or a space. \`account\` is the address of an account that list_accounts returns with chat. \`conversation\` is a conversation ID, such as spaces/AAAA, that list_conversations or search_messages returned: spaces/ and 1 to 100 letters, digits, hyphens, or underscores. \`thread\` is optional: a thread ID from a message's \`thread\` in that conversation, the conversation ID, /threads/, and 1 to 100 of the same characters; with it, only that thread's messages come back. \`limit\` is 1 to ${MAX_READ_LIMIT} messages, ${DEFAULT_READ_LIMIT} by default. The result has account, conversation, and messages. Each message has message (its ID), conversation, thread (the ID of its thread; every message has one), thread_reply (present and true only when Google marks the message as a reply in a thread), from, time (when it was sent, in UTC as Google gives it, such as 2026-11-22T10:30:00.123456Z), and text (Google's plain text, where a mention reads as @Name; empty when the message has only an attachment or a card). from has user (Google's user ID, such as users/123) and, when Google gives them, name and email; a Chat app has app: true and a name, and no email. Google gives a person's name and email only for members of the conversation and people the account has talked with. A name is cut with … to ${MAX_SENDER_NAME} JSON characters. Replies in threads come among the other messages, in time order. A result has at most ${MESSAGES_LIMIT.toLocaleString("en-US")} JSON characters. When it has \`next_page\`, older messages remain: send the same call with \`page\` set to that value. Without next_page, the conversation, or the thread, has no older messages. A message whose text alone does not fit comes alone, with its text cut and \`text_cut: true\`; the rest of that text cannot be read through this server. A conversation that the account cannot see gets not_found, and so does a thread that the conversation does not have. Reading changes nothing in Chat: unread messages stay unread. Unlike search_messages, it reads muted spaces, messages from Chat apps, and direct messages with apps. When the owner sets this tool to ask, it returns a pending approval with a link instead of messages; get_approval returns the messages after the owner approves.`,
+    input: ReadConversationInput,
+    expects: {
+      account: "a string",
+      conversation: CONVERSATION_EXPECTS,
+      thread:
+        "a thread ID of this conversation from a message's thread: the conversation ID, /threads/, and 1 to 100 letters, digits, hyphens, or underscores",
+      limit: `a whole number from 1 to ${MAX_READ_LIMIT}`,
+      page: "the next_page value of an earlier result: a UTC time YYYY-MM-DDTHH:MM:SS with up to nine fractional second digits and Z",
+    },
+    view: {
+      action: "read a conversation",
+      joiner: "in",
+      values: (args, send) => readValues(send, args),
+    },
+    run: (send, account, args) => readConversation(send, account.email, args),
+  }),
+  accountTool({
+    name: "search_messages",
+    annotations: { readOnlyHint: true },
+    group: "See conversations and messages",
+    irreversible: false,
+    label: "Search Chat messages",
+    permissionDescription:
+      "Search this account's Chat messages in every conversation by words, sender, conversation, date, unread, or mentions, and see the start of each message found.",
+    description: `Searches the Google Chat messages of one Google Workspace account in all its conversations. \`account\` is the address of an account that list_accounts returns with chat. Give at least one criterion; a message must match every criterion given. \`text\` is 1 to ${MAX_WORDS} characters without " or \\: every word, as separated by spaces, must appear in the message. \`from\` is the sender's email address, at most ${MAX_SENDER} characters, without ", \\, or spaces. \`conversation\` is a conversation ID, such as spaces/AAAA, from list_conversations or read_conversation; one that the account cannot see gets not_found. \`after\` and \`before\` are instants, YYYY-MM-DDTHH:MM with optional seconds and up to nine fractional second digits, ending in Z or ±HH:MM, with years 2000 to 2999; \`after\` includes its instant, \`before\` leaves it out, and after must be earlier than before. \`unread: true\` keeps only unread messages, and \`mentions_me: true\` only messages that mention this account. Setting both keeps only unread messages that mention it, because Google cannot search for unread or mentions in one call. \`limit\` is 1 to ${MAX_SEARCH_LIMIT} messages, ${DEFAULT_SEARCH_LIMIT} by default. The result has account and messages. Each message has message (its ID), conversation, thread, thread_reply, from, time, and text, as read_conversation describes them, with text cut to ${MAX_SEARCH_TEXT.toLocaleString("en-US")} JSON characters and \`text_cut: true\` when cut. Messages come in Google's order, which is not strictly newest first; a thread's messages come next to each other. When the result has \`next_page\`, send the same call, with the same criteria and limit, with \`page\` set to that value; a next_page from another search, or with another limit, is refused. Google can return a short page that still has a next page, so only a missing next_page means the end. Messages that arrive, or whose unread state changes, while you page may be missed or repeated: dedupe by message, and search again to see new ones. To catch up, call once with \`unread: true\` and once with \`mentions_me: true\`, page each with its own next_page, and dedupe by message. When list_conversations is allowed, it names the conversations among the up to 50 most recent it returns; when read_conversation is allowed, it reads a cut message whole in its thread. Google's search leaves out messages in spaces the account muted, messages that Chat apps posted in spaces and group conversations, messages in direct messages with Chat apps, private messages, and messages from people the account blocked; read_conversation reads a conversation without those exclusions. Searching changes nothing in Chat: unread messages stay unread. When the owner sets this tool to ask, it returns a pending approval with a link instead of messages; get_approval returns the messages after the owner approves.`,
+    input: SearchMessagesInput,
+    expects: {
+      account: "a string",
+      text: `1 to ${MAX_WORDS} characters with at least one word, without " or ; a search needs at least one of text, from, conversation, after, before, unread, or mentions_me`,
+      from: `an email address of at most ${MAX_SENDER} characters, without ", \\, or whitespace`,
+      conversation: CONVERSATION_EXPECTS,
+      after: instantExpects,
+      before: `${instantExpects}, later than after`,
+      unread: "true, to keep only unread messages",
+      mentions_me: "true, to keep only messages that mention this account",
+      limit: `a whole number from 1 to ${MAX_SEARCH_LIMIT}`,
+      page: `the next_page value of an earlier result with the same criteria and limit, 1 to ${MAX_SEARCH_PAGE.toLocaleString("en-US")} characters`,
+    },
+    view: {
+      action: "search the Chat messages",
+      joiner: "of",
+      values: (args, send) => searchValues(send, args),
+    },
+    run: (send, account, args) => searchMessages(send, account.email, args),
   }),
   {
     kind: "plain",

@@ -82,7 +82,7 @@ export interface ViewNote {
 export interface ViewValue {
   name: string;
   text: string;
-  from: "agent" | "gmail" | "draft" | "calendar";
+  from: "agent" | "gmail" | "draft" | "calendar" | "chat";
 }
 export const sameValues = (approved: readonly ViewValue[], current: readonly ViewValue[]) =>
   approved.length > 0 &&

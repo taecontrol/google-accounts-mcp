@@ -157,7 +157,8 @@ export type Missing =
   | "attachment"
   | "label"
   | "calendar"
-  | "event";
+  | "event"
+  | "conversation";
 export const notFound = (kind: Missing, id: string | readonly string[]): ToolFailure =>
   new ToolFailure({ code: "not_found", missing: { kind, id } });
 export const messageTooLarge = (
@@ -230,7 +231,8 @@ const missingMessage = ({ kind, id }: NonNullable<ToolFailure["missing"]>, email
     ids.length === 1
       ? `No ${kind} "${ids[0]}"`
       : `None of the ${kind}s ${ids.map((id) => `"${id}"`).join(", ")}`;
-  return `${subject} exists in ${email}. A ${kind} ID works only in the account that returned it.`;
+  const unseen = kind === "conversation" ? ", or the account cannot see it" : "";
+  return `${subject} exists in ${email}${unseen}. A ${kind} ID works only in the account that returned it.`;
 };
 const fieldMessage = (field: NonNullable<ToolFailure["field"]>) =>
   `The ${field.name} field must be ${field.expects}.`;

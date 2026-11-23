@@ -3,10 +3,10 @@ import type { Send, Sending } from "../mcp/tools";
 import type { ViewValue } from "../approvals/model";
 import type { ChangePlan } from "./event-change";
 import { eventTime, viewTime, ZoneName } from "./calendar-time";
-import { unfold } from "./bounds";
+import { shortJson, unfold } from "./bounds";
 import { notFound, ToolFailure, ViewUnavailable } from "../mcp/failures";
 import { CALENDAR_API, readCalendarList } from "./calendar";
-import { Attendee, findEvent, shortJson, wholeSeries } from "./events";
+import { Attendee, findEvent, wholeSeries } from "./events";
 
 export const EventResponse = Schema.Literals(["accepted", "declined", "tentative"]);
 export const WHOLE_SERIES =

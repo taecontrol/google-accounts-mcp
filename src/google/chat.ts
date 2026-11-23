@@ -1,6 +1,8 @@
 import { Effect, Schema } from "effect";
 import type { Send } from "../mcp/tools";
+import type { ViewValue } from "../approvals/model";
 import { normalizeEmail } from "../email";
+import { notFound, ToolFailure, ViewUnavailable } from "../mcp/failures";
 import { boundedList } from "./bounds";
 import { getFrom } from "./get";
 import { REQUESTS_AT_ONCE } from "./gmail";
@@ -9,7 +11,12 @@ export const CHAT_API = "https://chat.googleapis.com/v1";
 const get = getFrom(CHAT_API);
 
 const SpaceName = Schema.String.check(Schema.isPattern(/^spaces\/[A-Za-z0-9_-]+$/));
-const Timestamp = Schema.String.check(
+export const ConversationId = Schema.String.check(
+  Schema.isPattern(/^spaces\/[A-Za-z0-9_-]{1,100}$/),
+);
+export const CONVERSATION_EXPECTS =
+  "a conversation ID such as spaces/AAAA: spaces/ and 1 to 100 letters, digits, hyphens, or underscores";
+export const Timestamp = Schema.String.check(
   Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/),
   Schema.makeFilter((time) => !Number.isNaN(Date.parse(time))),
 );
@@ -41,6 +48,12 @@ const MemberList = Schema.Struct({
       }),
     ),
   ),
+  nextPageToken: Schema.optionalKey(Schema.String),
+});
+const SpaceInfo = Schema.Struct({
+  spaceType: Schema.Literals(["DIRECT_MESSAGE", "GROUP_CHAT", "SPACE"]),
+  displayName: Schema.optionalKey(Schema.String),
+  singleUserBotDm: Schema.optionalKey(Schema.Boolean),
 });
 type Space = NonNullable<(typeof SpaceList.Type)["spaces"]>[number];
 type With = { readonly name?: string; readonly email: string } | { readonly app: true };
@@ -93,11 +106,13 @@ const otherMember = (send: Send, space: string, account: string) =>
     }),
   );
 
-const activeAt = (space: Space) =>
-  space.lastActiveTime?.replace(
+export const fullPrecision = (time: string) =>
+  time.replace(
     /(?:\.(\d+))?Z$/,
     (_, fraction: string | undefined = "") => `.${fraction.padEnd(9, "0")}Z`,
-  ) ?? "";
+  );
+const activeAt = (space: Space) =>
+  space.lastActiveTime === undefined ? "" : fullPrecision(space.lastActiveTime);
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 export const listConversations = (send: Send, account: string) =>
@@ -148,4 +163,84 @@ export const listConversations = (send: Send, account: string) =>
       ...(omitted ? { omitted } : {}),
       ...(notes.length ? { note: notes.join(" ") } : {}),
     };
+  });
+
+export const conversationRefused = (conversation: string) => (status: number) =>
+  status === 400 || status === 403 || status === 404
+    ? notFound("conversation", conversation)
+    : new ToolFailure({ code: "google_unavailable" });
+
+export const readSpace = (send: Send, conversation: string) =>
+  get(send, conversation, SpaceInfo, conversationRefused(conversation));
+
+export const MAX_SHOWN_MEMBERS = 10;
+const shown = (text: string) => text.replace(/[\p{Cc}\u2028\u2029]/gu, " ").trim();
+const person = (member: { displayName?: string; email?: string }, account: string) => {
+  const name = shown(member.displayName ?? "");
+  const email = normalizeEmail(member.email);
+  if (email === account) return undefined;
+  if (name && email) return `${name} <${email}>`;
+  return email ?? (name || undefined);
+};
+const others = (send: Send, conversation: string, account: string) =>
+  get(send, `${conversation}/members`, MemberList, conversationRefused(conversation)).pipe(
+    Effect.map((list) => {
+      const people: string[] = [];
+      let app = false;
+      let unnamed = false;
+      for (const { member } of list.memberships ?? []) {
+        if (member?.type === "BOT") app = true;
+        if (member?.type !== "HUMAN") continue;
+        const line = person(member, account);
+        if (line) people.push(line);
+        else if (normalizeEmail(member.email) !== account) unnamed = true;
+      }
+      return { people, app, more: unnamed || list.nextPageToken !== undefined };
+    }),
+  );
+
+export const conversationValues = (send: Send, conversation: string, account: string) =>
+  Effect.gen(function* () {
+    const space = yield* readSpace(send, conversation);
+    const name = shown(space.displayName ?? "");
+    const id = (caption?: string): ViewValue => ({
+      name: caption ? `Conversation ID, ${caption}` : "Conversation ID",
+      text: conversation,
+      from: "agent",
+    });
+    if (space.spaceType === "SPACE") {
+      if (!name) return yield* Effect.fail(new ViewUnavailable());
+      return [{ name: "Space", text: name, from: "chat" }, id()] satisfies ViewValue[];
+    }
+    if (space.spaceType === "GROUP_CHAT" && name)
+      return [{ name: "Group conversation", text: name, from: "chat" }, id()] satisfies ViewValue[];
+    if (space.spaceType === "DIRECT_MESSAGE" && space.singleUserBotDm)
+      return [id("a direct message with a Chat app")];
+    const members = yield* others(send, conversation, account);
+    if (space.spaceType === "DIRECT_MESSAGE") {
+      const other = members.people[0];
+      if (other)
+        return [
+          { name: "Direct message with", text: other, from: "chat" },
+          id(),
+        ] satisfies ViewValue[];
+      return [
+        id(
+          members.app
+            ? "a direct message with a Chat app"
+            : "a direct message whose other person Google does not name",
+        ),
+      ];
+    }
+    if (!members.people.length)
+      return [id("a group conversation whose members Google does not name")];
+    const more = members.more || members.people.length > MAX_SHOWN_MEMBERS;
+    return [
+      {
+        name: more ? "Group conversation with, among others" : "Group conversation with",
+        text: members.people.slice(0, MAX_SHOWN_MEMBERS).join("\n"),
+        from: "chat",
+      },
+      id(),
+    ] satisfies ViewValue[];
   });
