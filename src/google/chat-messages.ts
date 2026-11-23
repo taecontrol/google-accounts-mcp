@@ -252,11 +252,18 @@ export const SearchMessagesInput = SearchFields.check(
       fullPrecision(utcOf(args.after)!) >= fullPrecision(utcOf(args.before)!)
     )
       return { path: ["before"], issue: "must be later than after" };
+    const account = normalizeEmail(args.account);
+    if (
+      args.page !== undefined &&
+      account !== null &&
+      tokenIn(args.page, digestOf(account, criteriaOf(args))) === undefined
+    )
+      return { path: ["page"], issue: "belongs to another search" };
     return true;
   }),
 );
 
-const PAGE_EXPECTS = `the next_page of an earlier result with the same account, criteria, and limit: this next_page belongs to another search; send it with the criteria and limit that returned it`;
+export const PAGE_EXPECTS = `the next_page of an earlier result with the same account, criteria, and limit, 1 to ${MAX_SEARCH_PAGE.toLocaleString("en-US")} characters: this next_page belongs to another search; send it with the criteria and limit that returned it`;
 const pageField = (expects: string) =>
   new ToolFailure({ code: "invalid_arguments", field: { name: "page", expects } });
 const searchRefused = (args: SearchArgs) => (status: number) => {
