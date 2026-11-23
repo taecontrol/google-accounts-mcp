@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import type { Send } from "../mcp/tools";
 import type { ViewValue } from "../approvals/model";
 import { normalizeEmail } from "../email";
-import { notFound, ToolFailure } from "../mcp/failures";
+import { ToolFailure } from "../mcp/failures";
 import { googleInstant } from "./availability";
 import { boundedList, shortJson } from "./bounds";
 import { decodeResponse, getFrom } from "./get";
@@ -132,7 +132,12 @@ export const readConversation = (send: Send, account: string, args: ReadArgs) =>
     if (!items.length && page.nextPageToken)
       return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
     if (args.thread !== undefined && args.page === undefined && !items.length)
-      return yield* Effect.fail(notFound("thread", args.thread));
+      return yield* Effect.fail(
+        new ToolFailure({
+          code: "not_found",
+          said: `No thread "${args.thread}" exists in conversation "${args.conversation}" of ${account}.`,
+        }),
+      );
     const result = (messages: ChatMessage[], more: boolean) => ({
       account,
       conversation: args.conversation,
