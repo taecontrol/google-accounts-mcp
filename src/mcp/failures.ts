@@ -115,6 +115,12 @@ export const failures = {
     ) =>
       `The ${serviceInfo[service].api} is not enabled in the owner's Google Cloud project, so Google refused the request for ${email}. Ask the owner to enable it in Google Cloud and try again.`,
   },
+  chat_app_not_configured: {
+    outcome: "failed",
+    label: "Chat app not configured",
+    message: (_: string, email: string) =>
+      `Google Chat refused the request for ${email} because the owner's Google Cloud project has no Chat app configuration. Nothing was sent or created. Ask the owner to save the Chat app configuration on the Google Chat API's Configuration page in Google Cloud, as the README's setup describes, and try again.`,
+  },
   outcome_unknown: {
     outcome: "repeat",
     label: "Outcome unknown",

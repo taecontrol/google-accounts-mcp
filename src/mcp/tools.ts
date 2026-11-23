@@ -119,6 +119,17 @@ import {
   searchMessages,
   searchValues,
 } from "../google/chat-messages";
+import {
+  ChatSent,
+  MAX_CHAT_TEXT,
+  OpenDirectMessageInput,
+  openDirectMessage,
+  SendChatMessageInput,
+  sendChatMessage,
+  sendNotes,
+  sendValues,
+  settleChatMessage,
+} from "../google/chat-send";
 import { EventResponse, invitation, invitationValues, respondPlan } from "../google/respond";
 import { Created, createDraft, readDraft, uploadDraft } from "../google/draft";
 import {
@@ -1762,6 +1773,76 @@ export const TOOLS: ReadonlyArray<Tool> = [
       values: (args, send) => searchValues(send, args),
     },
     run: (send, account, args) => searchMessages(send, account.email, args),
+  }),
+  accountTool({
+    name: "open_direct_message",
+    label: "Open direct message",
+    group: "Send messages",
+    irreversible: false,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    permissionDescription:
+      "Open a direct message between this account and any person, by email address, so that Send Chat message can write to them. Opening sends no message.",
+    description: `Opens the Google Chat direct message between one Google Workspace account and one person, by the person's email address, and returns its conversation ID for send_chat_message. It sends no message. \`account\` is the address of an account that list_accounts returns with chat. \`to\` is one bare email address of at most 254 characters, with one @, a non-empty local part, and a domain with a dot; no whitespace, control or format characters, or display names, and not the account's own address. When the direct message already exists, the same conversation comes back: Google keeps one direct message for each pair of people. The result has account and conversation. When Google Chat would not open a direct message with the address, for example because it has no Chat user or an organization's policy blocks it, the call gets invalid_arguments naming to, and nothing is created. After a lost answer, sending the same call again is safe and returns the same conversation. list_conversations may leave out a direct message that has no messages yet. chat_app_not_configured means that the owner must save the Chat app configuration in Google Cloud. When the owner sets this tool to ask, each call returns its own pending approval with a link instead; get_approval returns the result after the owner approves.`,
+    input: OpenDirectMessageInput,
+    onExcessProperty: "error",
+    expects: {
+      account: "a string",
+      to: "one bare email address of at most 254 characters with one @ and a domain with a dot, without whitespace, control or format characters, display names, or the account's own address",
+    },
+    view: {
+      action: "open a direct message",
+      joiner: "from",
+      values: (args) => Effect.succeed([{ name: "With", text: args.to, from: "agent" }]),
+    },
+    run: (_send, account, args, _takes, { confirm }) =>
+      confirm.check.pipe(
+        Effect.flatMap((sending) => openDirectMessage(sending, account.email, args)),
+      ),
+  }),
+  accountTool({
+    name: "send_chat_message",
+    label: "Send Chat message",
+    group: "Send messages",
+    irreversible: true,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    permissionDescription:
+      "Send Google Chat messages from this account, with text the agent writes, in any conversation it belongs to, as new messages or as replies in threads. People in the conversation get the message and its notification at once, and a sent message cannot be taken back.",
+    description: `Sends a Google Chat message from one Google Workspace account in a conversation it belongs to, or as a reply in a thread of that conversation. People in the conversation get the message and its notification as soon as it is sent, and deleting it later does not take the notification back. \`account\` is the address of an account that list_accounts returns with chat. \`conversation\` is a conversation ID, such as spaces/AAAA, from list_conversations, read_conversation, search_messages, or open_direct_message: spaces/ and 1 to 100 letters, digits, hyphens, or underscores. To write to a person by email, call open_direct_message first. \`text\` is 1 to ${MAX_CHAT_TEXT.toLocaleString("en-US")} UTF-8 bytes. It goes to Google unchanged, and Google Chat applies its own formatting to it. \`thread\` is optional: a thread ID from a message's \`thread\` in this conversation, the conversation ID, /threads/, and 1 to 100 of the same characters; with it, the message is a reply in that thread. A reply works only in a conversation where Google Chat reports that threads work; elsewhere the call gets invalid_arguments naming thread, and you should send without thread. A thread that the conversation does not have gets not_found. \`duplicate\` is an optional whole number from 2 to 100 for a deliberate copy. The result has account, conversation, message (the message's ID, as read_conversation returns it), and thread (the thread where the message landed). A conversation that the account cannot see gets not_found. Google Chat allows about one message per second in each conversation; when it limits a call, the call gets google_unavailable, nothing was sent, and you can call again in a few seconds. chat_app_not_configured means that the owner must save the Chat app configuration in Google Cloud. Google shows these messages with the name of the owner's Chat app.
+
+Calling again: a call with the same arguments as a call of the last 7 days is the same call. It never sends a second message. It returns the first call's result with repeat_of, or its pending approval. When you get no answer or an error that says to try again, call again with exactly the same arguments. Copy them; do not reword the text, because changed text is a new message. When the outcome is unknown, call again with exactly the same arguments in a minute: the server checks Google Chat by the message's ID and never sends it twice. If that check still finds nothing, ask the owner to look in the conversation, and use duplicate only if the owner says it is missing. To send the same text once more on purpose, add duplicate: 2 (then 3).
+
+With ask, a call that cannot be shown appears on the owner's page without Approve. The tool returns a pending approval with a link instead of sending; get_approval returns the result after the owner approves.`,
+    input: SendChatMessageInput,
+    expects: {
+      account: "a string",
+      conversation: CONVERSATION_EXPECTS,
+      text: `a string of 1 to ${MAX_CHAT_TEXT.toLocaleString("en-US")} UTF-8 bytes`,
+      thread:
+        "a thread ID of this conversation from a message's thread: the conversation ID, /threads/, and 1 to 100 letters, digits, hyphens, or underscores",
+      duplicate: DUPLICATE_EXPECTS,
+    },
+    defaults: {},
+    stored: ChatSent,
+    answer: (stored) => ({ ...stored }),
+    repeated: (at, next) =>
+      `This call already ran at ${at}. Nothing was sent again. This is its result.${next === null ? "" : ` To send the same text once more on purpose, call again with duplicate: ${next}.`}`,
+    unknown: (email, until, args, checked) => {
+      if (checked === null)
+        return `The server does not know yet whether the message was sent from ${email}. Call again with exactly the same arguments in a minute: the server checks Google Chat by the message's ID and never sends it twice.`;
+      if (checked === "failed")
+        return `The server could not check Google Chat for the message from ${email} just now. Call again with exactly the same arguments in a minute: the server checks again and never sends it twice. If this keeps happening, ask the owner to look in the conversation. Until ${isoSeconds(until)}, repeating this call does not send it.`;
+      const next = nextDuplicate(args.duplicate);
+      return `Google Chat does not show the message. Ask the owner to look in conversation ${args.conversation}. Until ${isoSeconds(until)}, repeating this call does not send it.${next !== null ? ` If the owner says that it is missing, call again with duplicate: ${next}.` : ""}`;
+    },
+    view: {
+      action: "send a Chat message",
+      joiner: "in",
+      notes: sendNotes,
+      values: (args, send) => sendValues(send, args),
+    },
+    create: (send, _account, args, confirm, _sources, { approved, key }) =>
+      sendChatMessage(send, args, confirm, approved, key),
+    settle: settleChatMessage,
   }),
   {
     kind: "plain",

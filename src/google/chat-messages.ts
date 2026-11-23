@@ -43,7 +43,7 @@ const GoogleMessage = Schema.Struct({
 });
 const MESSAGE_FIELDS =
   "name,sender(name,type,displayName,email),createTime,text,thread(name),threadReply";
-const MessageList = Schema.Struct({
+export const MessageList = Schema.Struct({
   messages: Schema.optionalKey(Schema.Array(GoogleMessage)),
   nextPageToken: Schema.optionalKey(Schema.String),
 });
@@ -91,6 +91,10 @@ export const chatMessage = (item: typeof GoogleMessage.Type): ChatMessage => {
 export const ThreadId = Schema.String.check(
   Schema.isPattern(/^spaces\/[A-Za-z0-9_-]{1,100}\/threads\/[A-Za-z0-9_-]{1,100}$/),
 );
+export const threadIssue = (args: { conversation: string; thread?: string }) =>
+  args.thread === undefined || args.thread.startsWith(`${args.conversation}/threads/`)
+    ? true
+    : { path: ["thread"], issue: "must be a thread of the conversation" };
 export const ReadConversationInput = Schema.Struct({
   account: Schema.String,
   conversation: ConversationId,
@@ -99,13 +103,7 @@ export const ReadConversationInput = Schema.Struct({
     Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_READ_LIMIT })),
   ),
   page: Schema.optionalKey(Timestamp),
-}).check(
-  Schema.makeFilter((args) =>
-    args.thread === undefined || args.thread.startsWith(`${args.conversation}/threads/`)
-      ? true
-      : { path: ["thread"], issue: "must be a thread of the conversation" },
-  ),
-);
+}).check(Schema.makeFilter(threadIssue));
 type ReadArgs = typeof ReadConversationInput.Type;
 
 export const readConversation = (send: Send, account: string, args: ReadArgs) =>

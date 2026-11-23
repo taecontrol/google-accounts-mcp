@@ -28,7 +28,7 @@ Set up these first, with your hostname in place of `<host>`:
 
   Except for `https://mail.google.com/`, each scope starts with `https://www.googleapis.com/auth/`. The admin of a Workspace organization can block your client for that organization's accounts, or block Calendar or Chat alone. You can then connect the account without the blocked service.
 
-  For Chat, also save a Chat app configuration. Open the Google Chat API's Configuration page in the Google Cloud console, enter an app name, an avatar URL, and a description, and choose who can see the app. Reading Chat works without the configuration. Sending Chat messages, which is planned, needs it.
+  For Chat, also save a Chat app configuration. Open the Google Chat API's Configuration page in the Google Cloud console, enter an app name, an avatar URL, and a description, and choose who can see the app. Reading Chat works without the configuration. Sending Chat messages and opening direct messages need it.
 
 - **Two Cloudflare Access self-hosted applications** on `<host>`, both with managed OAuth turned off:
   1. One for the whole hostname, with an Allow policy for your email address only.

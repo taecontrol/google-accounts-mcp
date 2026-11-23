@@ -177,6 +177,14 @@ it("publishes the expected annotations for every tool", async () => {
     { name: "list_conversations", annotations: { readOnlyHint: true } },
     { name: "read_conversation", annotations: { readOnlyHint: true } },
     { name: "search_messages", annotations: { readOnlyHint: true } },
+    {
+      name: "open_direct_message",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    {
+      name: "send_chat_message",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
     { name: "get_approval", annotations: { readOnlyHint: true } },
     {
       name: "create_upload_link",

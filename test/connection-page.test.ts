@@ -152,7 +152,7 @@ it.each(["00000000-0000-4000-8000-000000000000", "not-an-id"])(
   },
 );
 
-it("marks sends, permanent delete, new events, and invitation answers as irreversible", async () => {
+it("marks sends, permanent delete, new events, invitation answers, and Chat messages as irreversible", async () => {
   const f = await fixture();
   const html = await (await f.mcp.browser.get(`/connections/${f.connection.id}`)).text();
   const tools = pageProps(html).tools;
@@ -172,6 +172,7 @@ it("marks sends, permanent delete, new events, and invitation answers as irrever
     { name: "update_event", label: "Change event" },
     { name: "delete_event", label: "Delete event" },
     { name: "respond_to_event", label: "Respond to invitation" },
+    { name: "send_chat_message", label: "Send Chat message" },
   ]);
   expect(tools.find((tool) => tool.name === "create_draft")!.irreversible).toBe(false);
 });
