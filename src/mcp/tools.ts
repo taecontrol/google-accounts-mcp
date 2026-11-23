@@ -1746,7 +1746,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
     input: SearchMessagesInput,
     expects: {
       account: "a string",
-      text: `1 to ${MAX_WORDS} characters with at least one word, without " or ; a search needs at least one of text, from, conversation, after, before, unread, or mentions_me`,
+      text: `1 to ${MAX_WORDS} characters with at least one word, without " or \\, and a search needs at least one of text, from, conversation, after, before, unread, or mentions_me`,
       from: `an email address of at most ${MAX_SENDER} characters, without ", \\, or whitespace`,
       conversation: CONVERSATION_EXPECTS,
       after: instantExpects,
