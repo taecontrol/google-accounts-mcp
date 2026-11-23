@@ -409,7 +409,7 @@ function ServiceDialog({
   };
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && close()}>
-      <DialogContent>
+      <DialogContent className="max-h-11/12 overflow-y-auto">
         <form
           className="flex flex-col gap-6"
           onSubmit={(event) => {
