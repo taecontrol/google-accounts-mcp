@@ -1,6 +1,5 @@
 import { Effect, Schema } from "effect";
 import type { Send } from "../mcp/tools";
-import { isoSeconds } from "../approvals/model";
 import { normalizeEmail } from "../email";
 import { boundedList } from "./bounds";
 import { getFrom } from "./get";
@@ -10,7 +9,10 @@ export const CHAT_API = "https://chat.googleapis.com/v1";
 const get = getFrom(CHAT_API);
 
 const SpaceName = Schema.String.check(Schema.isPattern(/^spaces\/[A-Za-z0-9_-]+$/));
-const Timestamp = Schema.String.check(Schema.makeFilter((time) => !Number.isNaN(Date.parse(time))));
+const Timestamp = Schema.String.check(
+  Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/),
+  Schema.makeFilter((time) => !Number.isNaN(Date.parse(time))),
+);
 const SpaceList = Schema.Struct({
   spaces: Schema.optionalKey(
     Schema.Array(
@@ -88,14 +90,17 @@ const otherMember = (send: Send, space: string, account: string) =>
   );
 
 const activeAt = (space: Space) =>
-  space.lastActiveTime === undefined ? -Infinity : Date.parse(space.lastActiveTime);
+  space.lastActiveTime?.replace(
+    /(?:\.(\d+))?Z$/,
+    (_, fraction: string | undefined = "") => `.${fraction.padEnd(9, "0")}Z`,
+  ) ?? "";
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 export const listConversations = (send: Send, account: string) =>
   Effect.gen(function* () {
     const read = yield* readSpaces(send);
     const recent = read.spaces
-      .sort((a, b) => activeAt(b) - activeAt(a) || compare(a.name, b.name))
+      .sort((a, b) => compare(activeAt(b), activeAt(a)) || compare(a.name, b.name))
       .slice(0, MAX_CONVERSATIONS);
     const entries = yield* Effect.forEach(
       recent,
@@ -110,9 +115,7 @@ export const listConversations = (send: Send, account: string) =>
               conversation: space.name,
               kind: kinds[space.spaceType],
               ...(name ? { name } : {}),
-              ...(space.lastActiveTime === undefined
-                ? {}
-                : { last_active: isoSeconds(Date.parse(space.lastActiveTime)) }),
+              ...(space.lastActiveTime === undefined ? {} : { last_active: space.lastActiveTime }),
               ...(other ? { with: other } : {}),
             };
           }),
