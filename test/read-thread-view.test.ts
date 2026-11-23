@@ -211,7 +211,6 @@ it.each([
       if (sql.startsWith("SELECT approvals.id")) read = true;
     },
   );
-  // Apply the concurrent change after the snapshot is read and before the credential lookup.
   let changed = false;
   const racing = observeStatements(observed, async () => {
     if (read && !changed) {

@@ -62,7 +62,6 @@ it.each([302, 307])(
     expect(await call(row.id)).toMatchObject({ error: "GoogleUnavailable" });
     expect(await dump()).toEqual(before);
     expect(followed).toBe(0);
-    // MSW rejects redirects of POST bodies before following; also verify the fetch policy.
     expect(google.tokenRedirects).toEqual(["manual", "manual"]);
     expect(google.events).toEqual(["exchange", "refresh"]);
   },
@@ -129,7 +128,6 @@ it.each([302, 307])(
     expect(textOf(await (await b.get("/accounts")).text())).toContain(
       "Google didn't confirm the disconnect.",
     );
-    // MSW rejects redirects of POST bodies before following; also verify the fetch policy.
     expect(google.revokeRedirects).toEqual(["manual"]);
     expect(followed).toBe(0);
     expect(google.events).toEqual(["revoke"]);
@@ -170,7 +168,6 @@ it.each(["exchange", "refresh"])(
       await vi.advanceTimersByTimeAsync(9999);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
-      // Give the Worker response stream and D1 their normal asynchronous turns.
       await vi.waitFor(() => expect(settled).toBe(true));
       const result = await pending;
       if (row) expect(result).toMatchObject({ error: "GoogleUnavailable" });

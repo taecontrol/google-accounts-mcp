@@ -11,7 +11,6 @@ import { allowed, call, changed, ids15, operations, serveMessages } from "./supp
 import { MAX_ITEMS } from "../src/google/gmail";
 import { textOf } from "./support/worker";
 
-// The three tools share one input schema, so one tool proves it.
 it("rejects invalid message lists before any outbound request", async () => {
   const f = await allowed("trash_messages");
   for (const messages of [
@@ -73,7 +72,6 @@ it.each(operations)(
   },
 );
 
-// changeEach paces all three tools the same way, so one tool proves it.
 it("refreshes once, sends the first alone and opens at most five", async () => {
   const f = await allowed("trash_messages", { access_expires_at: NOW - 1 });
   const entered = ids15.map(() => deferred());
@@ -178,7 +176,6 @@ it.each(operations)("$name refuses one or several missing messages with their ID
   expect((await callRows()).map((r) => r.outcome)).toEqual(["refused", "refused"]);
 });
 
-// The call deadline and changeEach are shared, so one tool proves it.
 it("keeps the first change when the direct deadline passes", async () => {
   const ids = ["m1", "m2", "m3"];
   serveMessages(ids);
@@ -195,7 +192,6 @@ it("keeps the first change when the direct deadline passes", async () => {
   try {
     await entered.promise;
     vi.spyOn(Date, "now").mockReturnValue(NOW + 20_000);
-    // Cross the absolute deadline without expiring the first request's separate timer.
     await vi.advanceTimersByTimeAsync(1);
     release.resolve();
     expect(await answer(await pending)).toEqual({

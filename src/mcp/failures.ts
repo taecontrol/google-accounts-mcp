@@ -147,7 +147,6 @@ export const failures = {
   }
 >;
 export type FailureCode = keyof typeof failures;
-/** The owner's words for a stored reason. An unknown code shows as itself. */
 export const reasonLabel = (code: string): string =>
   Object.hasOwn(failures, code) ? failures[code as FailureCode].label : code;
 
@@ -187,25 +186,19 @@ export const uploadNotAvailable = (id: string): ToolFailure =>
 export const uploadNotReady = (): ToolFailure => new ToolFailure({ code: "upload_not_ready" });
 type FailureData = {
   service?: Service;
-  /** Token acquisition failed for the account, rather than one Calendar resource. */
   accountWide?: true;
   about?: { input: string; email: string; tool?: string };
   unknown?: boolean;
-  /** The once row was released; do not classify this as an unknown call. */
   released?: true;
-  /** Nothing was sent; a staged draft may remain, with its ID when known. */
   leftover?: { draft?: string };
-  /** The exceeded local limit, unreadable original text, or null for Gmail's size refusal. */
   over?:
     | { bytes: number; limit: number }
     | { attachments: number; limit: number }
     | { text: true }
     | null;
-  /** An existing draft the owner can complete, or null for composed mail. */
   unsendable?: { draft: string | null };
   said?: string;
   missing?: { kind: Missing; id: string | readonly string[] };
-  /** The field that is wrong, with what it must be. */
   field?: { name: string; expects: string };
 } & (
   | {
@@ -242,7 +235,6 @@ const missingMessage = ({ kind, id }: NonNullable<ToolFailure["missing"]>, email
 const fieldMessage = (field: NonNullable<ToolFailure["field"]>) =>
   `The ${field.name} field must be ${field.expects}.`;
 
-/** Only calendar-local failures can be represented without the execution's full context. */
 export const calendarError = (
   failure: ToolFailure,
   email: string,
@@ -266,7 +258,6 @@ export const calendarError = (
             : failures[code].message()),
   };
 };
-/** Mark only the request that creates or sends, never a preparing read or write. */
 export const creating = <A>(
   request: Effect.Effect<A, ToolFailure>,
 ): Effect.Effect<A, ToolFailure> =>

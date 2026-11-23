@@ -14,7 +14,6 @@ const ErrorInfo = Schema.Struct({
 const LegacyError = Schema.Struct({ reason: Schema.Literal("accessNotConfigured") });
 const MAX_ERROR_BYTES = 16 * 1024;
 
-/** Inspect only small 403 bodies and leave the original response readable by the tool. */
 export async function apiNotEnabled(response: Response): Promise<boolean> {
   if (response.status !== 403) return false;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -41,7 +40,6 @@ export async function apiNotEnabled(response: Response): Promise<boolean> {
   } catch {
     return false;
   } finally {
-    // A tee's cancellation can wait for the original branch; that branch still belongs to the tool.
     if (reader) {
       void reader.cancel().catch(() => {});
       reader.releaseLock();

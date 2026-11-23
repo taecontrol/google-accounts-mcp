@@ -39,7 +39,6 @@ import { WINDOW, type Check } from "../once/store";
 import { approvalView } from "./view";
 
 type Dependencies = ApprovalContext & { config: Config; origin: string; files: KVNamespace };
-/** SQL order and duplicate account rows do not identify a use; its ID and tool do. */
 const decodeUses = (approval: Approval, rows: readonly unknown[], config: Config) =>
   Promise.all(
     approval.uses.map((use) => {
@@ -51,7 +50,6 @@ const decodeUses = (approval: Approval, rows: readonly unknown[], config: Config
       return decodeAllowedAccount(row, config.tokenKey, service);
     }),
   );
-/** Every unknown create outcome retains the tool's own recovery instructions. */
 async function unknownNotice(
   deps: Dependencies,
   id: ApprovalId,
@@ -227,7 +225,6 @@ export const decide = (
         const args = view.decoded;
         if (!args) throw new WriteUncertain();
         notice = () => unknownNotice(deps, id, view.tool, view.page.request.account.email, args);
-        // A late decision response cannot start Google work after the request's deadline.
         if (late()) {
           await Effect.runPromise(
             finishApproval(deps, decision.won, Date.now(), "unknown", null, null, await notice()),

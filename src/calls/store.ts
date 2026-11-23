@@ -15,8 +15,6 @@ export type Outcome =
   | "expired"
   | "repeat";
 
-// Resolve the account in SQL and return only the record ID. Callers must not learn
-// whether an unavailable address belongs to a hidden account. Never store agent text.
 export const recordStatement = (
   ctx: CallContext,
   tool: Tool["name"] | null,
@@ -50,7 +48,6 @@ export const closeCall = (
   reason: FailureCode | null,
 ) =>
   Effect.tryPromise({
-    // A reset can reuse a numeric call ID, but never a connection ID.
     try: async () => {
       await ctx.db
         .prepare("UPDATE calls SET outcome = ?1, reason = ?4 WHERE id = ?2 AND connection_id = ?3")

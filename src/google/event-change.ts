@@ -149,7 +149,6 @@ const unknownGuests = (): ViewValue => ({
   from: "calendar",
 });
 
-/** Local inputs use the call's zone; each point retains its own zone unless one is requested. */
 interface PointZones {
   start: string | undefined;
   end: string | undefined;
@@ -165,15 +164,10 @@ const zoneText = (zones: PointZones) =>
   zones.start === zones.end
     ? (zones.start ?? "(none)")
     : `start: ${zones.start ?? "(none)"}, end: ${zones.end ?? "(none)"}`;
-/** The event's own zone, shown when it differs from the zone that the view's times use. */
 const ownZoneValues = (zones: PointZones, zone: string): ViewValue[] =>
   [zones.start, zones.end].some((own) => own !== undefined && own !== (canonicalZone(zone) ?? zone))
     ? [{ name: "Event's own zone", text: zoneText(zones), from: "calendar" }]
     : [];
-/**
- * The view's times show minutes. When a written time keeps seconds or a fraction, as a kept or
- * computed side can, the exact text joins the view, so the approved view binds every written value.
- */
 const exactTimes = (body: Record<string, unknown>): ViewValue[] => {
   const points = [body.start, body.end] as Array<{ dateTime?: string | null }>;
   return points.some((point) => {
@@ -247,7 +241,6 @@ const timeChange = (
     zone,
   );
   if (Result.isFailure(points)) return Result.fail(points.failure);
-  // The shared writer accepts minute inputs; Google's unchanged or computed side can carry ms.
   const precise = (point: GooglePoint, text: string): GooglePoint => {
     if ("date" in point || parseTime(text).kind !== "instant") return point;
     const fraction = new Date(text).getUTCMilliseconds();
@@ -554,7 +547,6 @@ export const deletePlan = (
     };
   });
 
-/** The plan and its write share one read; only the confirmed channel can write it. */
 export const runChange = <R>(
   plan: Effect.Effect<ChangePlan<R>, ToolFailure>,
   { confirm, approved }: { confirm: Confirm; approved: ReadonlyArray<ViewValue> | null },

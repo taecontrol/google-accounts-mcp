@@ -13,6 +13,7 @@ The project is in development, and the owner's deploy is its only deploy. Add co
 When you design or prototype a page, start from shadcn components and apply Refactoring UI (Wathan and Schoger) without inventing UI outside shadcn. Build hierarchy with size, weight, and color before borders. Make labels and secondary text quieter than the data. Do not put boxes inside boxes, and keep a border only on what needs attention. Give each screen one primary action, and keep spacing generous and consistent. Look at the page at 390 px and at desktop width before you show it.
 
 - Write everything in this repository in English: code, docs, issues, pull requests, and product text. Issues live in this repository's GitHub tracker.
+- Keep comments in hand-written code only for lint and compiler directives and migration SQL. Put the reason for a suppression after `--`. Record decision rationale in `docs/adr/`. Oxlint applies `lint/comment-baseline.json` to the TypeScript and JavaScript files it checks. Review covers other files. The owner runs `/delete-comment` to audit and remove comments.
 - The owner's Google accounts hold real mail. Call Google APIs against them only with the owner's permission, and never send, delete, or change mail in a real account without the owner's explicit approval for that action.
 - Read a real calendar only with the owner's permission. Create, change, delete, or answer only test events, with guests only among the owner's own accounts.
 - Deploy only when the owner asks for it in the conversation.

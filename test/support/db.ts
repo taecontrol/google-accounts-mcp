@@ -8,7 +8,6 @@ export interface OwnerRowValues {
   readonly email: string | null;
 }
 
-/** Every row of every table the Worker owns, so "D1 unchanged" is a plain equality. */
 export async function dump(
   db: D1Database = env.DB,
   kv: KVNamespace = env.OAUTH_KV,
@@ -49,7 +48,6 @@ export async function setOwner(row: OwnerRowValues): Promise<void> {
     .run();
 }
 
-/** A D1 binding whose every call throws, as when D1 is down. */
 export function brokenDb(): D1Database {
   const fail = () => {
     throw new Error("D1_ERROR: Network connection lost.");
@@ -57,7 +55,6 @@ export function brokenDb(): D1Database {
   return new Proxy({} as D1Database, { get: () => fail });
 }
 
-/** A D1 binding that records any use, to prove a request never reached D1. */
 export function watchedDb(): { db: D1Database; calls: string[] } {
   const calls: string[] = [];
   const db = new Proxy({} as D1Database, {
@@ -73,7 +70,6 @@ export function watchedDb(): { db: D1Database; calls: string[] } {
 
 const WRITE = /^\s*(INSERT|UPDATE|DELETE|REPLACE)\b/i;
 
-/** Wrap real statements without passing their proxies into D1's native batch implementation. */
 export function observeStatements(
   real: D1Database,
   before: (sql: string) => void | Promise<void>,
@@ -143,7 +139,6 @@ export function observeStatements(
   });
 }
 
-/** Record write attempts even when a statement changes no rows or later fails. */
 export function writeRecordingDb(real: D1Database = env.DB): { db: D1Database; writes: string[] } {
   const writes: string[] = [];
   const db = observeStatements(real, (sql) => {
@@ -152,7 +147,6 @@ export function writeRecordingDb(real: D1Database = env.DB): { db: D1Database; w
   return { db, writes };
 }
 
-/** Real reads and writes, except for statements matching the selected failure. */
 export function statementFailingDb(pattern: RegExp, real: D1Database = env.DB): D1Database {
   return observeStatements(real, (sql) => {
     pattern.lastIndex = 0;
@@ -160,7 +154,6 @@ export function statementFailingDb(pattern: RegExp, real: D1Database = env.DB): 
   });
 }
 
-/** The real D1, except that every write fails: reads work, so Access verification runs first. */
 export function writeFailingDb(real: D1Database = env.DB): D1Database {
   return statementFailingDb(WRITE, real);
 }
@@ -172,7 +165,6 @@ export interface KvEntry {
   metadata?: unknown;
 }
 
-/** Include all pages, values, expiry, and metadata, not just the first 1000 names. */
 export async function kvDump(kv: KVNamespace = env.OAUTH_KV): Promise<KvEntry[]> {
   const entries: KvEntry[] = [];
   let cursor: string | undefined;
@@ -194,7 +186,6 @@ export async function restoreKv(entries: KvEntry[], kv: KVNamespace = env.OAUTH_
   }
 }
 
-/** Fail every operation, or just access-token persistence after the grant was saved. */
 export function failingKv(
   mode: "all" | "token-put",
   real: KVNamespace = env.OAUTH_KV,
@@ -212,7 +203,6 @@ export function failingKv(
   });
 }
 
-/** The real batch commits, then its response is lost exactly once. */
 export function committedConnectionFailureDb(real: D1Database = env.DB): D1Database {
   let failed = false;
   return observeStatements(
@@ -227,7 +217,6 @@ export function committedConnectionFailureDb(real: D1Database = env.DB): D1Datab
   );
 }
 
-/** Change the owner after requireOwner returned, immediately before a connection action writes. */
 export function racingConnectionWriteDb(
   changeOwner: () => Promise<void>,
   real: D1Database = env.DB,
@@ -241,7 +230,6 @@ export function racingConnectionWriteDb(
   });
 }
 
-/** D1's measured rows for every prepared execution, including first() and batch(). */
 export function readRecordingDb(real: D1Database = env.DB) {
   const reads: { sql: string; rows: number }[] = [];
   const db = observeStatements(

@@ -1,7 +1,6 @@
 import { Result, Schema } from "effect";
 import { ToolFailure } from "../mcp/failures";
 
-/** Undefined for a zone Intl cannot use; accepted aliases resolve to one spelling. */
 export const canonicalZone = (zone: string): string | undefined => {
   try {
     return new Intl.DateTimeFormat("en", { timeZone: zone }).resolvedOptions().timeZone;
@@ -10,7 +9,6 @@ export const canonicalZone = (zone: string): string | undefined => {
   }
 };
 
-/** Keep the caller's spelling; Intl's canonical names can change between runtime versions. */
 export const ZoneName = Schema.String.check(
   Schema.makeFilter(
     (zone) => (zone === "UTC" || zone.includes("/")) && canonicalZone(zone) !== undefined,
@@ -44,7 +42,6 @@ const inputOf = (text: string): TimeInput | null => {
   };
 };
 
-/** Validated strings stay JSON-shaped so sealed approval arguments decode a second time. */
 export const TimeText = Schema.String.check(
   Schema.makeFilter(
     (text) =>
@@ -53,7 +50,6 @@ export const TimeText = Schema.String.check(
       inputOf(text) !== null,
   ),
 );
-/** Agent input or a formatted event time. Floating ms is a wall clock, not an instant. */
 export const parseTime = (text: string): TimeInput =>
   inputOf(text) ?? { kind: "instant", ms: Date.parse(text) };
 
@@ -62,7 +58,7 @@ const offsetAt = (ms: number, zone: string): number => {
     .formatToParts(ms)
     .find((part) => part.type === "timeZoneName")!.value;
   const match = /^GMT([+-])(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(offset);
-  if (!match) return 0; // Some Intl versions spell the zero offset as GMT.
+  if (!match) return 0;
   return (
     (match[1] === "-" ? -1 : 1) *
     (Number(match[2]) * 3600 + Number(match[3]) * 60 + Number(match[4] ?? 0)) *
@@ -72,14 +68,12 @@ const offsetAt = (ms: number, zone: string): number => {
 
 export const instantOf = (input: TimeInput, zone: string): number => {
   if (input.kind === "instant") return input.ms;
-  // Probe both sides of a possible transition so an overlap exposes both occurrences.
   const candidates = [-86_400_000, 86_400_000].map(
     (delta) => input.ms - offsetAt(input.ms + delta, zone),
   );
   const valid = candidates.filter(
     (candidate) => candidate + offsetAt(candidate, zone) === input.ms,
   );
-  // The first occurrence wins in an overlap; a gap moves forward to the later instant.
   return valid.length ? Math.min(...valid) : Math.max(...candidates);
 };
 export const rangeOf = (
@@ -112,7 +106,6 @@ const eventInputOf = (text: string): TimeInput | null => {
   return local?.kind === "local" ? local : null;
 };
 
-/** Google permits a floating dateTime only with a usable event zone. */
 export const EventPoint = Schema.Union([
   Schema.Struct({
     date: Schema.String.check(
@@ -155,7 +148,6 @@ export const eventTime = (start: EventPoint, end: EventPoint, zone: string): Eve
         end: zonedIso(eventInstant(end, zone), zone),
       };
 
-/** A point of a range or an event, in words for the approval page. */
 export const viewTime = (text: string, zone: string, showZone = true): string => {
   const input = parseTime(text);
   const allDay = input.kind === "date";

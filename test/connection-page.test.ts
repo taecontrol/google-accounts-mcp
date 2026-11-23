@@ -65,7 +65,6 @@ it("renders the tools in GROUPS order and in tool-list order inside a group", as
     html.indexOf("Tool permissions"),
     html.indexOf('aria-label="All tools on Northwind'),
   );
-  // Each used group's heading, then its tools, in order.
   const used = GROUPS.filter((group) => tools.some((tool) => tool.group === group));
   const positions = used.flatMap((group) => [
     first.indexOf(`>${group}</h5>`),
@@ -103,7 +102,6 @@ it("shows an empty connection page with one action leading to Accounts", async (
   const html = await response.text();
   expect(textOf(html)).toMatch(/no Google accounts/i);
   expect(html).not.toContain('role="radiogroup"');
-  // The empty state has one action; navigation elsewhere also links to Accounts.
   const empty = /data-slot="empty"[\s\S]*?<\/main>/.exec(html)?.[0];
   expect(empty).toBeDefined();
   expect([...empty!.matchAll(/href="\/accounts"/g)]).toHaveLength(1);

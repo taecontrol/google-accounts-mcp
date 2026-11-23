@@ -55,7 +55,6 @@ it.each(operations)(
   },
 );
 
-// The three tools share one view, so one tool proves it.
 it("uses singular names and bounds each header to 500 characters", async () => {
   google.trashAnswers.set("m1", () =>
     Response.json({
@@ -287,7 +286,6 @@ it("keeps view values in input order when later metadata answers finish in rever
   const pending = page(f, f.id);
   try {
     await Promise.all([...entered.values()].map((entry) => entry.promise));
-    // The first read must finish alone; the concurrent reads then finish in reverse order.
     for (const id of ids.slice(1).toReversed()) {
       gates.get(id)!.resolve();
       await completed.get(id)!.promise;
@@ -344,7 +342,6 @@ it("the approved run cut at 25 seconds ends unknown and starts no late change", 
   const f = await asking("delete_messages");
   const shown = await page(f, f.id);
   if (shown.state.kind !== "waiting") throw new Error("Expected waiting");
-  // The rebuilt view uses its existing token. The winner then receives an expired credential.
   google.trashAnswers.set("m2", async () => {
     await env.DB.prepare("UPDATE accounts SET access_expires_at = ? WHERE id = ?")
       .bind(NOW, f.personal.id)
@@ -440,7 +437,6 @@ it("keeps an approved delete unknown when its deadline cuts a later change in fl
     return response;
   });
   try {
-    // Two real metadata reads use nine seconds each, below their individual ten-second limits.
     for (let index = 0; index < ids.length; index++) {
       await readsEntered[index]!.promise;
       vi.spyOn(Date, "now").mockReturnValue(NOW + (index + 1) * 9000);
@@ -448,7 +444,6 @@ it("keeps an approved delete unknown when its deadline cuts a later change in fl
       readGates[index]!.resolve();
     }
     await changing.promise;
-    // changeEach starts m2 only after Gmail has confirmed m1's successful delete.
     expect(google.trashRequests.filter((r) => r.method === "DELETE").map((r) => r.url)).toEqual(
       ids.map((id) => `${MESSAGES_URL}/${id}`),
     );

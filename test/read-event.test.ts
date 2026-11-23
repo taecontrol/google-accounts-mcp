@@ -139,7 +139,6 @@ it("keeps all-day exclusive dates without turning them into timed events", async
 it("converts the known Calendar editor tags to plain text with link targets", async () => {
   const f = await eventsFixture("read_event");
   calendarFake(list(PRIMARY_CALENDAR));
-  // The editor's output was not observed; these tags are the documented editor fixtures.
   eventsFake({
     [PERSONAL]: {
       events: {
@@ -230,7 +229,7 @@ it("sends a canonical zone on get and preserves the call's original zone name", 
 it.each([
   { dateTime: "+010000-01-01T14:00:00.123456Z" },
   { dateTime: "2026-11-20T15:00:00", timeZone: "Foo/Bar" },
-  { date: "2026-11-20" }, // The fixture's end is timed.
+  { date: "2026-11-20" },
 ])("refuses a malformed Google event time in read_event: %j", async (start) => {
   const f = await eventsFixture("read_event");
   calendarFake(list(PRIMARY_CALENDAR));

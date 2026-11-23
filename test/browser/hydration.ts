@@ -5,7 +5,6 @@ import tailwindcss from "@tailwindcss/vite";
 import { chromium } from "playwright-core";
 import { build } from "vite-plus";
 
-// Miniflare runs this test-only service in Node, where Chromium can load the Worker's HTML.
 export async function hydrateAccounts(input: {
   url: string;
   html: string;
@@ -85,7 +84,6 @@ export async function hydrateAccounts(input: {
           ),
         });
       }
-      // Worker tests render development asset URLs; serve the real compiled entry at either URL.
       const path =
         url.pathname === "/src/pages/client.tsx"
           ? "/assets/client.js"
@@ -265,7 +263,6 @@ export async function hydrateAccounts(input: {
       }
       return { clientLoads, controls: before, collapsed, errors };
     }
-    // An interactive dialog proves hydration finished; merely reading SSR text would pass without JS.
     try {
       await page
         .getByRole("button", { name: "Actions for Personal", exact: true })

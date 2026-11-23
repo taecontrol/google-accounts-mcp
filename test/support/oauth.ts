@@ -92,7 +92,6 @@ export interface Tokens {
   expires_in: number;
 }
 
-/** HTTP-only MCP client. No provider helpers are used to create its grants or tokens. */
 export class McpClient {
   readonly browser = new Browser();
   readonly verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -225,7 +224,6 @@ export class McpClient {
     return this.token({ token: this.tokens!.refresh_token, token_type_hint: "refresh_token" });
   }
 
-  /** Raw envelopes for batches, notifications and SDK validation failures. */
   raw(body: unknown, workerEnv: Env = testEnv(), extra: Record<string, string> = {}) {
     expect(this.tokens).toBeDefined();
     return callWorker(
@@ -244,7 +242,6 @@ export class McpClient {
     );
   }
 
-  /** A tools/call request in revision 2026-07-28, with a stated client name or none. */
   namedCall(
     name: string,
     args: Record<string, unknown>,
@@ -376,7 +373,6 @@ export async function rpcResult(response: Response): Promise<Record<string, unkn
   return message.result!;
 }
 
-/** Read every JSON-RPC message, retaining errors and original response bytes. */
 export async function rpcMessages(response: Response) {
   const body = await response.text();
   const values: unknown[] = response.headers.get("Content-Type")?.includes("text/event-stream")

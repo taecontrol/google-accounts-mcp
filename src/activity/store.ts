@@ -113,7 +113,6 @@ const clock = (at: number) =>
 const fullTime = (at: number) =>
   `${new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(at)} at ${clock(at)} UTC`;
 
-// These lists hold no credentials or permission summaries, and include ended/removed entries.
 const connectionsStatement = (db: D1Database, owner: Owner) =>
   db
     .prepare(`

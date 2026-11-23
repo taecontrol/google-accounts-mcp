@@ -34,7 +34,6 @@ const complete = {
 };
 const isList = (sql: string) => /SELECT json_group_array\(tool\)/.test(sql);
 
-/** Observe real D1 completion before advancing to the next chained timer. */
 async function listen(mcp: McpClient, failBaseline = false) {
   if (!vi.isFakeTimers()) vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   let read = deferred();
@@ -97,7 +96,6 @@ async function listen(mcp: McpClient, failBaseline = false) {
     ended = true;
   })();
   await baseline;
-  // Drain the Effect and SDK continuations after the real database promise settles.
   await vi.advanceTimersByTimeAsync(0);
   expect(frames).toEqual([acknowledged]);
   expect(ended).toBe(false);
@@ -156,7 +154,6 @@ it("a changed permission announces only to that connection's stream", async () =
   await tick(first, second);
   expect(first.frames).toEqual([acknowledged, changed]);
   await tick(first, second);
-  // Finish both at the lifetime to observe every frame, including the quiet connection's.
   for (let count = 2; count < TICKS; count++) await tick(first, second);
   await expectComplete(first, 1);
   await expectComplete(second, 0);

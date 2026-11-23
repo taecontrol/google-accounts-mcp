@@ -47,7 +47,6 @@ describe("owner page actions", () => {
     await owner.authenticate();
     access.mode = "slow";
     const pending = owner.get("/accounts");
-    // Wait for the certs request, not an arbitrary time delay.
     const { vi } = await import("vite-plus/test");
     await vi.waitFor(() => expect(access.requests).toHaveLength(1));
     await setOwner({ state: "resetting", generation: 2, email: null });

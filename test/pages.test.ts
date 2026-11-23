@@ -13,8 +13,6 @@ import {
 import { brokenDb, setOwner } from "./support/db";
 import { formsOf, HOST, OWNER_EMAIL, testEnv, textOf } from "./support/worker";
 
-// Radix portals have no document in SSR. Expose only their children so the Worker's actual
-// owner menu links can be inspected here; Playwright also checks the real hydrated portal in captures.
 vi.hoisted(() => vi.resetModules());
 vi.mock("../src/components/ui/dropdown-menu", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/ui/dropdown-menu")>();
@@ -42,7 +40,6 @@ describe("standalone pages", () => {
     const refused = await visitor.get("/accounts");
     await visitor.authenticate({ email: "someone.else@example.net" });
     const notOwner = await visitor.get("/accounts");
-    // A fresh issuer forces a fetch even after the preceding successful verification.
     const down = new Browser(() =>
       testEnv({ ACCESS_ISSUER: "https://outage.cloudflareaccess.com" }),
     );

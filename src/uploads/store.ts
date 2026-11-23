@@ -117,7 +117,6 @@ const openRefs = async (ctx: CallContext, rows: readonly { id: string; file: str
       }),
     ),
   );
-/** Partial references are only for sealing an approval; its batch decides usability. */
 export const readApprovalUploads = (
   ctx: CallContext,
   ids: readonly UploadId[],
@@ -145,7 +144,6 @@ export const missingUploadStatement = (
     WHERE NOT EXISTS (SELECT 1 FROM uploads WHERE id = wanted.value AND ${usableUpload(placeholders)})
     ORDER BY wanted.key LIMIT 1`)
     .bind(...uploadValues(ctx, ids, identity));
-/** A single UPDATE reserves the complete set, or changes none of it. */
 export const holdUploads = (ctx: CallContext, ids: readonly UploadId[], identity: Identity) =>
   Effect.tryPromise({
     try: async () => {
@@ -185,7 +183,6 @@ export const dropUploads = (ctx: CallContext, ids: readonly UploadId[], identity
         .run(),
     catch: () => new Unavailable(),
   }).pipe(Effect.asVoid);
-/** All placeholders come from stores, never from request data. */
 export const usableUploadsWhere = (
   p: UploadPlaceholders & {
     ids: string;

@@ -11,8 +11,6 @@ let origin: string;
 let server: ReturnType<typeof createServer>;
 
 beforeAll(async () => {
-  // Bundle the real page and its styles. Worker tests own authorization and D1 effects;
-  // this browser test owns the controls that choose an action and its submitted fields.
   const bundle = await build({
     configFile: false,
     logLevel: "silent",
@@ -105,7 +103,6 @@ it.each([390, 1280])(
         "/accounts/11111111-1111-4111-8111-111111111111/remove",
       );
       expect(Object.fromEntries(new URLSearchParams(kept.postData() ?? ""))).toEqual({});
-      // The failed removal keeps the dialog open with a warning.
       const warning = page.getByRole("alertdialog").getByRole("status");
       await warning.waitFor();
       expect(await warning.getAttribute("class")).toContain("bg-warning");

@@ -31,7 +31,6 @@ export type FramePage =
         label: string;
         description: string;
         group: Group;
-        /** The owner cannot undo what a call of this tool did. */
         irreversible: boolean;
       }>;
       readonly settings: Readonly<Record<string, "ask" | "allow">>;

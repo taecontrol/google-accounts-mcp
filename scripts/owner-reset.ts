@@ -50,7 +50,6 @@ async function main() {
     configPath,
   ];
 
-  /** Runs statements as one call; reports wrangler's JSON error without changing anything more. */
   function execute(command: string): StatementResult[] {
     const result = spawnSync(
       fileURLToPath(new URL("../node_modules/.bin/wrangler", import.meta.url)),
@@ -130,8 +129,6 @@ async function main() {
       return;
     }
   }
-  // Every statement is guarded on the generation read above, so a reset that another one
-  // overtook while this one waited changes nothing.
   const plan = resetPlan(row);
   switch (resetOutcome(plan, execute(plan.statements.join("; ")))) {
     case "overtaken":

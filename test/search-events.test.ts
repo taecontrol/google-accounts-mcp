@@ -53,7 +53,6 @@ it("maps the agenda in requested calendar order, with occurrences, all-day dates
             start: { date: "2026-11-20" },
             end: { date: "2026-11-22" },
           }),
-          // A moved occurrence retains its ID and originalStartTime, but the agenda uses start.
           eventFixture({
             id: "series_20261120T130000Z",
             recurringEventId: "series",
@@ -855,7 +854,6 @@ it("walks positional Google pages with a size cut in a continuation without repe
         const params = new URL(request.url).searchParams;
         const start = Number(params.get("pageToken")?.replace("page-", "") ?? 0);
         const requested = Number(params.get("maxResults"));
-        // Stable dataset; Google can return fewer items even for the same starting token.
         const count = requested === 50 ? requested : Math.min(requested, 3);
         const items = data.slice(start, start + count);
         const next = start + items.length;
@@ -1075,7 +1073,6 @@ it("reserves the next_page property as well as its token when the original page 
     ],
     note: "The result reached its size limit; call again for each calendar with next_page or not_read.",
   };
-  // This last ID makes a 30-event continuation exactly five characters too large.
   const lastId = "z".padEnd(1 + 32_005 - JSON.stringify(candidate).length, "b");
   expect(lastId.length).toBeGreaterThan(1);
   expect(lastId.length).toBeLessThanOrEqual(1024);
@@ -1112,8 +1109,6 @@ it("cuts the serialized result, counts filtered items in the one re-request, and
     eventFixture({ id: "filtered", start: { date: "2026-11-18" }, end: { date: "2026-11-19" } }),
     ...Array.from({ length: 48 }, (_, i) => largeEvent(i)),
   ];
-  // Model the first answer's budget, before the short re-request replaces its events.
-  // Escaped title/location each keep 98 characters plus the ellipsis within 200 JSON characters.
   const expectedPage = {
     account: PERSONAL,
     time_zone: "America/Bogota",
@@ -1124,7 +1119,7 @@ it("cuts the serialized result, counts filtered items in the one re-request, and
     })),
     note: "The result reached its size limit; call again for each calendar with next_page or not_read.",
   };
-  let expectedConsumed = 2; // The first answer starts with one cancelled and one out-of-range item.
+  let expectedConsumed = 2;
   for (const item of items.slice(2)) {
     expectedPage.calendars[0]!.events.push({
       event: item.id,
@@ -1230,7 +1225,6 @@ it("fails as a tool error if the size-cut re-request leaves every calendar in er
 
 it("marks later calendars not_read when their page tokens fill the result", async () => {
   const f = await eventsFixture();
-  // Calendar IDs cannot hold control characters, so long page tokens fill the envelopes.
   const ids = Array.from({ length: 20 }, (_, i) => `calendar-${i}@group.calendar.google.com`);
   calendarFake(
     list(PRIMARY_CALENDAR, ...ids.map((id) => ({ id, summary: id, accessRole: "reader" }))),

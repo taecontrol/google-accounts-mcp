@@ -1,6 +1,5 @@
 import type { AccountStatus, AccountView } from "../../src/accounts/model";
 
-/** Explicit UI fixtures, independent of production scope counting. */
 export const services = (
   gmail = 5,
   calendar = 0,

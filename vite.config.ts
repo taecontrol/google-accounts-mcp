@@ -8,8 +8,6 @@ const isTest = process.env.VITEST !== undefined;
 const testMigrations = isTest ? await readD1Migrations("migrations") : [];
 const alias = { "@": fileURLToPath(new URL("./src", import.meta.url)) };
 
-// Throwaway configuration for the tests, made fresh on every run, so no test holds a real value.
-// The owner's address is a reserved example address.
 const testConfig = {
   OWNER_EMAIL: "alex.personal@example.com",
   ACCESS_ISSUER: "https://example-team.cloudflareaccess.com",
@@ -25,15 +23,12 @@ export default defineConfig({
   resolve: { alias },
   build: {
     rollupOptions: {
-      // Radix and lucide ship "use client" directives, which mean nothing in these bundles.
       onwarn(warning, warn) {
         if (warning.code !== "MODULE_LEVEL_DIRECTIVE") warn(warning);
       },
     },
   },
   environments: {
-    // The browser bundle and the stylesheet keep fixed names, so the Worker links them without a
-    // manifest. Workers Static Assets revalidates them by ETag on every load.
     client: {
       build: {
         rollupOptions: {
@@ -71,10 +66,6 @@ export default defineConfig({
               name: "worker",
               include: ["test/*.test.ts"],
               setupFiles: ["./test/setup.ts"],
-              // When a pool slot runs a second file, Vitest answers its fetchWarmModules call
-              // with paths into this cache, and @cloudflare/vitest-plugin inlines every module
-              // into one WebSocket message. On few cores that message outgrows workerd's limit
-              // (close 1009) and kills the run. Without the cache, modules travel one per message.
               fsModuleCache: false,
             },
           },
@@ -87,9 +78,10 @@ export default defineConfig({
   lint: {
     options: { typeAware: true, typeCheck: true },
     ignorePatterns: ["worker-configuration.d.ts", "dist/**"],
+    jsPlugins: ["./lint/comments.ts"],
+    rules: { "repo/no-comments": "error" },
   },
   fmt: {
-    // Public client metadata is kept byte-for-byte as fetched.
     ignorePatterns: ["worker-configuration.d.ts", "dist/**", "test/fixtures/cimd/*.json"],
   },
 });

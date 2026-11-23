@@ -1,6 +1,5 @@
 import { boundedText, MAX_TEXT } from "./bounds";
 
-// HTML 4's 252 names, plus apos. Shared with Gmail search snippets.
 const ENTITIES: Readonly<Record<string, string>> = {
   AElig: "\u00c6",
   Aacute: "\u00c1",
@@ -273,7 +272,6 @@ const contentIdFromSrc = (raw: string | null): string | null => {
   return src.startsWith("cid:") ? src.slice(4) : null;
 };
 
-/** Only actual src attributes reference inline parts; comments and text do not. */
 export async function referencedContentIds(html: readonly string[]): Promise<ReadonlySet<string>> {
   const ids = new Set<string>();
   for (const source of html) {
@@ -287,9 +285,7 @@ export async function referencedContentIds(html: readonly string[]): Promise<Rea
         })
         .transform(new Response(source))
         .text();
-    } catch {
-      // A parser limit in one HTML part must not hide the message or its other parts.
-    }
+    } catch {}
   }
   return ids;
 }
@@ -328,10 +324,6 @@ const BLOCKS = new Set([
   "ul",
 ]);
 
-/**
- * Streaming parsing tolerates malformed mail. Output is joined once; each link comparison
- * examines at most its address's length, independent of text emitted before the link.
- */
 export async function htmlToText(html: string, onCut: () => void = () => {}): Promise<string> {
   const parts: string[] = [];
   const node: string[] = [];
@@ -348,7 +340,6 @@ export async function htmlToText(html: string, onCut: () => void = () => {}): Pr
   let firstPreserved: number | null = null;
   let lastPreserved = 0;
   const links = new Set<{ address: string; first: number }>();
-  // Each chunk is one line or a single newline. Only the new chunk is inspected.
   const write = (text: string) => {
     if (!text || cut) return;
     const available = MAX_TEXT + 1 - length;
@@ -420,7 +411,6 @@ export async function htmlToText(html: string, onCut: () => void = () => {}): Pr
     const first = visible[link.first];
     let same = first !== undefined && lastVisibleEnd - first.position === link.address.length;
     if (same && first) {
-      // Compare only the address-length range, never flatten or slice the preceding output.
       let part = first.part;
       let offset = first.offset;
       let at = 0;
@@ -443,7 +433,6 @@ export async function htmlToText(html: string, onCut: () => void = () => {}): Pr
     try {
       element.onEndTag(finish);
     } catch {
-      // Foreign-content self-closing tags have no end tag. Close their state now.
       finish();
     }
   };
@@ -497,8 +486,6 @@ export async function htmlToText(html: string, onCut: () => void = () => {}): Pr
     });
   const bytes = new TextEncoder().encode(html);
   let at = 0;
-  // Close our input at the bound instead of throwing through a native handler. The parser
-  // finishes its current small chunk and reaches EOF; await that completion before returning.
   const input = new ReadableStream<Uint8Array>({
     pull(controller) {
       if (cut || at === bytes.length) {
@@ -512,7 +499,6 @@ export async function htmlToText(html: string, onCut: () => void = () => {}): Pr
   });
   await rewriter.transform(new Response(input)).text();
   flush();
-  // An unclosed link may never get an end-tag callback. Its text has already been emitted.
   for (const link of Array.from(links).reverse()) finishLink(link);
   const start = visible[0]?.position ?? length;
   return boundedText(

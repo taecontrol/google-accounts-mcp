@@ -412,7 +412,6 @@ it.each(["search_events", "read_event"])(
       code: "not_found",
       message: expect.stringMatching(/No such calendar/),
     });
-    // The decision rebuilds the view once, then the run's fresh list prevents a further event read.
     expect(sent).toHaveLength(before + (tool === "read_event" ? 1 : 0));
     expect(new Set(calendarPaths())).toEqual(
       new Set([

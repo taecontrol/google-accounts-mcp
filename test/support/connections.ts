@@ -5,7 +5,6 @@ import { ownerRow, setOwner } from "./db";
 import { OWNER_EMAIL } from "./worker";
 
 export const DAY = 24 * 60 * 60 * 1000;
-// Future relative to the runtime clock: real local KV must not reject fake-clock expirations.
 export const NOW = Date.UTC(2030, 10, 9, 12);
 export interface ConnectionRow {
   id: string;

@@ -12,8 +12,6 @@ export interface AccessIdentity {
 
 const CERTS_TIMEOUT = 5_000;
 const CACHE_MAX_AGE = 10 * 60_000;
-// Access signs with 2048-bit RSA keys. jose refuses a shorter key only after the key resolver
-// returns, where a bad key would read as a bad assertion, so the key set is checked on fetch.
 const MIN_MODULUS_BITS = 2048;
 type Keys = ReturnType<typeof createLocalJWKSet>;
 let cached: { issuer: string; keys: Keys; fetchedAt: number } | undefined;
@@ -24,7 +22,6 @@ function modulusBits(n: string): number {
   return (significant.length - 1) * 8 + (32 - Math.clz32(significant.charCodeAt(0)));
 }
 
-/** Every key must be one jose can verify an RS256 assertion with, or the whole set is unusable. */
 function usableKeySet(body: unknown): JSONWebKeySet {
   const keys: unknown = (body as { keys?: unknown } | null)?.keys;
   if (!Array.isArray(keys) || keys.length === 0) throw new AccessUnavailable();
@@ -59,7 +56,6 @@ async function fetchKeys(issuer: string): Promise<Keys> {
     cached = { issuer, keys, fetchedAt: Date.now() };
     return keys;
   } catch {
-    // Fetch errors can contain configured values. Keep them inside this boundary.
     throw new AccessUnavailable();
   } finally {
     clearTimeout(timeout);
@@ -86,7 +82,6 @@ export const verifyAccess = (request: Request, access: Config["access"], now: nu
             }
             if (!warm) throw new AccessRejected();
           }
-          // A new kid can mean rotation. Refresh once even when the cache is still fresh.
           keys = await fetchKeys(access.issuer);
           try {
             return await keys(header, token);

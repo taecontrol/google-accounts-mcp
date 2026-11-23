@@ -86,8 +86,6 @@ async function open(width = 1280, fixture?: "groups" | "irreversible" | "service
     await page.close();
     throw error;
   }
-  // The web font can arrive after the first render and change the size of the text, which
-  // resizes or moves the controls. A position measured before it would differ from later ones.
   await page.evaluate(() => document.fonts.ready);
   return page;
 }
@@ -427,7 +425,6 @@ it("names each permission and its state accessibly, provides tooltips and distin
     }
     expect(new Set(icons).size).toBe(3);
     expect(fills[0]).not.toBe(fills[2]);
-    // The tool controls stay icon-only; the account controls spell out the choices.
     await page.mouse.move(0, 0);
     await page.keyboard.press("Escape");
     for (const word of ["Not allowed", "Ask first", "Allowed"])
@@ -664,7 +661,6 @@ it.each([
           const sent = page.waitForRequest((request) => request.method() === "POST");
           await dialog.getByRole("button", { name: `Set to ${wanted}`, exact: true }).click();
           const form = new URLSearchParams((await sent).postData()!);
-          // List labels is already Allowed on Personal: Allowed goes only to the tools that change.
           expect(form.getAll("tool")).toEqual(
             setting === "allow" ? ["search_threads"] : ["list_labels", "search_threads"],
           );
@@ -920,16 +916,12 @@ it("shows ordered group summaries for closed accounts and removes them after a l
 const everyTool = ["delete", "send", "list_labels", "draft", "search_threads", "forward", "trash"];
 it.each([
   {
-    // Send mail is Ask first, the other two are Not allowed: all three change. The page shows Send
-    // before Trash and delete, though the tool list has Delete permanently first.
     account: "Personal",
     wanted: "Allowed" as const,
     text: "Claude will be able to use every tool on Personal without asking you, including these, which cannot be undone: Send mail, Forward message, and Delete permanently. This changes 6 tools.",
-    // List labels is already Allowed, so the click does not send it.
     sent: ["delete", "send", "draft", "search_threads", "forward", "trash"],
   },
   {
-    // Send mail is already Allowed here: the click does not change it, name it, or send it.
     account: "Northwind",
     wanted: "Allowed" as const,
     text: "Claude will be able to use every tool on Northwind without asking you, including these, which cannot be undone: Forward message and Delete permanently. This changes 6 tools.",
@@ -942,7 +934,6 @@ it.each([
     sent: ["list_labels", "draft", "search_threads", "forward", "trash"],
   },
   {
-    // Every irreversible tool is already Allowed.
     account: "Fabrikam Holdings International, Finance and Legal Operations",
     wanted: "Allowed" as const,
     text: "Claude will be able to use every tool on Fabrikam Holdings International, Finance and Legal Operations without asking you. This changes 4 tools.",
@@ -973,7 +964,6 @@ it.each([
       expect(form.getAll("tool")).toEqual(tools);
       expect(form.get("setting")).toBe(wanted === "Allowed" ? "allow" : "ask");
       expect(routes).toHaveLength(1);
-      // The whole account shows the save, also when the request left out a tool.
       await panel(page, account).getByText("Saving…", { exact: true }).waitFor();
     } finally {
       await page.close();
@@ -993,7 +983,6 @@ it("confirms Allowed on one irreversible tool before it sends anything, with foc
     });
     for (const close of ["Cancel", "Escape", "Enter", "confirm"]) {
       if (close === "Enter") {
-        // A second Enter lands on Cancel, so a repeated key does not confirm.
         await opener.focus();
         await page.keyboard.press("Enter");
       } else await opener.click();
@@ -1024,7 +1013,6 @@ it("confirms Allowed on one irreversible tool before it sends anything, with foc
     expect(routes).toHaveLength(1);
     await answer(routes[0]!, "ok");
     await expect.poll(() => opener.getAttribute("aria-checked")).toBe("true");
-    // Ask first to Allowed is the same grant: Send mail starts at Ask first.
     await segment(toolControl(page, "Send mail"), "Allowed").click();
     await page
       .getByRole("alertdialog", { name: "Set Send mail on Personal to Allowed?", exact: true })

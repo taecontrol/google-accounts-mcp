@@ -132,9 +132,7 @@ export const exchangeCode = (
           email: String(email) as GoogleAccountEmail,
           hd: typeof claims.hd === "string" && claims.hd.length > 0 ? claims.hd : null,
         };
-    } catch {
-      /* Untrusted token endpoint payload; no claims leave this boundary. */
-    }
+    } catch {}
     if (!identity) {
       console.error("Google OAuth identity was refused");
       return yield* Effect.fail(new ClientRefused());

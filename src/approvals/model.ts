@@ -13,7 +13,6 @@ export const parseApprovalId = (value: unknown): ApprovalId | null =>
     : null;
 export const APPROVAL_LIFETIME = 3_600_000;
 export const RESULT_LIFETIME = 3_600_000;
-/** A direct call's deadline is below that of an approved run. */
 export const CALL_DEADLINE = 20_000;
 export const RUN_DEADLINE = 25_000;
 export const OUTCOME_WINDOW = 30_000;
@@ -76,22 +75,15 @@ export interface ApprovalRequest {
   notes: ReadonlyArray<ViewNote>;
   values: ReadonlyArray<ViewValue>;
 }
-/**
- * A sentence of the page's own about a call. The page never shades it, so it must never hold
- * text that someone else chose: a tool computes its notes from the arguments alone, before any
- * read of Gmail, and writes the words itself. Text of the agent or of a mail goes in a ViewValue.
- */
 export interface ViewNote {
   text: string;
   warning: boolean;
 }
-/** One value of a view, attributed to the agent or to the Google source it was read from. */
 export interface ViewValue {
   name: string;
   text: string;
   from: "agent" | "gmail" | "draft" | "calendar";
 }
-/** Match the nonempty, ordered values shown for a Calendar event write. */
 export const sameValues = (approved: readonly ViewValue[], current: readonly ViewValue[]) =>
   approved.length > 0 &&
   approved.length === current.length &&
@@ -128,7 +120,6 @@ export type StoredPayload =
   | { result: unknown; file?: FileRef }
   | { error: { code: string; message: string } };
 export const isoSeconds = (time: number) => new Date(time).toISOString().replace(/\.\d{3}Z$/, "Z");
-/** A time as a view shows it, with its year: `Nov 12, 2026 at 10:02 UTC`. */
 export const viewDate = (at: number): string => {
   const date = new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -145,9 +136,7 @@ export const viewDate = (at: number): string => {
 };
 const byteCount = (bytes: number) =>
   `${bytes.toLocaleString("en-US")} ${bytes === 1 ? "byte" : "bytes"}`;
-/** Every attachment view sums its files in these words: `2 files, 12 bytes in all`. */
 export const filesText = (files: ReadonlyArray<{ size: number }>) =>
   `${files.length} ${files.length === 1 ? "file" : "files"}, ${byteCount(files.reduce((n, file) => n + file.size, 0))} in all`;
-/** One attached file as a view shows it: `menu.pdf (application/pdf, 8 bytes)`. */
 export const fileText = (file: { filename: string; type: string; size: number }) =>
   `${file.filename || "(no name)"} (${file.type}, ${byteCount(file.size)})`;

@@ -22,7 +22,6 @@ export interface Found extends Attachment {
   subject: string;
   date: number;
 }
-/** MIME parameters end at semicolons outside quoted strings; names cannot supply a charset. */
 export const charsetOf = (value: string): string | null => {
   let start = 0;
   let quoted = false;
@@ -75,7 +74,6 @@ export const findAttachment = (
     };
   });
 
-/** The attachment ID is from this message read, never from a previous read_thread response. */
 export const partBytes = (send: Send, message: string, part: RawPart) =>
   Effect.gen(function* () {
     let data = part.body.data;

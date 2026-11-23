@@ -12,11 +12,8 @@ import {
 } from "./gmail";
 
 export const MAX_LABELS = 100;
-/** Moving mail to the trash or spam is not this tool's job; Gmail sets SENT and DRAFT itself. */
 export const REFUSED: ReadonlySet<string> = new Set(["TRASH", "SPAM", "SENT", "DRAFT"]);
-/** Adding INBOX also takes mail out of the trash or spam. */
 export const REFUSED_ADD: ReadonlySet<string> = new Set(["INBOX"]);
-/** What `add` and `remove` must be, for invalid_arguments from the schema and from the run. */
 export const LABELS_EXPECT = `a list of at most ${MAX_LABELS} label IDs that list_labels returned. Of the system labels, only UNREAD, STARRED, IMPORTANT, and the five CATEGORY_ labels are accepted, and INBOX in remove alone. A label cannot be in both add and remove, and the two lists together need at least one label`;
 
 interface LabelChange {
@@ -92,8 +89,6 @@ export const changeLabels = (
   input: LabelChange & { account: string },
 ): Effect.Effect<ChangeResult, ToolFailure> =>
   Effect.gen(function* () {
-    // The label read comes before any change: when it is lost, nothing changed, so the failure
-    // is not an uncertain one.
     const labels = yield* named(send, input).pipe(
       Effect.mapError((failure) =>
         failure.code === "google_unavailable" && failure.unknown

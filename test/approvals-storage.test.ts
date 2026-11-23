@@ -15,7 +15,6 @@ const context = async (db = env.DB) => {
   const owner = await Effect.runPromise(readOwner(env.DB));
   return { db, owner: { generation: owner.generation, email: owner.email! } };
 };
-// D1 bills every changed row, so a run with nothing left to clean must change none.
 const changes = (results: readonly D1Result[]) =>
   results.reduce((sum, result) => sum + result.meta.changes, 0);
 
@@ -86,8 +85,6 @@ it("looks up calls by record ID in every approval audit statement", async () => 
   );
   for (const plan of plans) {
     expect(plan.details.join("\n"), plan.operation).not.toMatch(/SCAN calls\b/);
-    // Activity's outcome index can also seek a record by rowid. The lookup must include
-    // equality on that ID; selecting every pending call would grow with the log.
     expect(plan.details.join("\n"), plan.operation).toMatch(
       /SEARCH calls USING (?:INTEGER PRIMARY KEY|(?:COVERING )?INDEX \S+) \([^\n)]*\browid=\?/,
     );

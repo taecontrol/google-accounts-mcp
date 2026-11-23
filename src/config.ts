@@ -1,6 +1,4 @@
 import { Data, Result } from "effect";
-// The extension lets `scripts/deploy.ts` load this module in plain Node to check each setting
-// before a deploy, so this module imports nothing else from `src`.
 import { normalizeEmail, type OwnerEmail } from "./email.ts";
 
 export const CONFIG_NAMES = [
@@ -26,10 +24,8 @@ export interface Config {
 
 const hex64 = (value: unknown) => typeof value === "string" && /^[a-fA-F0-9]{64}$/.test(value);
 
-/** Whether each setting holds a value the server accepts. */
 export const CONFIG_CHECKS: Record<ConfigName, (value: unknown) => boolean> = {
   OWNER_EMAIL: (value) => normalizeEmail(value) !== null,
-  // Compare the issuer exactly: trimming or URL normalization could hide a setup mistake.
   ACCESS_ISSUER: (value) =>
     typeof value === "string" &&
     /^https:\/\/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.cloudflareaccess\.com$/.test(value),

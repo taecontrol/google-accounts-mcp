@@ -16,7 +16,6 @@ import { sameOrigin } from "./same-origin";
 export const app = new Hono<PageEnv>();
 app.use("*", sameOrigin);
 app.use("*", (c, next) => {
-  // Hono otherwise trusts Content-Length instead of measuring the streamed bytes.
   c.req.raw = new Request(c.req.raw);
   c.req.raw.headers.delete("Content-Length");
   return next();
@@ -24,12 +23,11 @@ app.use("*", (c, next) => {
 app.use(
   "*",
   bodyLimit({
-    maxSize: MAX_BODY_BYTES, // Cap every page action before handlers read the body.
+    maxSize: MAX_BODY_BYTES,
     onError: (c) => c.text("Payload too large", 413),
   }),
 );
 app.use("*", async (c, next) => {
-  // withOwnerGate has already refused every request whose configuration is incomplete.
   c.set("config", Result.getOrThrow(readConfig(c.env)));
   await next();
 });

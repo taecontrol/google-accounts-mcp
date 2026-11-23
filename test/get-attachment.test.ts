@@ -38,7 +38,6 @@ it("returns bounded metadata in order and exact PDF, PNG, text and binary resour
     ["x".repeat(150), "long-type"],
   ]) {
     const file = filePart(type, filename);
-    // A nameless non-body part needs an attachmentId to be listed by read_thread.
     serveAttachment({ ...file, body: { ...file.body, attachmentId: "current-id" } });
     const out = await blocks(await download(f, { account: " Alex.Personal@Example.com " }));
     expect(metadata(out)).toEqual({

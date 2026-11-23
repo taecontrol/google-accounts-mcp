@@ -17,8 +17,6 @@ import {
 } from "./support/permissions";
 import { ORIGIN } from "./support/worker";
 
-// A tool that is deny on an account the connection sees. The connection sees an account when
-// at least one tool on it is ask or allow.
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 const notAllowed = (f: Fixture, tool: string, email = PERSONAL) =>
   `The owner has not allowed ${tool} on ${email} for this connection. The owner can change this at ${ORIGIN}/connections/${f.connection.id}.`;
@@ -120,7 +118,6 @@ it("keeps an account hidden from a connection when only another connection may u
   }
   expect(new Set(bodies).size, "a hidden account answers like an unknown address").toBe(1);
   expect(googleTraffic().slice(before)).toEqual([]);
-  // The same connection does see Northwind, so a denied tool there gets the other refusal.
   await expectError(
     await toolCall(f.mcp, "search_threads", { account: NORTHWIND, query: "a" }),
     "tool_not_allowed",

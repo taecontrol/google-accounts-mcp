@@ -96,7 +96,6 @@ it.each(["tool", "connection", "account"])(
     const f = await fixture();
     const otherMcp = await new McpClient().connect("Other connection");
     const other = { ...f, mcp: otherMcp, connection: { ...f.connection } };
-    // Resolve the connection ID from D1, rather than relying on client internals.
     other.connection.id = (await env.DB.prepare(
       "SELECT id FROM connections WHERE name = 'Other connection'",
     ).first<{ id: typeof f.connection.id }>())!.id;
@@ -242,7 +241,7 @@ it("requires a decision-issued Won to finish an approval at compile time", async
     at: NOW,
     claim: crypto.randomUUID(),
   };
-  // @ts-expect-error Only decideApproval can issue the private Won brand.
+  // @ts-expect-error -- Only decideApproval can issue the private Won brand.
   const write = finishApproval(ctx, handBuilt, NOW, "success", "success", null, null);
   expect(Effect.isEffect(write)).toBe(true);
 });

@@ -99,7 +99,6 @@ it.each([
       time_zone: "America/Santiago",
       repeat: { every: "day", until: "2027-09-04" },
     },
-    // Midnight after Sep 4 does not exist in Santiago; the day still ends at 23:59:59 −04:00.
     line: "RRULE:FREQ=DAILY;UNTIL=20270905T035959Z",
   },
   {

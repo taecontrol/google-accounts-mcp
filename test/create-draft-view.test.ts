@@ -20,8 +20,6 @@ const recipientAddresses = (text: string | undefined) => {
   expect(parsed).not.toBeNull();
   return parsed!.map((mailbox) => mailbox.address);
 };
-// Split the MIME header before decoding encoded words: a comma inside an encoded name
-// does not separate recipients. decodedMail().headers is for reading a header's text.
 const sentRecipients = (text: string, field: string) => {
   const header = text
     .split("\r\n\r\n")[0]!

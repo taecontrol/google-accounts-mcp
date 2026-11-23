@@ -51,7 +51,6 @@ it("keeps pre-migration permissions allowed", async () => {
     "CREATE TABLE old_permissions (connection_id TEXT, account_id TEXT, tool TEXT)",
   ).run();
   await env.DB.prepare("INSERT INTO old_permissions VALUES ('c','a','list_labels')").run();
-  // Execute the permission migration, changing only its table name for this isolated old table.
   const migrations = import.meta.glob<string>("../migrations/0005_approvals.sql", {
     query: "?raw",
     import: "default",
@@ -91,7 +90,6 @@ it("rejects invalid and oversized decoded arguments before creating an approval"
   const before = googleTraffic().length;
   for (const args of [undefined, {}, { account: 42 }])
     await expectError(await toolCall(f.mcp, "list_labels", args), "invalid_arguments", /./);
-  // Oversized arguments are explained by their size, not misreported as a schema mismatch.
   await expectError(
     await toolCall(f.mcp, "list_labels", { account: "a".repeat(256 * 1024) + "@example.com" }),
     "invalid_arguments",

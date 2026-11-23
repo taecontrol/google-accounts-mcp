@@ -44,7 +44,6 @@ export const readOwner = (db: D1Database) =>
     return { ...row, email } satisfies OwnerRow;
   });
 
-/** During a reset, or while OWNER_EMAIL differs from the pinned owner, nothing runs. */
 export function isLocked(row: OwnerRow, config: Config): boolean {
   return row.state === "resetting" || (row.state === "pinned" && row.email !== config.ownerEmail);
 }

@@ -18,7 +18,6 @@ export class NotRedeemable extends Data.TaggedError("NotRedeemable") {}
 export class NotActive extends Data.TaggedError("NotActive") {}
 export const IDLE_MS = 90 * 24 * 60 * 60 * 1000;
 
-/** Placeholders are supplied by the SQL caller, never by request data. Alias connections as c. */
 export const activeWhere = ({ now, ownerEmail }: { now: string; ownerEmail: string }): string =>
   `c.state = 'active' AND c.expires_at > ${now} AND EXISTS (SELECT 1 FROM owner o WHERE o.id = 1 AND o.state = 'pinned' AND o.generation = c.generation AND o.email = ${ownerEmail})`;
 

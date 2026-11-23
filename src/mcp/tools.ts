@@ -162,17 +162,12 @@ type AccountExecution<A, S> =
       answer: (stored: S, args: A) => Record<string, unknown>;
       settle?: (read: Send, args: A, key: string) => Effect.Effect<S | null, ToolFailure>;
       defaults: Readonly<Partial<A>>;
-      /** checked: null before any recovery read, else what the read learned. */
       unknown: (email: string, until: number, args: A, checked: Check | null) => string;
-      /** The repeat sentence; without it, the mail wording. next is null past duplicate's limit. */
       repeated?: (at: string, next: number | null, args: A) => string;
       run?: never;
     };
-/** What every tool with a setting takes. A tool reads its own fields through its typed definition. */
 export type DecodedArgs = { readonly account: string };
-/** A name that the tool list accepted. The list below is the only list of tool names. */
 export type AccountTool = string & { readonly __accountTool: unique symbol };
-/** Tools supply a request, never receive a credential or token store. */
 export type Send = (
   build: (accessToken: string, signal: AbortSignal) => Request,
 ) => Effect.Effect<Response, ToolFailure>;
@@ -189,7 +184,6 @@ export interface Sources {
 }
 export type Sending = Send & { readonly __sending: unique symbol };
 export type Confirm = { readonly check: Effect.Effect<Sending, ToolFailure>; readonly late: Send };
-/** What tools/list tells a client about a tool. A tool that changes mail says so. */
 export type ToolAnnotations =
   | { readOnlyHint: true }
   | { readOnlyHint: false; destructiveHint: boolean; idempotentHint: boolean };
@@ -211,19 +205,12 @@ export type Tool =
       name: AccountTool;
       label: string;
       group: Group;
-      /**
-       * True when neither the owner nor another tool can revert what one call did: a sent mail, a
-       * message deleted for good. False when it can be reverted: a draft can be deleted, and a
-       * message in the trash can be restored for 30 days. The connection's page names the tools
-       * that say true before it sets them to Allowed.
-       */
       irreversible: boolean;
       permissionDescription: string;
       description: string;
       annotations: ToolAnnotations;
       input: Schema.Codec<DecodedArgs, unknown>;
       onExcessProperty: "error" | "ignore";
-      /** What each field must be, for the message of invalid_arguments. */
       expects: Readonly<Record<string, string>>;
       also?: (args: DecodedArgs) => ReadonlyArray<{ account: string; tool: string }>;
       uploads?: (args: DecodedArgs) => ReadonlyArray<string>;
@@ -231,9 +218,7 @@ export type Tool =
         action: string;
         joiner: string;
         empty: string;
-        /** Only send_draft may disable the digest equality check and send the current Gmail draft. */
         asItIs?: true;
-        /** Sentences that the page says about this call, from its arguments alone. */
         notes?: (args: DecodedArgs) => ReadonlyArray<ViewNote>;
         values: (
           args: DecodedArgs,
@@ -258,9 +243,7 @@ type AccountDefinition<A extends DecodedArgs, S> = {
   view: {
     action: string;
     joiner: string;
-    /** Only send_draft may disable the digest equality check and send the current Gmail draft. */
     asItIs?: true;
-    /** Sentences that the page says about this call, from its arguments alone. */
     notes?: (args: A) => ReadonlyArray<ViewNote>;
     values: (
       args: A,
@@ -269,19 +252,16 @@ type AccountDefinition<A extends DecodedArgs, S> = {
     ) => Effect.Effect<ReadonlyArray<ViewValue>, ViewUnavailable | ToolFailure>;
   };
 } & AccountExecution<A, S>;
-// The runner passes a tool only the arguments that the tool's own input decoded.
 const accountTool = <A extends DecodedArgs, S = never>(definition: AccountDefinition<A, S>) =>
   ({
     kind: "account",
     ...definition,
     onExcessProperty: definition.onExcessProperty ?? (definition.create ? "error" : "ignore"),
-    // The page shows this when a call has no values beyond its sentence; every tool says the same.
     view: {
       ...definition.view,
       empty: "This call has no other values. The sentence above is the whole call.",
     },
   }) as unknown as Extract<Tool, { kind: "account" }>;
-/** The field that fails a tool's input, or null when the arguments are not an object. */
 export const decodeArgs = (
   tool: Extract<Tool, { kind: "account" }>,
   args: unknown,
@@ -434,7 +414,6 @@ const CheckAvailabilityInput = Schema.Struct({
     const fromInstant = parseTime(args.from).kind === "instant";
     const toInstant = parseTime(args.to).kind === "instant";
     if (args.time_zone !== undefined || fromInstant === toInstant) {
-      // The order of two instants is zone-independent; their wall-clock span is not.
       const range =
         args.time_zone !== undefined || !fromInstant
           ? availabilityRange(args.from, args.to, args.time_zone ?? "UTC")
@@ -574,7 +553,6 @@ const sendReplyPlan = (
         : failure,
     ),
   );
-/** Every draft attachment is listed on the page; keep that complete list readable. */
 const MAX_DRAFT_FILES = 20;
 const MAX_DRAFT_HEADERS = 20_000;
 const fileValues = (
@@ -660,7 +638,6 @@ export const TOOLS: ReadonlyArray<Tool> = [
     description: `Searches the mail of one Google account and returns its threads, newest first. \`account\` is the address of an account that list_accounts returns; to search every account, call this tool once for each of them. \`query\` uses the syntax of Gmail's search box, for example \`in:inbox is:unread\` for unread inbox mail or \`from:alex subject:invoice\`. A search leaves out Spam and Trash unless the query names them, as \`in:trash\` does. \`limit\` is the largest number of threads, ${DEFAULT_LIMIT} by default and ${MAX_LIMIT} at most. When the result has \`next_page\`, send the same call with \`page\` set to that value to get more. Each thread has its ID, the subject of its first message, the sender and date of its last message, a snippet, its number of messages, and whether any message is unread. When the owner sets this tool to ask, it returns a pending approval with a link instead of threads; get_approval returns the threads after the owner approves.`,
     input: Schema.Struct({
       account: Schema.String,
-      // Both go into the request's address, so each has a length limit.
       query: Schema.String.check(Schema.isBetweenLength(1, MAX_QUERY)),
       limit: Schema.optionalKey(
         Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_LIMIT })),
@@ -676,7 +653,6 @@ export const TOOLS: ReadonlyArray<Tool> = [
     view: {
       action: "search the mail",
       joiner: "of",
-      // The page marks every value as the agent's text, so each one is a value of the call.
       values: (args) =>
         Effect.succeed([
           { name: "Query", text: args.query, from: "agent" },
@@ -749,7 +725,6 @@ export const TOOLS: ReadonlyArray<Tool> = [
     name: "change_labels",
     label: "Change labels",
     group: "Organize",
-    // A label that a call removed can be added back, and an archived thread returns to the inbox.
     irreversible: false,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     permissionDescription:
@@ -794,7 +769,6 @@ export const TOOLS: ReadonlyArray<Tool> = [
     name: "create_draft",
     label: "Create draft",
     group: "Draft",
-    // The owner can delete a draft, and writing one sends nothing.
     irreversible: false,
     permissionDescription: "Write a draft, new or as a reply. Nothing is sent.",
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
@@ -864,7 +838,6 @@ export const TOOLS: ReadonlyArray<Tool> = [
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     label: "Move to trash",
     group: "Trash and delete",
-    // restore_messages takes a message out of the trash, for the 30 days that Gmail keeps it.
     irreversible: false,
     permissionDescription:
       "Move messages to the trash. Gmail deletes a message for good after 30 days there.",
@@ -884,7 +857,6 @@ export const TOOLS: ReadonlyArray<Tool> = [
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     label: "Restore from trash",
     group: "Trash and delete",
-    // trash_messages puts the message back in the trash.
     irreversible: false,
     permissionDescription: "Take messages out of the trash.",
     description: `Takes messages of one Google account out of the trash. \`account\` is the address of an account that list_accounts returns. \`messages\` is a list of 1 to ${MAX_ITEMS} different message IDs that read_thread returned for that account; an ID works only in the account that returned it. Only the named messages are restored. In the result, \`messages\` holds each restored message with its label IDs after the change. A restored message is not back in the inbox: Gmail removes the label INBOX when a message goes to the trash and does not add it back, while the message keeps its other labels, such as UNREAD, STARRED, and the owner's own labels. It stays out of the trash and out of the inbox. \`not_found\` lists the IDs that the account does not have, which includes messages that were deleted for good. \`unconfirmed\` lists the IDs for which Google did not confirm the change: call again with those IDs. Each of the two is present only when it is not empty. When no message was restored, the call returns an error. Calling again with the same IDs is safe. When the owner sets this tool to ask, it returns a pending approval with a link instead; get_approval returns the result after the owner approves.`,
@@ -903,7 +875,6 @@ export const TOOLS: ReadonlyArray<Tool> = [
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     label: "Delete permanently",
     group: "Trash and delete",
-    // Gmail cannot bring a deleted message back.
     irreversible: true,
     permissionDescription: "Delete messages for good, without the trash. Nobody can recover them.",
     description: `Deletes messages of one Google account for good. Gmail cannot bring them back, and they do not go to the trash. Use trash_messages when the owner may want a message back. \`account\` is the address of an account that list_accounts returns. \`messages\` is a list of 1 to ${MAX_ITEMS} different message IDs that read_thread returned for that account; an ID works only in the account that returned it. Only the named messages are deleted: the other messages of their threads stay. In the result, \`messages\` holds the IDs that were deleted. \`not_found\` lists the IDs that the account does not have. \`unconfirmed\` lists the IDs for which Google did not confirm the delete: call again with those IDs. Each of the two is present only when it is not empty. When no message was deleted, the call returns an error. A deleted message counts as not found. So when an ID was unconfirmed, or a call failed, got no answer, or ended as unknown, and a later call reports that ID as not found, the message is gone. When the owner sets this tool to ask, it returns a pending approval with a link instead; get_approval returns the result after the owner approves.`,
@@ -1538,7 +1509,6 @@ export const TOOLS: ReadonlyArray<Tool> = [
       values: (args, send) =>
         Effect.gen(function* () {
           const ctx = yield* calendarContext(send, args.time_zone);
-          // A range over 31 days still gets a view, so the approved run tells the agent why.
           const range = yield* Effect.fromResult(rangeOf(args.from, args.to, ctx.zone));
           const calendars = yield* Effect.fromResult(availabilityCalendars(ctx, args.calendars));
           const listed: string[] = [];
@@ -1584,10 +1554,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
       note: Schema.optionalKey(
         Schema.String.check(
           Schema.makeFilter((note) => {
-            // The contract counts code points, not grapheme clusters or UTF-16 code units.
-            // oxlint-disable-next-line typescript/no-misused-spread
+            // oxlint-disable-next-line typescript/no-misused-spread -- The contract counts code points, not grapheme clusters or UTF-16 code units.
             const length = [...note].length;
-            // Invisible characters alone would reach the organizer as an empty-looking note.
             return (
               length >= 1 &&
               length <= 1_000 &&
@@ -1748,7 +1716,6 @@ export const parseAccountTool = (raw: unknown): AccountTool | null => {
   const tool = TOOLS.find((t) => t.kind === "account" && t.name === raw);
   return tool?.kind === "account" ? tool.name : null;
 };
-/** A tool belongs to its group's service. Unknown stored tool names grant no service. */
 export const serviceOf = (name: string): Service | null => {
   const tool = TOOLS.find((tool) => tool.kind === "account" && tool.name === name);
   return tool?.kind === "account" ? GROUP_SERVICE[tool.group] : null;

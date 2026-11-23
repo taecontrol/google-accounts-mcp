@@ -35,14 +35,12 @@ export const Repeat = Schema.Struct({
 export type Repeat = typeof Repeat.Type;
 type Input = { start: string; time_zone?: string; repeat?: Repeat };
 
-/** Dates and wall clocks already name their local date; only an instant needs a zone. */
 const startDate = (start: string, zone: string): string => {
   const point = parseTime(start);
   return point.kind === "instant" ? zonedIso(point.ms, zone).slice(0, 10) : start.slice(0, 10);
 };
 const weekdayOf = (date: string): number => (new Date(date).getUTCDay() + 6) % 7;
 const dayName = (day: number): string => days[day]![0]!.toUpperCase() + days[day]!.slice(1);
-/** Every local date an instant can have: zone offsets run from UTC−12 to UTC+14. */
 const possibleDates = (ms: number): string[] => {
   const first = new Date(ms - 12 * 3_600_000).toISOString().slice(0, 10);
   const last = new Date(ms + 14 * 3_600_000).toISOString().slice(0, 10);
@@ -65,10 +63,6 @@ const dateIssue = (repeat: Repeat, date: string, where: string): Issue | null =>
     };
   return null;
 };
-/**
- * Decode every check whose answer does not depend on the primary calendar's zone. An instant
- * without an explicit zone is refused now only when it fails on every local date it can have.
- */
 export const repeatIssue = (a: Input, zone = a.time_zone): true | Issue => {
   if (a.repeat === undefined) return true;
   const point = parseTime(a.start);
@@ -120,8 +114,6 @@ const dateWords = (ms: number, weekday = false): string =>
     day: "numeric",
     year: "numeric",
   }).format(ms);
-/** Expand only the weekly case whose interval can make the words misleading. A fifth date
- * proves that the four shown dates need an ellipsis, even with a finite end. */
 const firstDates = (rule: Rule & { every: "week" }): number[] => {
   const start = Date.parse(rule.startDate);
   const monday = start - weekdayOf(rule.startDate) * dayMs;
@@ -169,8 +161,6 @@ const wordsOf = (rule: Rule): string => {
   return text;
 };
 
-/** The request and approval are two renderings of this one normalized rule. Callers never
- * interpret recurrence syntax or compute recurrence dates. */
 export const repeatRule = (
   a: Input,
   zone: string,
@@ -193,7 +183,6 @@ export const repeatRule = (
     startDate: date,
     allDay,
     zone,
-    // An alias such as US/Eastern names the primary zone America/New_York too.
     showZone:
       !allDay &&
       (canonicalZone(zone) ?? zone) !==

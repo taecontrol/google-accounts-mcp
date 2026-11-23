@@ -7,7 +7,6 @@ import { change, get, notFoundOr } from "./gmail";
 
 const Sent = Schema.Struct({ id: Schema.String, threadId: Schema.String });
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
-/** The only request that makes mail leave. The check supplies its request function here. */
 const sendOne = (
   confirm: Confirm,
   draft: string,

@@ -9,8 +9,6 @@ export const SCOPES = ["gmail.readonly", "gmail.compose", "gmail.send", "gmail.m
   .concat("https://mail.google.com/");
 export const GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me/profile";
 export const LABELS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/labels";
-// https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels/list
-// Include documented visibility fields, which the tool must omit.
 export const LABELS_RESPONSE = {
   labels: [
     {
@@ -35,9 +33,6 @@ export const unhandledMessages: string[] = [];
 afterEach(() => {
   expect(unhandledMessages, "Every message request must have an explicit test answer").toEqual([]);
 });
-// Shapes observed on a real account on 2026-11-11 (issue #23), with made-up values. The list
-// holds only IDs and snippets, snippets are HTML-escaped, and a thread's messages come oldest
-// first with internalDate in milliseconds. Fields the tool must omit are included.
 export const THREAD_LIST = {
   threads: [
     {
@@ -201,11 +196,9 @@ export const google = {
     authorization: string | null;
     redirect: RequestRedirect;
   }>,
-  /** Answers for the list of threads, then the default list. */
   threadListAnswers: [] as Array<
     (request: Pick<Request, "signal">) => Response | Promise<Response>
   >,
-  /** Answers for one thread by its ID, in place of the default thread. */
   threadAnswers: new Map<
     string,
     (request: Pick<Request, "signal">) => Response | Promise<Response>
@@ -222,7 +215,6 @@ export const google = {
     string,
     (request: Pick<Request, "signal">) => Response | Promise<Response>
   >(),
-  /** Requests of the tools that trash, restore, and delete: every method, by message ID. */
   trashRequests: [] as Array<{
     url: string;
     method: string;
@@ -459,7 +451,6 @@ export const google = {
         );
       }),
       http.all(`${MESSAGES_URL}/:message`, async ({ request, params }) => {
-        // Trash fixtures own every message request while active, including missing answers.
         if (this.trashAnswers.size > 0 || request.method === "DELETE")
           return this.trashAnswer(request, String(params.message));
         this.methods.push(request.method);

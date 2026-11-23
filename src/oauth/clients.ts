@@ -43,7 +43,6 @@ export function acceptAuthorize(clientId: string, redirectUri: string): Accepted
     local: client.callback === null,
   };
 }
-// This issuer only screens fetch destinations. The provider still verifies the signature.
 function unverifiedIssuer(assertion: string): string | null {
   try {
     const parts = assertion.split(".");

@@ -163,7 +163,6 @@ it.each(["expired token", "first read 401"])(
     expect(peak).toBeLessThanOrEqual(5);
     expect(vi.getTimerCount()).toBe(0);
     await setTool(f, "send_message", "allow");
-    // A different body runs directly rather than repeating the waiting approval.
     if (refresh === "expired token")
       await env.DB.prepare("UPDATE accounts SET access_expires_at = 1 WHERE id = ?")
         .bind(f.northwind.id)

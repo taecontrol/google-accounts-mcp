@@ -94,7 +94,6 @@ export interface CallContext {
   waitUntil: (work: Promise<unknown>) => void;
 }
 export type Executed = { kind: "ran"; value: unknown } | { kind: "repeat"; repeat: Repeat };
-/** The stored schema belongs to the tool; once never interprets its result. */
 const createdAnswer = (
   stored: unknown,
   tool: Extract<Tool, { kind: "account" }>,
@@ -132,7 +131,6 @@ export const repeatAnswer = (
         note: "The same call is still running. Call again with the same arguments in a few seconds.",
       };
     case "unknown":
-      // executeAccount and createApproval return repeats only for creating tools.
       throw new ToolFailure({
         code: "outcome_unknown",
         said: tool.unknown!(account, repeat.until, args, repeat.checked ?? null),
@@ -145,7 +143,6 @@ const notAllowed = (seen: unknown, about?: ToolFailure["about"]) =>
     ...(about ? { about } : {}),
   });
 type Allowed = Awaited<ReturnType<typeof decodeAllowedAccount>>;
-/** Scope completeness is independent of account health, including an expired admin block. */
 const accessFailure = (allowed: Allowed, about?: ToolFailure["about"]): ToolFailure | null => {
   const { status, granted, required } = allowed.access;
   return granted !== required || status.kind === "unreadable"
@@ -157,15 +154,10 @@ const accessFailure = (allowed: Allowed, about?: ToolFailure["about"]): ToolFail
     : null;
 };
 type Pair = { readonly account: string; readonly tool: string };
-/** A source account's refusal names it. The call's own account needs no such note. */
 const aboutPair = (pair: Pair, i: number): ToolFailure["about"] =>
   i
     ? { input: pair.account, email: normalizeEmail(pair.account) ?? pair.account, tool: pair.tool }
     : undefined;
-/**
- * Each pair's permitted row with its setting, or the refusal that names the pair. A pair with an
- * address has two results, its permitted row and its seen row; a pair without one has none.
- */
 const decodeChecks = (
   pairs: ReadonlyArray<Pair>,
   results: ReadonlyArray<D1Result>,
@@ -180,7 +172,6 @@ const decodeChecks = (
       : { refused: notAllowed(seen, aboutPair(pair, i)) };
   });
 };
-/** The key under which identical calls of a creating tool are one call. */
 const callIdentity = (
   ctx: CallContext,
   tool: { readonly name: AccountTool; readonly defaults: Readonly<Record<string, unknown>> },
@@ -206,7 +197,6 @@ async function settleRepeat(
   still?: Effect.Effect<void, ToolFailure>,
 ): Promise<Repeat> {
   if (repeat.kind !== "unknown" || !tool.settle) return repeat;
-  // The setting may have changed since the call's checks; a denied call reads nothing.
   if (still) {
     const allowedNow = await Effect.runPromise(Effect.result(still));
     if (Result.isFailure(allowedNow)) throw allowedNow.failure;
@@ -221,21 +211,18 @@ async function settleRepeat(
       return { ...repeat, checked: "missing" };
     if (Result.isSuccess(result)) {
       const stored = Schema.encodeSync(tool.stored)(result.success);
-      // Google showed the event; if this write is lost, the next repeat reads it again.
       await Effect.runPromise(
         Effect.result(confirmOnce(ctx, identity, repeat.key, stored, ctx.now())),
       );
       return { kind: "done", result: stored, at: repeat.at };
     }
   } catch {
-    // A failed recovery read never permits another insert.
   } finally {
     requests?.close();
   }
   return { ...repeat, checked: "failed" };
 }
 export type Accounts = { own: Allowed; others: ReadonlyMap<string, Allowed> };
-/** Sources never let a tool write as another account. */
 export const sourceRead =
   (send: Send): Send =>
   (build) =>
@@ -260,7 +247,6 @@ const tokenFailure = (error: TokenError): ToolFailure => {
       return new ToolFailure({ code: "server_unavailable" });
   }
 };
-/** Bound preparation, including token acquisition, and keep sending behind Confirm. */
 export function preparation(now: () => number, reserve: number) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(0, reserve - now()));
@@ -284,7 +270,6 @@ export function preparation(now: () => number, reserve: number) {
         built = true;
         return request;
       }).pipe(
-        // Token acquisition can be waiting before a request is built. It shares the reserve.
         Effect.raceFirst(stopped),
         Effect.mapError((failure) =>
           controller.signal.aborted || now() >= reserve
@@ -382,7 +367,6 @@ export async function executeAccount(
       let sends = false;
       return requests
         .send((token, signal) => {
-          // A retry here follows a 401, which sent nothing. Start a new call and check again.
           if (sends) {
             seen.status = 401;
             throw unavailable();
@@ -397,7 +381,6 @@ export async function executeAccount(
         })
         .pipe(
           Effect.mapError((failure) => {
-            // API-disabled refusals follow a 403; classified token failures follow a 401.
             if (sends && !failure.unknown)
               seen.status = failure.code === "api_not_enabled" ? 403 : 401;
             return failure;
@@ -527,14 +510,10 @@ export function accountRequests(
     email: allowed.credential.email,
   });
   if (refused) throw refused;
-  // A reconnect during a running call may drop this service. `still` checks settings, and token
-  // reloads may use the new credential; this call can finish. The next call checks the new scopes.
-  // A tool can send several requests at once, so each attempt owns its timer.
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const session = googleSession(ctx, allowed.credential);
   const send: Send = (build) =>
     session((token) => {
-      // The session can retry after a 401. Each attempt owns a fresh request and deadline.
       if (ctx.now() >= deadline || signal?.aborted)
         throw new ToolFailure({ code: "google_unavailable", unknown: true });
       const controller = new AbortController();
@@ -587,7 +566,6 @@ export async function runCall(
   let outcome: Outcome | null = "success";
   let reason: FailureCode | null = null;
   try {
-    // This measure must precede any decoding or parsing of the arguments.
     const oversized =
       tool?.kind === "account" &&
       new TextEncoder().encode(JSON.stringify(args)).byteLength > MAX_ARGUMENTS_BYTES;
@@ -601,7 +579,6 @@ export async function runCall(
     const checks = () =>
       pairs.flatMap((pair) => {
         const email = normalizeEmail(pair.account);
-        // A missing address is refused like an unknown one, without disclosing any account.
         return email
           ? [
               allowedAccountStatement(
@@ -707,7 +684,6 @@ export async function runCall(
             decoded.value,
             Object.fromEntries(refs),
           );
-          // Once the batch starts, its lost response must never close the audit record.
           const created = await Effect.runPromise(
             Effect.result(
               createApproval(ctx, {
@@ -785,7 +761,6 @@ export async function runCall(
                 catch: () => new ToolFailure({ code: "server_unavailable" }),
               }).pipe(
                 Effect.flatMap((results) => {
-                  // Every pair was allowed when execution started; any change since stops it.
                   const changed = decodeChecks(pairs, results).find(
                     (check) => "refused" in check || check.ask,
                   );
@@ -818,8 +793,6 @@ export async function runCall(
         origin: ctx.origin,
         tool: tool?.name ?? "",
         connection: ctx.connection.connectionId,
-        // Only run tools use the generic uncertain-change wording. A create tool marks its
-        // creating or sending request and reports a possible leftover draft separately.
         annotations: tool?.kind === "account" && tool.create ? undefined : tool?.annotations,
       },
     );

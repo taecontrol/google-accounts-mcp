@@ -6,7 +6,6 @@ import { ZoneName } from "./calendar-time";
 
 export const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 const unavailable = () => new ToolFailure({ code: "google_unavailable" });
-/** An ID that an agent gives. Approval views list IDs one per line, so none may break a line. */
 export const CalendarId = Schema.String.check(
   Schema.isBetweenLength(1, 254),
   // oxlint-disable-next-line no-control-regex -- IDs must not hold characters that break view lines.
@@ -72,7 +71,6 @@ export const missingCalendar = () =>
     said: "No such calendar in the account's Google Calendar list; leave calendars out to use the primary calendar, or use IDs from list_calendars.",
   });
 
-/** The single access check for every event read, including approval views. */
 export const readableCalendar = (
   ctx: CalendarContext,
   id: string | undefined,
@@ -95,7 +93,6 @@ export const readableCalendar = (
   return Result.succeed(calendar);
 };
 
-/** The calendar list is authoritative: a 403 can also mean quota or rate limits. */
 export const writableCalendar = (
   ctx: CalendarContext,
   id: string | undefined,
@@ -157,12 +154,6 @@ const accessOf = (role: string | undefined): Calendar["access"] => {
       return "free_busy";
   }
 };
-/**
- * The account's listed calendars, with Google's default exclusion of hidden and deleted entries.
- * Later tools check IDs and access here: a calendar counts exactly when this reader returns it,
- * including entries beyond list_calendars' output limits. Entries beyond eight pages (2000) do
- * not count. `capped` means Google had another page that this reader did not read.
- */
 export const readCalendarList = (send: Send) =>
   Effect.gen(function* () {
     const calendars: Calendar[] = [];

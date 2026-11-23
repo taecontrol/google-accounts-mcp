@@ -16,8 +16,6 @@ import {
   unavailableMessage,
 } from "./support/permissions";
 
-// The search tool through the Worker's MCP endpoint, with Gmail's answers in the shapes that
-// a real account returned (issue #23).
 const search = (f: { mcp: McpClient }, args: Record<string, unknown>) =>
   toolCall(f.mcp, "search_threads", { account: PERSONAL, ...args });
 const allowed = async () => {
@@ -183,7 +181,6 @@ it("with ask, searches nothing until the owner approves what the page showed, th
   };
   expect(props.request.account.email).toBe(PERSONAL);
   expect(props.request.tool.action).toBe("search the mail");
-  // Every value that the call sends, in full: the page says that the agent wrote them.
   expect(props.request.values).toEqual([
     { name: "Query", text: query, from: "agent" },
     { name: "Limit", text: "2", from: "agent" },
@@ -266,7 +263,6 @@ it("asks Gmail for at most five threads at once and keeps Gmail's order", async 
 it("ends the whole search twenty seconds after the call, with an unknown outcome", async () => {
   const f = await allowed();
   const ids = manyThreads(12);
-  // Two rounds of five threads take nine seconds each. The last two never answer.
   ids.forEach((id, i) =>
     google.threadAnswers.set(id, (request) =>
       i < 10
@@ -284,7 +280,6 @@ it("ends the whole search twenty seconds after the call, with an unknown outcome
   try {
     const started = Date.now();
     let settledAfter: number | null = null;
-    // The answer is a stream, so the call has settled only when its body is read.
     const call = search(f, { query: "a", limit: 12 })
       .then(rpcResult)
       .then((result) => {

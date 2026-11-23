@@ -10,7 +10,6 @@ import { parseUploadId } from "../uploads/store";
 import { messageTooLarge, ToolFailure, uploadNotAvailable } from "./failures";
 import { TOOLS, type Sources } from "./tools";
 
-/** Each copy is one Gmail read and each upload one KV read; 100 fit within a call deadline (CALL_DEADLINE, RUN_DEADLINE). */
 export const MAX_ATTACHMENTS = 100;
 const Copy = Schema.Struct({
   account: Schema.String,
@@ -64,7 +63,6 @@ type Planned = {
     | { kind: "copy"; account: string; from: string; subject: string; date: number };
   bytes: Effect.Effect<Uint8Array<ArrayBuffer>, ToolFailure>;
 };
-/** Warm each account's session alone, then read in bounded parallel waves. */
 const inAccounts = <A, B>(
   items: readonly A[],
   account: (item: A, index: number) => string,
@@ -85,12 +83,10 @@ const inAccounts = <A, B>(
         ({ item, index }) => read(item).pipe(Effect.map((value) => ({ index, value }))),
         { concurrency: REQUESTS_AT_ONCE },
       );
-    // The session acquires (or refreshes after a 401) once before its account's other reads.
     const warmed = yield* wave(first);
     const remaining = yield* wave(rest);
     return [...warmed, ...remaining].sort((a, b) => a.index - b.index).map(({ value }) => value);
   });
-/** One plan gives both the approval's facts and the MIME part's fields. */
 const plan = (items: readonly Item[], sources: Sources): Effect.Effect<Planned[], ToolFailure> =>
   inAccounts(
     items,

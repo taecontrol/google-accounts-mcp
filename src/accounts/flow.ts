@@ -37,7 +37,6 @@ const FlowSchema = Schema.Struct({
   account: Schema.optional(Schema.String),
   version: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
 });
-// SHA-256 is asynchronous in WebCrypto; callers await the cookie and challenge together.
 export async function beginFlow(start: FlowStart) {
   const state = b64(crypto.getRandomValues(new Uint8Array(32)));
   const verifier = b64(crypto.getRandomValues(new Uint8Array(32)));

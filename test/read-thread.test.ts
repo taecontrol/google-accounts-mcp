@@ -213,7 +213,6 @@ it("names attachments by partId, marks only referenced images and never fetches 
       ]),
     },
     {
-      // A root that has parts and claims a file name would share the name 0 with its first part.
       ...message("m6"),
       payload: {
         ...tree("multipart/mixed", [
@@ -263,7 +262,6 @@ it("fetches a deferred HTML body only on its page, including its inline referenc
   );
   const first = await result(await read(f));
   expect(google.attachmentRequests).toEqual([]);
-  // Page starts after m1, so m1's body is never fetched again.
   const prior = { ...part("text/plain"), body: { size: 60000, attachmentId: "prior-body" } };
   serveThread([
     { ...message("m1"), payload: prior },
@@ -304,7 +302,6 @@ it("resolves only result drafts, follows 500-item pages, stops when found, and u
     "https://gmail.googleapis.com/gmail/v1/users/me/drafts?maxResults=500",
     "https://gmail.googleapis.com/gmail/v1/users/me/drafts?maxResults=500&pageToken=next",
   ]);
-  // A missing draft does not turn a successful read into a failure.
   expect((await result(await read(f))).messages.map((m) => m.draft)).toEqual([
     undefined,
     undefined,
@@ -328,7 +325,7 @@ it.each([400, 404])(
       "not_found",
       `No thread "${THREAD}" exists in ${PERSONAL}. A thread ID works only in the account that returned it.`,
     );
-    const record = (await callRows()).at(-1)!; // callRows reads SELECT *.
+    const record = (await callRows()).at(-1)!;
     expect(record).toMatchObject({ outcome: "refused", reason: "not_found" });
     expect(JSON.stringify(record)).not.toContain(THREAD);
   },
@@ -988,7 +985,6 @@ it("budgets inline-image HTML before deferring a message or decoding its parts",
   expect(second.next_page).toBeUndefined();
   expect(google.attachmentRequests).toHaveLength(1);
 
-  // HTML beyond the part bound is neither charged nor decoded, including unused alternatives.
   serveThread([
     {
       ...mixed,
@@ -1006,7 +1002,6 @@ it("budgets inline-image HTML before deferring a message or decoding its parts",
   expect(skipped.attachments[0]!.inline).toBeUndefined();
   expect(google.attachmentRequests).toHaveLength(1);
 
-  // Body conversion and the inline-image scan read the same part, not two copies.
   serveThread([
     {
       ...message("m1"),

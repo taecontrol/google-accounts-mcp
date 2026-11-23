@@ -114,7 +114,6 @@ it("answers unknown at the absolute deadline while refresh persistence is held a
   expect(await get(f, id)).toEqual({ status: "unknown" });
   release.resolve();
   await refreshed.promise;
-  // A completed token write would ordinarily be followed by Gmail; drain that continuation.
   await vi.advanceTimersByTimeAsync(1);
   expect(google.labelRequests).toEqual([]);
   expect(
@@ -313,7 +312,6 @@ it("gives credentials only to the winner when both requests reach the decision b
   const together = deferred(),
     release = deferred();
   let arrivals = 0;
-  // Capture all decision results, including the losing batch's empty credential selection.
   const store = await import("../src/approvals/store");
   const original = store.decideApproval;
   const decisions: { won: boolean; credentials: unknown[] }[] = [];

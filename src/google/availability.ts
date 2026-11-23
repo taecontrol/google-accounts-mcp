@@ -26,7 +26,6 @@ export type AvailabilityEntry =
   | { calendar: string; busy: Array<{ start: string; end: string }> }
   | { calendar: string; error: CalendarError };
 
-/** Unlike elapsed milliseconds, wall-clock days do not gain or lose an hour across DST. */
 export const availabilityRange = (from: string, to: string, zone: string) =>
   rangeOf(from, to, zone).pipe(
     Result.flatMap((range) => {
@@ -42,7 +41,6 @@ export const availabilityRange = (from: string, to: string, zone: string) =>
     }),
   );
 
-/** Busy-only and unlisted calendars are valid targets. Only the default needs a listed ID. */
 export const availabilityCalendars = (ctx: CalendarContext, calendars?: readonly string[]) =>
   calendars !== undefined
     ? Result.succeed(calendars)
@@ -51,11 +49,6 @@ export const availabilityCalendars = (ctx: CalendarContext, calendars?: readonly
       : Result.succeed([ctx.primary.calendar]);
 
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
-/**
- * Google's instants in whole seconds, rounded outward by the caller: a busy start or an answer's
- * timeMax rounds down, a busy end or an answer's timeMin rounds up, so busy time never shrinks.
- * Date.parse would turn an impossible date such as February 30 into March, so it is not used.
- */
 export const googleInstant = (text: string, round: "down" | "up"): number | null => {
   const match = RFC3339.exec(text);
   if (!match) return null;
@@ -80,7 +73,6 @@ export const googleInstant = (text: string, round: "down" | "up"): number | null
 const Instant = Schema.String.check(
   Schema.makeFilter((text) => googleInstant(text, "down") !== null),
 );
-// Calendar values are decoded individually: a malformed entry must not hide the other answers.
 const Envelope = Schema.Struct({
   timeMin: Instant,
   timeMax: Instant,
@@ -109,7 +101,6 @@ const errorEntry = (
   account: string,
 ): AvailabilityEntry => ({ calendar, error: calendarError(failure, account)! });
 
-/** Only an exact, complete, positively decoded Google answer can produce a busy list. */
 export const availabilityEntries = (
   body: unknown,
   calendars: readonly string[],
@@ -186,7 +177,6 @@ export const availabilityEntries = (
 
 const freeBusy = (send: Send, calendars: readonly string[], range: Range) =>
   Effect.gen(function* () {
-    // All-day events keep their calendar's midnight boundaries; timeZone only changes offsets.
     const body = JSON.stringify({
       timeMin: new Date(range.from).toISOString(),
       timeMax: new Date(range.to).toISOString(),

@@ -83,7 +83,6 @@ type Account = Props["accounts"][number];
 type Tool = Props["tools"][number];
 type Action = "name" | "revoke";
 type ControlState = { value: Setting; phase: "confirmed" | "saving" } | { phase: "unconfirmed" };
-/** A change that waits for the owner's confirmation: one tool to Allowed, or every tool. */
 type Pending =
   | { account: Account; tool: Tool; wanted: "allow" }
   | { account: Account; tool: null; wanted: "ask" | "allow" };
@@ -150,7 +149,6 @@ export function ConnectionPage(props: Props) {
       ),
     ),
   );
-  // A synchronous lock also covers two input events before React commits the saving state.
   const locked = useRef(new Set<string>());
   const [closed, setClosed] = useState(
     () => new Set(groups.length > 1 ? props.accounts.slice(1).map((account) => account.id) : []),
@@ -197,9 +195,6 @@ export function ConnectionPage(props: Props) {
     const { outcome } = await postAction(`/connections/${connection.id}/permissions`, [
       ["account", account.id],
       ["setting", wanted],
-      // Allowed goes only to the tools that the page shows at another value, the ones that the
-      // dialog counted. In a page that is out of date, a tool that it shows as Allowed is then
-      // not granted without being named. Ask first and Not allowed go to every tool.
       ...tools
         .filter((_, i) => {
           const { state } = before[i]!;
@@ -221,8 +216,6 @@ export function ConnectionPage(props: Props) {
       ),
     }));
     if (outcome !== "unknown") for (const { key } of before) locked.current.delete(key);
-    // Only Dismiss or the owner's next change clears a notice. A save that was already in flight
-    // must not hide it; only "couldn't confirm", the one that warns of unknown access, replaces it.
     const notice = permissionMessage(outcome, connection.name);
     const uncertainNotice = permissionMessage("unknown", connection.name);
     if (notice) setMessage((current) => (current && notice !== uncertainNotice ? current : notice));
@@ -238,8 +231,6 @@ export function ConnectionPage(props: Props) {
     if (wanted === "deny") return void save(account, props.tools, wanted);
     askToConfirm({ account, tool: null, wanted });
   };
-  // The tools that the page shows at another value, in the order it shows them. The dialog counts
-  // them and names the irreversible ones.
   const changing = pending
     ? groups
         .flatMap((group) => group.tools)
@@ -348,7 +339,6 @@ export function ConnectionPage(props: Props) {
         ) : (
           <TooltipProvider disableHoverableContent>
             <div className="flex flex-col gap-10">
-              {/* Reserve the longest summaries so saving or changing access moves no control. */}
               <div className="grid max-w-2xl text-base wrap-anywhere">
                 <p className="col-start-1 row-start-1" aria-live="polite">
                   {uncertain ? uncertainSummary : summary(visible.map((a) => a.name))}

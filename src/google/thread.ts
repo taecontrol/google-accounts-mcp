@@ -78,7 +78,6 @@ const bodyParts = (bodies: readonly Body[], fallbacks: boolean, parts = new Set<
   }
   return parts;
 };
-/** One page budget for both decoded bytes and deferred requests, counting each part once. */
 export class BodyBudget {
   private left = { bytes: PAGE_BODY_BYTES, requests: MAX_BODY_PARTS };
   private used = new Set<BodyPart>();
@@ -118,7 +117,6 @@ const Drafts = Schema.Struct({
   nextPageToken: Schema.optionalKey(Schema.String),
 });
 
-/** Owns the serialized result's budget, including every field and the continuation value. */
 function fit(
   result: ThreadResult,
   message: ThreadMessage,
@@ -182,7 +180,6 @@ function fit(
   return false;
 }
 type Decoded = { text: string } | { omitted: string };
-/** The text of one message, under the caller's page budget. */
 export const textOf = (
   send: Send,
   message: Message,
@@ -270,8 +267,6 @@ export const textOf = (
         return text;
       });
     const text = yield* readBodies(message.body);
-    // The inline-image scan may inspect local HTML and bodies already read, but must
-    // not download an unselected alternative merely to find its content IDs.
     const read = (part: BodyPart) =>
       "data" in part || decoded.has(part)
         ? readPart(part)
@@ -284,7 +279,6 @@ export const readThread = (
   input: { account: string; thread: string; page: string | undefined },
 ): Effect.Effect<ThreadResult, ToolFailure> =>
   Effect.gen(function* () {
-    // Alone, before any body or draft lookup, so this session acquires its token only once.
     const thread = yield* get(
       send,
       `threads/${encodeURIComponent(input.thread)}?format=full`,
@@ -362,7 +356,6 @@ export const readThread = (
           if (wanted.has(draft.message.id)) found.set(draft.message.id, draft.id);
         page = list.nextPageToken;
       } while (page !== undefined && found.size < wanted.size);
-      // Draft IDs are part of the JSON budget too. Refit the already read messages with them.
       const fitted = base();
       for (const [i, message] of prepared.entries()) {
         const draft = found.get(message.message);

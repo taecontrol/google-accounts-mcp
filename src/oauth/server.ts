@@ -71,7 +71,6 @@ const providers = new Map<string, OAuthProvider<OAuthEnv> | null>();
 function providerFor(origin: string) {
   if (providers.has(origin)) return providers.get(origin)!;
   let provider: OAuthProvider<OAuthEnv> | null;
-  // Plain HTTP on non-loopback hosts is for development page previews only.
   const url = new URL(origin);
   if (
     url.protocol !== "https:" &&
