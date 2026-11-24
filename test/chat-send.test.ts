@@ -125,6 +125,8 @@ it.each([
         filter: `thread.name = ${THREAD}`,
         orderBy: "createTime asc",
         pageSize: "1",
+        fields:
+          "messages(name,sender(name,type,displayName,email),createTime,text,thread(name),threadReply)",
       });
     }
     expect(posts()).toEqual([]);

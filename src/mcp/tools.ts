@@ -1840,8 +1840,8 @@ With ask, a call that cannot be shown appears on the owner's page without Approv
       notes: sendNotes,
       values: (args, send) => sendValues(send, args),
     },
-    create: (send, _account, args, confirm, _sources, { approved, key }) =>
-      sendChatMessage(send, args, confirm, approved, key),
+    create: (send, account, args, confirm, _sources, { approved, key }) =>
+      sendChatMessage(send, account.email, args, confirm, approved, key),
     settle: settleChatMessage,
   }),
   {

@@ -13,11 +13,15 @@ import {
   spaceValues,
   type SpaceInfo,
 } from "./chat";
-import { chatMessage, MessageList, ThreadId, threadIssue, type ChatMessage } from "./chat-messages";
+import {
+  ThreadId,
+  threadIssue,
+  threadMissing,
+  threadStart,
+  type ChatMessage,
+} from "./chat-messages";
 import { errorText, refusedField } from "./errors";
-import { getFrom } from "./get";
 
-const get = getFrom(CHAT_API);
 export const MAX_CHAT_TEXT = 32_000;
 const utf8Bytes = (text: string) => new TextEncoder().encode(text).byteLength;
 
@@ -90,20 +94,8 @@ const senderText = (from: ChatMessage["from"]) =>
       : (from.email ?? from.name ?? from.user);
 const threadValues = (send: Send, conversation: string, thread: string) =>
   Effect.gen(function* () {
-    const query = new URLSearchParams({
-      filter: `thread.name = ${thread}`,
-      orderBy: "createTime asc",
-      pageSize: "1",
-    });
-    const page = yield* get(
-      send,
-      `${conversation}/messages?${query}`,
-      MessageList,
-      conversationRefused(conversation),
-    );
-    const first = page.messages?.[0];
-    if (!first || first.threadReply) return yield* Effect.fail(new ViewUnavailable());
-    const message = chatMessage(first);
+    const message = yield* threadStart(send, conversation, thread);
+    if (!message || message.thread_reply) return yield* Effect.fail(new ViewUnavailable());
     return [
       { name: "Reply in thread", text: thread, from: "agent" },
       {
@@ -151,12 +143,12 @@ export const sendNotes = (args: SendArgs): ViewNote[] => [
   },
 ];
 
-const messageRefused = (response: Response, args: SendArgs) =>
+const messageRefused = (response: Response, account: string, args: SendArgs) =>
   Effect.gen(function* () {
     if (yield* appMissing(response)) return new ToolFailure({ code: "chat_app_not_configured" });
     if (response.status === 429) return rateLimited("sent");
     if (response.status === 404 && args.thread !== undefined)
-      return notFound("thread", args.thread);
+      return threadMissing(account, args.conversation, args.thread);
     if (response.status === 400 && (yield* Effect.promise(() => refusedField(response, "parent"))))
       return notFound("conversation", args.conversation);
     if (response.status === 400)
@@ -171,7 +163,7 @@ const messageRefused = (response: Response, args: SendArgs) =>
     return conversationRefused(args.conversation)(response.status);
   });
 
-const postMessage = (sending: Sending, args: SendArgs, key: string) =>
+const postMessage = (sending: Sending, account: string, args: SendArgs, key: string) =>
   Effect.gen(function* () {
     const query = new URLSearchParams({
       messageId: `client-${key}`,
@@ -194,11 +186,12 @@ const postMessage = (sending: Sending, args: SendArgs, key: string) =>
     );
     if (response.ok) return yield* readSent(response, outcomeUnknown);
     if (!NOT_CREATED.includes(response.status)) return yield* Effect.fail(outcomeUnknown());
-    return yield* Effect.fail(yield* messageRefused(response, args));
+    return yield* Effect.fail(yield* messageRefused(response, account, args));
   });
 
 export const sendChatMessage = (
   send: Send,
+  account: string,
   args: SendArgs,
   confirm: Confirm,
   approved: ReadonlyArray<ViewValue> | null,
@@ -218,7 +211,7 @@ export const sendChatMessage = (
     } else if (args.thread !== undefined)
       yield* readSpace(send, args.conversation).pipe(Effect.flatMap(threaded));
     const sending = yield* confirm.check;
-    return yield* postMessage(sending, args, key);
+    return yield* postMessage(sending, account, args, key);
   });
 
 export const settleChatMessage = (read: Send, args: SendArgs, key: string) =>
