@@ -70,7 +70,7 @@ const withText = (message: ChatMessage, limit: number): ChatMessage => {
   return text === message.text ? message : { ...message, text, text_cut: true };
 };
 
-export const chatMessage = (item: typeof GoogleMessage.Type): ChatMessage => {
+const chatMessage = (item: typeof GoogleMessage.Type): ChatMessage => {
   const { sender } = item;
   const name = sender.displayName ? shortJson(sender.displayName, MAX_SENDER_NAME) : undefined;
   const email = normalizeEmail(sender.email);
