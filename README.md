@@ -2,7 +2,7 @@
 
 An MCP (Model Context Protocol) server that lets your AI agents use several Google accounts at once, both gmail.com accounts and Google Workspace accounts from any organization. The official Google connectors allow one account per client. With this server, one connection from Claude, Claude Code, or ChatGPT can reach every account you allow.
 
-You run it as a Cloudflare Worker on your own Cloudflare account, on the Workers Paid plan, with your own Google Cloud OAuth client. Agent clients connect to `https://<your host>/mcp`. It supports Gmail and Google Calendar, and can list, read, and search each Workspace account's Google Chat conversations. Sending Chat messages is planned in the [issues](../../issues).
+You run it as a Cloudflare Worker on your own Cloudflare account, on the Workers Paid plan, with your own Google Cloud OAuth client. Agent clients connect to `https://<your host>/mcp`. It supports Gmail, Google Calendar, and Google Chat. With a Workspace account, agents can list Chat conversations, read and search their messages, send messages and replies in threads, and open direct messages.
 
 ## What you control
 
@@ -28,7 +28,7 @@ Set up these first, with your hostname in place of `<host>`:
 
   Except for `https://mail.google.com/`, each scope starts with `https://www.googleapis.com/auth/`. The admin of a Workspace organization can block your client for that organization's accounts, or block Calendar or Chat alone. You can then connect the account without the blocked service.
 
-  For Chat, also save a Chat app configuration. Open the Google Chat API's Configuration page in the Google Cloud console, enter an app name, an avatar URL, and a description, and choose who can see the app. Reading Chat works without the configuration. Sending Chat messages, which is planned, needs it.
+  For Chat, also save a Chat app configuration. Open the Google Chat API's Configuration page in the Google Cloud console, enter an app name, an avatar URL, and a description, and choose who can see the app. Reading Chat works without the configuration. Sending Chat messages and opening direct messages need it.
 
 - **Two Cloudflare Access self-hosted applications** on `<host>`, both with managed OAuth turned off:
   1. One for the whole hostname, with an Allow policy for your email address only.

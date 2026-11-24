@@ -55,7 +55,9 @@ const SpaceInfo = Schema.Struct({
   spaceType: Schema.Literals(["DIRECT_MESSAGE", "GROUP_CHAT", "SPACE"]),
   displayName: Schema.optionalKey(Schema.String),
   singleUserBotDm: Schema.optionalKey(Schema.Boolean),
+  spaceThreadingState: Schema.optionalKey(Schema.String),
 });
+export type SpaceInfo = typeof SpaceInfo.Type;
 type Space = NonNullable<(typeof SpaceList.Type)["spaces"]>[number];
 type With = { readonly name?: string; readonly email: string } | { readonly app: true };
 export interface Conversation {
@@ -201,8 +203,11 @@ const others = (send: Send, conversation: string, account: string) =>
   );
 
 export const conversationValues = (send: Send, conversation: string, account: string) =>
+  readSpace(send, conversation).pipe(
+    Effect.flatMap((space) => spaceValues(send, conversation, account, space)),
+  );
+export const spaceValues = (send: Send, conversation: string, account: string, space: SpaceInfo) =>
   Effect.gen(function* () {
-    const space = yield* readSpace(send, conversation);
     const name = shown(space.displayName ?? "");
     const id = (caption?: string): ViewValue => ({
       name: caption ? `Conversation ID, ${caption}` : "Conversation ID",

@@ -70,7 +70,7 @@ const withText = (message: ChatMessage, limit: number): ChatMessage => {
   return text === message.text ? message : { ...message, text, text_cut: true };
 };
 
-export const chatMessage = (item: typeof GoogleMessage.Type): ChatMessage => {
+const chatMessage = (item: typeof GoogleMessage.Type): ChatMessage => {
   const { sender } = item;
   const name = sender.displayName ? shortJson(sender.displayName, MAX_SENDER_NAME) : undefined;
   const email = normalizeEmail(sender.email);
@@ -91,6 +91,34 @@ export const chatMessage = (item: typeof GoogleMessage.Type): ChatMessage => {
 export const ThreadId = Schema.String.check(
   Schema.isPattern(/^spaces\/[A-Za-z0-9_-]{1,100}\/threads\/[A-Za-z0-9_-]{1,100}$/),
 );
+export const threadIssue = (args: { conversation: string; thread?: string }) =>
+  args.thread === undefined || args.thread.startsWith(`${args.conversation}/threads/`)
+    ? true
+    : { path: ["thread"], issue: "must be a thread of the conversation" };
+export const threadMissing = (account: string, conversation: string, thread: string) =>
+  new ToolFailure({
+    code: "not_found",
+    said: `No thread "${thread}" exists in conversation "${conversation}" of ${account}.`,
+  });
+export const threadStart = (send: Send, conversation: string, thread: string) => {
+  const query = [
+    `filter=${encodeURIComponent(`thread.name = ${thread}`)}`,
+    `orderBy=${encodeURIComponent("createTime asc")}`,
+    "pageSize=1",
+    `fields=${encodeURIComponent(`messages(${MESSAGE_FIELDS})`)}`,
+  ].join("&");
+  return get(
+    send,
+    `${conversation}/messages?${query}`,
+    MessageList,
+    conversationRefused(conversation),
+  ).pipe(
+    Effect.map((page) => {
+      const first = page.messages?.[0];
+      return first === undefined ? undefined : chatMessage(first);
+    }),
+  );
+};
 export const ReadConversationInput = Schema.Struct({
   account: Schema.String,
   conversation: ConversationId,
@@ -99,13 +127,7 @@ export const ReadConversationInput = Schema.Struct({
     Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_READ_LIMIT })),
   ),
   page: Schema.optionalKey(Timestamp),
-}).check(
-  Schema.makeFilter((args) =>
-    args.thread === undefined || args.thread.startsWith(`${args.conversation}/threads/`)
-      ? true
-      : { path: ["thread"], issue: "must be a thread of the conversation" },
-  ),
-);
+}).check(Schema.makeFilter(threadIssue));
 type ReadArgs = typeof ReadConversationInput.Type;
 
 export const readConversation = (send: Send, account: string, args: ReadArgs) =>
@@ -130,12 +152,7 @@ export const readConversation = (send: Send, account: string, args: ReadArgs) =>
     if (!items.length && page.nextPageToken)
       return yield* Effect.fail(new ToolFailure({ code: "google_unavailable" }));
     if (args.thread !== undefined && args.page === undefined && !items.length)
-      return yield* Effect.fail(
-        new ToolFailure({
-          code: "not_found",
-          said: `No thread "${args.thread}" exists in conversation "${args.conversation}" of ${account}.`,
-        }),
-      );
+      return yield* Effect.fail(threadMissing(account, args.conversation, args.thread));
     const result = (messages: ChatMessage[], more: boolean) => ({
       account,
       conversation: args.conversation,

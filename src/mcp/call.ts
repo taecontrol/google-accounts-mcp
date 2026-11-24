@@ -78,8 +78,21 @@ const isCalendarWrite = (request: Request) => {
     /^\/calendar\/v3\/calendars\/[^/]+\/events(?:\/|$)/.test(url.pathname)
   );
 };
+const chatWrite = (request: Request, path: RegExp) => {
+  const url = new URL(request.url);
+  return (
+    request.method !== "GET" &&
+    url.origin === "https://chat.googleapis.com" &&
+    path.test(url.pathname)
+  );
+};
+const isChatMessageWrite = (request: Request) =>
+  chatWrite(request, /^\/v1\/spaces\/[^/]+\/messages$/);
 const isSend = (request: Request) =>
-  new URL(request.url).pathname.endsWith("/send") || isCalendarWrite(request);
+  new URL(request.url).pathname.endsWith("/send") ||
+  isCalendarWrite(request) ||
+  isChatMessageWrite(request) ||
+  chatWrite(request, /^\/v1\/spaces:setup$/);
 export { CALL_DEADLINE } from "../approvals/model";
 
 export interface CallContext {
@@ -358,9 +371,9 @@ export async function executeAccount(
     const preparingRequests = preparation(ctx.now, reserve);
     const unavailable = () => new ToolFailure({ code: "google_unavailable" });
     const send = preparingRequests.wrap(requests.send);
-    const seen: { started: boolean; calendar: boolean; status: number | null } = {
+    const seen: { started: boolean; listedRefusals: boolean; status: number | null } = {
       started: false,
-      calendar: false,
+      listedRefusals: false,
       status: null,
     };
     const sending = ((build) => {
@@ -375,7 +388,7 @@ export async function executeAccount(
           if (isSend(request)) {
             sends = true;
             seen.started = true;
-            seen.calendar = isCalendarWrite(request);
+            seen.listedRefusals = isCalendarWrite(request) || isChatMessageWrite(request);
           }
           return request;
         })
@@ -471,7 +484,7 @@ export async function executeAccount(
         error.code !== "outcome_unknown" &&
         (!seen.started ||
           (seen.status !== null &&
-            (seen.calendar
+            (seen.listedRefusals
               ? NOT_CREATED.includes(seen.status)
               : seen.status >= 400 && seen.status < 500)))
       ) {

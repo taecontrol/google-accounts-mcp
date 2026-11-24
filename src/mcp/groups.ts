@@ -11,6 +11,7 @@ export const GROUP_SERVICE = {
   "Create and change events": "calendar",
   "Respond to invitations": "calendar",
   "See conversations and messages": "chat",
+  "Send messages": "chat",
 } as const satisfies Record<string, Service>;
 export type Group = keyof typeof GROUP_SERVICE;
 export const GROUPS = Object.keys(GROUP_SERVICE) as Group[];
