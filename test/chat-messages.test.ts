@@ -1,7 +1,7 @@
 import "./support/account-checks";
 import { expect, it } from "vite-plus/test";
 import { answer } from "./support/approvals";
-import { chatRoutes, chatTools, googleMessage, routeOf } from "./support/chat";
+import { chatRoutes, chatTools, fieldPaths, googleMessage, routeOf } from "./support/chat";
 import { expectError, PERSONAL, toolCall } from "./support/permissions";
 import { rpcResult } from "./support/oauth";
 import { decodeArgs, TOOLS, type Tool } from "../src/mcp/tools";
@@ -16,24 +16,6 @@ const resultText = async (response: Response) => {
   const result = await rpcResult(response);
   expect(result.isError).toBeUndefined();
   return (result.content as { text: string }[])[0]!.text;
-};
-const fieldPaths = (fields: string, prefix = ""): string[] => {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i <= fields.length; i++) {
-    const char = fields[i];
-    if (char === "(") depth++;
-    if (char === ")") depth--;
-    if ((char === "," && depth === 0) || i === fields.length) {
-      parts.push(fields.slice(start, i));
-      start = i + 1;
-    }
-  }
-  return parts.flatMap((part) => {
-    const nested = /^([^(]+)\((.*)\)$/.exec(part);
-    return nested ? fieldPaths(nested[2]!, `${prefix}${nested[1]}.`) : [`${prefix}${part}`];
-  });
 };
 
 it("tells a missing thread from a Google page that says more remain", async () => {

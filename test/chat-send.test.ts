@@ -8,7 +8,7 @@ import { sendValues } from "../src/google/chat-send";
 import { ToolFailure } from "../src/mcp/failures";
 import { TOOLS } from "../src/mcp/tools";
 import { answer, decided, digest, get, page, post } from "./support/approvals";
-import { CHAT_SCOPES } from "./support/chat";
+import { CHAT_SCOPES, fieldPaths } from "./support/chat";
 import { onceRows } from "./support/draft";
 import { deferred } from "./support/google";
 import { network } from "./support/network";
@@ -121,13 +121,27 @@ it.each([
       const lookup = log.find(
         (entry) => entry.method === "GET" && entry.path.endsWith("/messages"),
       );
-      expect(Object.fromEntries(lookup!.query)).toEqual({
+      const { fields, ...query } = Object.fromEntries(lookup!.query);
+      expect(query).toEqual({
         filter: `thread.name = ${THREAD}`,
         orderBy: "createTime asc",
         pageSize: "1",
-        fields:
-          "messages(name,sender(name,type,displayName,email),createTime,text,thread(name),threadReply)",
       });
+      expect(fieldPaths(fields ?? "").sort()).toEqual(
+        [
+          "name",
+          "sender.name",
+          "sender.type",
+          "sender.displayName",
+          "sender.email",
+          "createTime",
+          "text",
+          "thread.name",
+          "threadReply",
+        ]
+          .map((field) => `messages.${field}`)
+          .sort(),
+      );
     }
     expect(posts()).toEqual([]);
   },

@@ -104,3 +104,21 @@ export const googleMessage = (
   thread: { name: `${space}/threads/${id}` },
   ...more,
 });
+export const fieldPaths = (fields: string, prefix = ""): string[] => {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i <= fields.length; i++) {
+    const char = fields[i];
+    if (char === "(") depth++;
+    if (char === ")") depth--;
+    if ((char === "," && depth === 0) || i === fields.length) {
+      parts.push(fields.slice(start, i));
+      start = i + 1;
+    }
+  }
+  return parts.flatMap((part) => {
+    const nested = /^([^(]+)\((.*)\)$/.exec(part);
+    return nested ? fieldPaths(nested[2]!, `${prefix}${nested[1]}.`) : [`${prefix}${part}`];
+  });
+};
