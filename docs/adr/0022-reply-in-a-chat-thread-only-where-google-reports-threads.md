@@ -1,11 +1,11 @@
-# ADR-0021: Reply in a Chat thread only where Google reports threads
+# ADR-0022: Reply in a Chat thread only where Google reports threads
 
 Date: 2026-11-23
 Status: Accepted
 
 ## Context
 
-Read tools give every Chat message a `thread`, also in spaces whose `spaceThreadingState` is `UNTHREADED_MESSAGES`, where each message is its own thread. Google documents that reply options are ignored where threading is unavailable, so a reply there may land as a new top-level message while the owner approved "reply in thread". About half of the owner's spaces are in that state (#101). A reply was observed only in a `THREADED_MESSAGES` direct message.
+Read tools give every Chat message a `thread`, also in spaces whose `spaceThreadingState` is `UNTHREADED_MESSAGES`, where each message is its own thread. Google documents the reply option as supported only in named spaces, and a reply in such a space was never observed, so a reply there may land as a new top-level message while the owner approved "reply in thread". About half of the owner's spaces are in that state (#101). A reply was observed only in a `THREADED_MESSAGES` direct message.
 
 ## Decision
 

@@ -1,4 +1,4 @@
-# ADR-0020: Send Chat messages under a server-chosen message ID
+# ADR-0021: Send Chat messages under a server-chosen message ID
 
 Date: 2026-11-23
 Status: Accepted
