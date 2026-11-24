@@ -87,6 +87,7 @@ const SOURCES = {
   gmail: "read from Gmail",
   draft: "read from a draft",
   calendar: "read from Google Calendar",
+  chat: "read from Google Chat",
 } as const;
 type Values = ApprovalRequest["values"];
 const mixed = (values: Values) => new Set(values.map((value) => value.from)).size > 1;
@@ -95,13 +96,14 @@ const whose = (values: Values) => {
     ...(values.some((value) => value.from === "gmail") ? ["Gmail"] : []),
     ...(values.some((value) => value.from === "draft") ? ["a draft in Gmail"] : []),
     ...(values.some((value) => value.from === "calendar") ? ["Google Calendar"] : []),
+    ...(values.some((value) => value.from === "chat") ? ["Google Chat"] : []),
   ];
   if (mixed(values))
     return values.some((value) => value.from === "agent")
       ? `The agent wrote part of the shaded text below, and the server read the rest from ${sources.join(" and ")}. Each caption says which.`
       : `The server read the shaded text below from ${sources.join(" and ")}. Each caption says which.`;
-  return values[0]?.from === "calendar"
-    ? "The server read the shaded text below from Google Calendar. The agent did not write it."
+  return values[0]?.from === "calendar" || values[0]?.from === "chat"
+    ? `The server read the shaded text below from ${values[0].from === "chat" ? "Google Chat" : "Google Calendar"}. The agent did not write it.`
     : values[0]?.from === "draft"
       ? "The server read the shaded text below from a draft in Gmail. The agent or you may have written it."
       : values[0]?.from === "gmail"

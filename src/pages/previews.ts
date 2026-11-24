@@ -526,6 +526,87 @@ const approvalPreviews: Readonly<Record<string, ApprovalPageProps>> = {
       ],
     },
   },
+  "approval-read-conversation": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      account: { name: "Northwind", email: "alex@northwind.example", workspace: true },
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Read conversation",
+        action: "read a conversation",
+        joiner: "in",
+      },
+      values: [
+        {
+          name: "Group conversation with, among others",
+          text: [
+            "Ana Ruiz <ana@northwind.example>",
+            "Bea Ortiz <bea@northwind.example>",
+            "Dee Lopez <dee@northwind.example>",
+            "Ivo Petrov <ivo@northwind.example>",
+            "Jo Park <jo@northwind.example>",
+            "Lee Chen <lee@northwind.example>",
+            "Max Weber <max@northwind.example>",
+            "Noor Haddad <noor@northwind.example>",
+            "Sam",
+            "kim@northwind.example",
+          ].join("\n"),
+          from: "chat",
+        },
+        { name: "Conversation ID", text: "spaces/AAAAbCdEfGh", from: "agent" },
+        { name: "Only this thread", text: "spaces/AAAAbCdEfGh/threads/x1Y2z3", from: "agent" },
+        { name: "Older than", text: "2026-11-22T10:30:00.123456Z", from: "agent" },
+        { name: "Limit", text: "25", from: "agent" },
+      ],
+    },
+  },
+  "approval-read-conversation-app": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      account: { name: "Northwind", email: "alex@northwind.example", workspace: true },
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Read conversation",
+        action: "read a conversation",
+        joiner: "in",
+      },
+      values: [
+        {
+          name: "Conversation ID, a direct message with a Chat app",
+          text: "spaces/BBBBxYz1234",
+          from: "agent",
+        },
+        { name: "Limit", text: "25", from: "agent" },
+      ],
+    },
+  },
+  "approval-search-messages": {
+    ...approvalBase,
+    request: {
+      ...approvalBase.request,
+      account: { name: "Northwind", email: "alex@northwind.example", workspace: true },
+      tool: {
+        ...approvalBase.request.tool,
+        label: "Search Chat messages",
+        action: "search the Chat messages",
+        joiner: "of",
+      },
+      values: [
+        { name: "Words", text: "launch\nbudget", from: "agent" },
+        { name: "From", text: "bea@northwind.example", from: "agent" },
+        { name: "Space", text: "Launch", from: "chat" },
+        { name: "Conversation ID", text: "spaces/AAAAbCdEfGh", from: "agent" },
+        { name: "After", text: "2026-11-22T10:30:00.123456Z", from: "agent" },
+        { name: "Before", text: "2026-11-23T00:00:00Z", from: "agent" },
+        { name: "Only unread", text: "Yes", from: "agent" },
+        { name: "Only messages that mention this account", text: "Yes", from: "agent" },
+        { name: "Limit", text: "10", from: "agent" },
+        { name: "Page", text: "79fab66098b9c1ce.CiQKIggBEhoKGAoW", from: "agent" },
+      ],
+    },
+  },
   "approval-waiting-attachments": attachmentPreview,
   "approval-waiting": approvalBase,
   "approval-waiting-long-names": {

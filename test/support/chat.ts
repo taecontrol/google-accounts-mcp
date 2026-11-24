@@ -56,3 +56,51 @@ export const chatFixture = async () => {
 };
 export const listConversations = (f: Awaited<ReturnType<typeof fixture>>) =>
   toolCall(f.mcp, "list_conversations", { account: PERSONAL });
+
+export interface ChatRequest {
+  readonly method: string;
+  readonly path: string;
+  readonly params: URLSearchParams;
+  readonly body?: Record<string, unknown>;
+}
+export type ChatRoute = (request: ChatRequest) => Response;
+export function chatRoutes(routes: Record<string, ChatRoute>) {
+  const log: ChatRequest[] = [];
+  network.use(
+    http.all(/^https:\/\/chat\.googleapis\.com\/v1\//, async ({ request }) => {
+      const url = new URL(request.url);
+      const entry: ChatRequest = {
+        method: request.method,
+        path: url.pathname.slice("/v1/".length),
+        params: url.searchParams,
+        ...(request.method === "GET"
+          ? {}
+          : { body: (await request.json()) as Record<string, unknown> }),
+      };
+      log.push(entry);
+      const route = routes[`${entry.method} ${entry.path}`];
+      if (!route) throw new Error(`Unexpected Chat request ${entry.method} ${entry.path}`);
+      return route(entry);
+    }),
+  );
+  return log;
+}
+export const routeOf = (request: ChatRequest) => `${request.method} ${request.path}`;
+export const chatTools = async (tools: Record<string, "ask" | "allow">) => {
+  const f = await fixture({ scopes: JSON.stringify(CHAT_SCOPES) });
+  for (const [tool, setting] of Object.entries(tools)) await setTool(f, tool, setting);
+  return f;
+};
+export const googleMessage = (
+  space: string,
+  id: string,
+  createTime: string,
+  more: Record<string, unknown> = {},
+) => ({
+  name: `${space}/messages/${id}`,
+  sender: { name: "users/101", type: "HUMAN", displayName: "Bea", email: "Bea@Example.org" },
+  createTime,
+  text: `message ${id}`,
+  thread: { name: `${space}/threads/${id}` },
+  ...more,
+});

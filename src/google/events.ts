@@ -5,7 +5,7 @@ import { normalizeEmail } from "../email";
 import { calendarContext, get, readableCalendar, type Calendar } from "./calendar";
 import { canonicalZone, EventPoint, eventInstant, eventTime, rangeOf } from "./calendar-time";
 import { REQUESTS_AT_ONCE } from "./gmail";
-import { boundedList, safeEnd } from "./bounds";
+import { boundedList, shortJson } from "./bounds";
 import { htmlToText } from "./html";
 
 export const DEFAULT_EVENT_LIMIT = 25;
@@ -85,17 +85,6 @@ const EventList = Schema.Struct({
   ),
 });
 
-export const shortJson = (text: string, limit: number, marker = "…"): string => {
-  if (JSON.stringify(text).length <= limit) return text;
-  let low = 0;
-  let high = Math.min(text.length, limit);
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (JSON.stringify(text.slice(0, safeEnd(text, middle)) + marker).length <= limit) low = middle;
-    else high = middle - 1;
-  }
-  return text.slice(0, safeEnd(text, low)) + marker;
-};
 const responseOf = (attendee: typeof Attendee.Type) =>
   attendee.responseStatus === undefined || attendee.responseStatus === "needsAction"
     ? "needs_action"

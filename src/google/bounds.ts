@@ -20,6 +20,17 @@ export const safeEnd = (text: string, end: number): number =>
 export const shorten = (text: string, limit: number): string =>
   text.length > limit ? text.slice(0, safeEnd(text, limit - 1)) + "…" : text;
 
+export const shortJson = (text: string, limit: number, marker = "…"): string => {
+  if (JSON.stringify(text).length <= limit) return text;
+  let low = 0;
+  let high = Math.min(text.length, limit);
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (JSON.stringify(text.slice(0, safeEnd(text, middle)) + marker).length <= limit) low = middle;
+    else high = middle - 1;
+  }
+  return text.slice(0, safeEnd(text, low)) + marker;
+};
 export const boundedText = (text: string, cut = false): string => {
   if (!cut && text.length <= MAX_TEXT) return text;
   const end = safeEnd(text, MAX_TEXT - TEXT_LEFT_OUT.length - 1);
