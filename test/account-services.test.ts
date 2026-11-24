@@ -227,6 +227,25 @@ it.each(["allow", "ask"] as const)(
 );
 
 it.each([
+  ["read_conversation", { conversation: "spaces/AAA" }],
+  ["search_messages", { text: "x" }],
+] as const)(
+  "refuses %s on Gmail-only access at ask before Google or an approval",
+  async (tool, input) => {
+    const f = await fixture({ scopes: JSON.stringify(SCOPES) });
+    await setTool(f, tool, "ask");
+    const before = googleTraffic().length;
+    await expectError(
+      await toolCall(f.mcp, tool, { account: PERSONAL, ...input }),
+      "account_missing_access",
+      missing("Chat"),
+    );
+    expect(googleTraffic()).toHaveLength(before);
+    expect(await rows()).toEqual([]);
+  },
+);
+
+it.each([
   { dropped: "Gmail", tool: "list_labels", kept: "calendar", stored: CALENDAR_SCOPES },
   { dropped: "Calendar", tool: "list_calendars", kept: "gmail", stored: SCOPES },
   { dropped: "Chat", tool: "list_conversations", kept: "gmail", stored: SCOPES },
