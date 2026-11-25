@@ -178,9 +178,10 @@ const INSTANT =
 const instantOf = (text: string) => {
   const match = INSTANT.exec(text);
   if (!match || Number(match[1]) < 2000 || Number(match[1]) > 2999) return null;
-  const [, year, rest, second = "00", fraction = "", zone] = match;
+  const [, year, rest, second = "00", fractionDigits = "", zone] = match;
   const at = googleInstant(`${year}${rest}:${second}${zone}`, "down");
   if (at === null) return null;
+  const fraction = fractionDigits.replace(/0+$/, "");
   const utc = `${new Date(at).toISOString().slice(0, 19)}${fraction ? `.${fraction}` : ""}Z`;
   return { utc, at, nanos: fraction.padEnd(9, "0") };
 };
