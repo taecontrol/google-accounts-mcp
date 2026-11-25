@@ -136,29 +136,33 @@ it("keeps all-day exclusive dates without turning them into timed events", async
   });
 });
 
-it("converts the known Calendar editor tags to plain text with link targets", async () => {
-  const f = await eventsFixture("read_event");
-  calendarFake(list(PRIMARY_CALENDAR));
-  eventsFake({
-    [PERSONAL]: {
-      events: {
-        e1: Response.json(
-          eventFixture({
-            description:
-              '<b>Bold</b><br><i>Italic</i> <u>Underlined</u><br><a href="https://example.com/agenda">Agenda</a><ul><li>First</li><li>Second</li></ul>',
-          }),
-        ),
-      },
-    },
-  });
-  expect((await answer(await readEventCall(f))).description).toBe(
-    "Bold\nItalic Underlined\nAgenda (https://example.com/agenda)\n- First\n- Second",
-  );
-});
+it.each([
+  {
+    formatting: "editor tags with link targets",
+    description:
+      '<b>Bold</b><br><i>Italic</i> <u>Underlined</u><br><a href="https://example.com/agenda">Agenda</a><ul><li>First</li><li>Second</li></ul>',
+    plain: "Bold\nItalic Underlined\nAgenda (https://example.com/agenda)\n- First\n- Second",
+  },
+  {
+    formatting: "strong and em together",
+    description: "<strong>Budget</strong> and <em>schedule</em>",
+    plain: "Budget and schedule",
+  },
+  { formatting: "strong alone", description: "<strong>Budget</strong>", plain: "Budget" },
+  { formatting: "em alone", description: "<em>schedule</em>", plain: "schedule" },
+])(
+  "converts $formatting in Calendar descriptions to plain text",
+  async ({ description, plain }) => {
+    const f = await eventsFixture("read_event");
+    calendarFake(list(PRIMARY_CALENDAR));
+    eventsFake({ [PERSONAL]: { events: { e1: Response.json(eventFixture({ description })) } } });
+    expect((await answer(await readEventCall(f))).description).toBe(plain);
+  },
+);
 
 it("preserves plain descriptions with angle-bracket URLs and mailboxes", async () => {
   const f = await eventsFixture("read_event");
-  const description = "Ana <ana@example.com>\nJoin <https://zoom.us/j/1> & bring notes";
+  const description = "Em <em@example.com>\nJoin <https://zoom.us/j/1> & bring notes";
   calendarFake(list(PRIMARY_CALENDAR));
   eventsFake({ [PERSONAL]: { events: { e1: Response.json(eventFixture({ description })) } } });
   expect((await answer(await readEventCall(f))).description).toBe(description);
