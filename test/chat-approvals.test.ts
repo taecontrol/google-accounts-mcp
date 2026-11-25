@@ -174,3 +174,15 @@ it("searches for exactly the criteria the owner approved and continues with any 
     { name: "Page", text: cursor, from: "agent" },
   ]);
 });
+
+it("continues a search started at a UTC minute with the same minute in another offset", async () => {
+  const f = await chatTools({ search_messages: "allow" });
+  const log = chatRoutes({
+    "POST spaces/-/messages:search": ({ body }) =>
+      Response.json(body?.pageToken ? {} : { nextPageToken: "G" }),
+  });
+  const first = await answer(await search(f, { after: "2026-11-22T10:30Z" }));
+  await answer(await search(f, { after: "2026-11-22T07:30-03:00", page: first.next_page }));
+  const request = { filter: 'create_time >= "2026-11-22T10:30:00Z"', pageSize: 10 };
+  expect(log.map(({ body }) => body)).toEqual([request, { ...request, pageToken: "G" }]);
+});
