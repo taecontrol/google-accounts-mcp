@@ -26,7 +26,7 @@ export const EVENT_ID_EXPECTS =
   "an event ID of 1 to 1,024 letters, digits, hyphens, or underscores";
 
 export const plainDescription = (text: string) =>
-  /<\/?(?:br|p|div|span|a|b|i|u|ul|ol|li)(?:\s|\/?>)/i.test(text)
+  /<\/?(?:br|p|div|span|a|b|strong|i|em|u|ul|ol|li)(?:\s|\/?>)/i.test(text)
     ? Effect.tryPromise({ try: () => htmlToText(text), catch: unavailable })
     : Effect.succeed(text);
 

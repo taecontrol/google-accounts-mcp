@@ -3,7 +3,8 @@ import { env } from "cloudflare:workers";
 import { expect, it } from "vite-plus/test";
 import { answer, approve, decided, digest, get, page, post, row, rows } from "./support/approvals";
 import { CHAT_SCOPES, chatRoutes, chatTools, googleMessage, human, routeOf } from "./support/chat";
-import { expectError, NORTHWIND, PERSONAL, toolCall } from "./support/permissions";
+import { rpcResult } from "./support/oauth";
+import { expectError, NORTHWIND, PERSONAL, textResult, toolCall } from "./support/permissions";
 import { setTool } from "./support/uploads";
 
 type Fixture = Awaited<ReturnType<typeof chatTools>>;
@@ -120,37 +121,68 @@ it("searches for exactly the criteria the owner approved and continues with any 
     text: "launch budget",
     from: "Bea@Example.org",
     conversation: "spaces/AAA",
-    after: "2026-11-22T10:30Z",
+    after: "2026-11-20T08:00:00.1Z",
     before: "2026-11-23T02:00:00.123456789+02:00",
     unread: true,
     mentions_me: true,
     limit: 7,
   };
   const id = await pending(await search(f, args));
-  expect((await page(f, id)).request.values).toEqual([
+  const values = [
     { name: "Words", text: "launch\nbudget", from: "agent" },
     { name: "From", text: "bea@example.org", from: "agent" },
     { name: "Space", text: "Direct message with Bea", from: "chat" },
     { name: "Conversation ID", text: "spaces/AAA", from: "agent" },
-    { name: "After", text: "2026-11-22T10:30:00Z", from: "agent" },
+    { name: "After", text: "2026-11-20T08:00:00.1Z", from: "agent" },
     { name: "Before", text: "2026-11-23T00:00:00.123456789Z", from: "agent" },
     { name: "Only unread", text: "Yes", from: "agent" },
     { name: "Only messages that mention this account", text: "Yes", from: "agent" },
     { name: "Limit", text: "7", from: "agent" },
-  ]);
+  ];
+  expect((await page(f, id)).request.values).toEqual(values);
   const before = log.length;
   await approve(f, id);
   const filter =
     '"launch" "budget" AND sender.name = "users/bea@example.org" AND space.name = spaces/AAA' +
-    ' AND create_time >= "2026-11-22T10:30:00Z" AND create_time < "2026-11-23T00:00:00.123456789Z"' +
+    ' AND create_time >= "2026-11-20T08:00:00.1Z" AND create_time < "2026-11-23T00:00:00.123456789Z"' +
     " AND is_unread() AND annotations.user_mentions.user.name:users/me";
   const run = log.slice(before);
   expect(run.slice(-2).map(routeOf)).toEqual(["GET spaces/AAA", "POST spaces/-/messages:search"]);
   expect(run.at(-1)!.body).toEqual({ filter, pageSize: 7 });
   const cursor = ((await get(f, id)).result as Out).next_page!;
   await setTool(f, "search_messages", "allow");
-  for (const after of ["2026-11-22T10:30:00Z", "2026-11-22T07:30-03:00"]) {
-    await answer(await search(f, { ...args, after, page: cursor }));
-    expect(log.at(-1)!.body).toEqual({ filter, pageSize: 7, pageToken: "G" });
-  }
+  const continuation = { ...args, after: new Date(args.after).toISOString(), page: cursor };
+  expect(await rpcResult(await search(f, continuation))).toEqual(
+    textResult({ account: PERSONAL, messages: [] }),
+  );
+  expect(log.at(-1)!.body).toEqual({ filter, pageSize: 7, pageToken: "G" });
+
+  const requests = log.length;
+  await expectError(
+    await search(f, { ...continuation, after: "2026-11-20T08:00:00.100000001Z" }),
+    "invalid_arguments",
+    /^The page field must be the complete next_page /,
+  );
+  expect(log).toHaveLength(requests);
+
+  await setTool(f, "search_messages", "ask");
+  const next = await pending(
+    await search(f, { ...continuation, after: "2026-11-20T05:00:00.100000000-03:00" }),
+  );
+  expect((await page(f, next)).request.values).toEqual([
+    ...values,
+    { name: "Page", text: cursor, from: "agent" },
+  ]);
+});
+
+it("continues a search started at a UTC minute with the same minute in another offset", async () => {
+  const f = await chatTools({ search_messages: "allow" });
+  const log = chatRoutes({
+    "POST spaces/-/messages:search": ({ body }) =>
+      Response.json(body?.pageToken ? {} : { nextPageToken: "G" }),
+  });
+  const first = await answer(await search(f, { after: "2026-11-22T10:30Z" }));
+  await answer(await search(f, { after: "2026-11-22T07:30-03:00", page: first.next_page }));
+  const request = { filter: 'create_time >= "2026-11-22T10:30:00Z"', pageSize: 10 };
+  expect(log.map(({ body }) => body)).toEqual([request, { ...request, pageToken: "G" }]);
 });

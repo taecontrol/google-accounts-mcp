@@ -171,6 +171,17 @@ it.each([
           );
           const gmail = dialog.getByRole("checkbox", { name: "Gmail", exact: true });
           const calendar = dialog.getByRole("checkbox", { name: "Calendar", exact: true });
+          const chat = page.getByRole("checkbox", { name: "Chat", exact: true });
+          const chatDescription = await dialog
+            .getByRole("group")
+            .filter({ has: chat })
+            .getByRole("paragraph")
+            .innerText();
+          expect(chatDescription).not.toMatch(/\blater versions\b/i);
+          expect(chatDescription).toMatch(/\blist\b[^.]*\bconversations\b/i);
+          expect(chatDescription).toMatch(/\bopen\b[^.]*\bdirect messages\b/i);
+          expect(chatDescription).toMatch(/\bread\b[^.]*\bsearch\b[^.]*\bsend\b[^.]*\bmessages\b/i);
+          expect(chatDescription).toMatch(/\bonly\b[^.]*\bGoogle Workspace accounts\b/i);
           const proceed = dialog.getByRole("button", { name: "Continue to Google" });
           expect(await gmail.isChecked()).toBe(action === "Reconnect");
           expect(await calendar.isChecked()).toBe(action === "Reconnect");
@@ -179,7 +190,7 @@ it.each([
           else {
             await gmail.check();
             await calendar.check();
-            await dialog.getByRole("checkbox", { name: "Chat", exact: true }).check();
+            await chat.check();
           }
           expect(await proceed.isEnabled()).toBe(true);
           expect(
